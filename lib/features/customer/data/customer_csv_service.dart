@@ -1,4 +1,5 @@
 import 'package:csv/csv.dart';
+import 'package:flutter/foundation.dart';
 
 import '../domain/customer.dart';
 
@@ -38,10 +39,7 @@ class CustomerCsvService {
   ];
 
   List<Customer> importCustomers(String csvContent) {
-    final csvRows = const CsvToListConverter(
-      shouldParseNumbers: false,
-      eol: '\n',
-    ).convert(csvContent);
+    final csvRows = csv.decode(csvContent);
 
     if (csvRows.isEmpty) {
       return const [];
@@ -52,23 +50,34 @@ class CustomerCsvService {
         .map((header) => header.toString().trim())
         .toList();
 
+    debugPrint('📥 CSV hat ${csvRows.length} Zeilen, ${normalizedHeaders.length} Spalten');
+
     final customers = <Customer>[];
 
-    for (final row in csvRows.skip(1)) {
+    for (int rowIndex = 1; rowIndex < csvRows.length; rowIndex++) {
+      final row = csvRows[rowIndex];
+      
       if (row.isEmpty || row.every((value) => value.toString().trim().isEmpty)) {
+        debugPrint('⊘ Zeile $rowIndex: leer, übersprungen');
         continue;
       }
 
-      final data = <String, String>{};
-      for (var i = 0; i < normalizedHeaders.length; i++) {
-        final key = normalizedHeaders[i];
-        final value = i < row.length ? row[i] : '';
-        data[key] = value.toString();
-      }
+      try {
+        final data = <String, String>{};
+        for (var i = 0; i < normalizedHeaders.length; i++) {
+          final key = normalizedHeaders[i];
+          final value = i < row.length ? row[i] : '';
+          data[key] = value.toString();
+        }
 
-      customers.add(Customer.fromCsvRow(data));
+        final customer = Customer.fromCsvRow(data);
+        customers.add(customer);
+      } catch (e) {
+        debugPrint('⚠️ Zeile $rowIndex: Fehler bei Parsing: $e');
+      }
     }
 
+    debugPrint('✅ CSV-Import: ${customers.length} gültige Kundendatensätze');
     return customers;
   }
 
@@ -111,6 +120,6 @@ class CustomerCsvService {
       ]);
     }
 
-    return const ListToCsvConverter().convert(rows);
+    return csv.encode(rows);
   }
 }

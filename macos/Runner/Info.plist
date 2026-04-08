@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Arrow Ops benötigt Zugriff auf Ihre Dokumente zum Importieren und Exportieren von CSV-Dateien.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Arrow Ops benötigt Zugriff auf Ihren Desktop zum Importieren und Exportieren von CSV-Dateien.</string>
 </dict>
 </plist>

@@ -6,9 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/database/app_database.dart';
+import '../data/country_csv_service.dart';
 import '../data/customer_csv_service.dart';
 import '../data/customer_repository.dart';
 import '../domain/customer.dart';
+import 'widgets/csv_import_preview_dialog.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -20,14 +23,32 @@ class CustomerPage extends StatefulWidget {
 class _CustomerPageState extends State<CustomerPage> {
   final CustomerRepository _repository = const CustomerRepository();
   final CustomerCsvService _csvService = CustomerCsvService();
+  final CountryCsvService _countryCsvService = CountryCsvService();
 
   bool _loading = false;
   List<Customer> _customers = const [];
+  String _databasePath = 'wird geladen...';
 
   @override
   void initState() {
     super.initState();
+    _loadDatabasePath();
     _loadCustomers();
+  }
+
+  Future<void> _loadDatabasePath() async {
+    try {
+      final db = await AppDatabase.instance.database;
+      if (!mounted) {
+        return;
+      }
+      setState(() => _databasePath = db.path);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _databasePath = 'Pfad konnte nicht geladen werden');
+    }
   }
 
   Future<void> _loadCustomers() async {
@@ -45,26 +66,127 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
+  Future<String?> _defaultPickerDirectory() async {
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      if (await docs.exists()) {
+        return docs.path;
+      }
+    } catch (_) {
+      // Fallback to platform default dialog location.
+    }
+    return null;
+  }
+
   Future<void> _importCsv() async {
     setState(() => _loading = true);
     try {
-      final result = await FilePicker.platform.pickFiles(
+      debugPrint('📂 Öffne FilePicker...');
+      final initialDirectory = await _defaultPickerDirectory();
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['csv'],
         withData: true,
+        dialogTitle: 'CSV-Datei zum Importieren auswählen',
+        initialDirectory: initialDirectory,
       );
 
       if (result == null || result.files.isEmpty) {
+        debugPrint('⊘ FilePicker: Keine Datei ausgewählt');
         return;
       }
 
       final file = result.files.single;
+      debugPrint('✅ Datei ausgewählt: ${file.name} (${file.size} bytes)');
+      
       final content = file.bytes != null
           ? utf8.decode(file.bytes!)
           : await File(file.path!).readAsString();
 
-      final customers = _csvService.importCustomers(content);
+      debugPrint('📖 Datei gelesen: ${content.length} Zeichen');
+      await _processImport(content);
+    } catch (error, stackTrace) {
+      debugPrint('❌ FilePicker-Fehler: $error');
+      debugPrint('📍 Stack: $stackTrace');
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dateiauswahl fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _processImport(String content) async {
+    final customers = _csvService.importCustomers(content);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (customers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine gültigen Kundendaten in der Datei gefunden.')),
+      );
+      return;
+    }
+
+    // Validiere Kundendaten
+    final validCustomers = <Customer>[];
+    final invalidRows = <int>[];
+
+    for (int i = 0; i < customers.length; i++) {
+      final c = customers[i];
+      if (c.cId.isEmpty || c.cLastName.isEmpty || c.cFirstName.isEmpty) {
+        invalidRows.add(i);
+      } else {
+        validCustomers.add(c);
+      }
+    }
+
+    if (invalidRows.isNotEmpty) {
+      debugPrint('⚠️ ${invalidRows.length} ungültige Reihen: $invalidRows');
+    }
+
+    if (validCustomers.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine gültigen Kundendaten nach Validierung gefunden.')),
+      );
+      return;
+    }
+
+    // Zeige Vorschau
+    if (!mounted) {
+      return;
+    }
+
+    await showDialog(
+      context: context,
+      builder: (context) => CsvImportPreviewDialog(
+        customers: validCustomers,
+        onConfirm: () async {
+          await _performImport(validCustomers);
+        },
+      ),
+    );
+  }
+
+  Future<void> _performImport(List<Customer> customers) async {
+    setState(() => _loading = true);
+    try {
+      debugPrint('🔄 Starte Import von ${customers.length} Kundendatensätzen...');
+      debugPrint('📋 Erste Kundin: ${customers.isNotEmpty ? customers.first.cLastName : "keine"}');
+      
       final inserted = await _repository.bulkUpsert(customers);
+      
+      debugPrint('✅ Import erfolgreich: $inserted Datensätze');
 
       await _loadCustomers();
 
@@ -72,9 +194,12 @@ class _CustomerPageState extends State<CustomerPage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$inserted Kundendatensatze importiert.')),
+        SnackBar(content: Text('$inserted Kundendatensätze importiert.')),
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint('⚠️ Import-Fehler: $error');
+      debugPrint('📍 Stack: $stackTrace');
+      debugPrint('Type: ${error.runtimeType}');
       if (!mounted) {
         return;
       }
@@ -93,6 +218,7 @@ class _CustomerPageState extends State<CustomerPage> {
     try {
       final customers = await _repository.getAll();
       final csv = _csvService.exportCustomers(customers);
+      final initialDirectory = await _defaultPickerDirectory();
 
       final fileName =
           'customer_export_${DateTime.now().toIso8601String().replaceAll(':', '-')}.csv';
@@ -100,9 +226,10 @@ class _CustomerPageState extends State<CustomerPage> {
       String? targetPath;
 
       if (Platform.isMacOS) {
-        targetPath = await FilePicker.platform.saveFile(
+        targetPath = await FilePicker.saveFile(
           dialogTitle: 'CSV exportieren',
           fileName: fileName,
+          initialDirectory: initialDirectory,
           type: FileType.custom,
           allowedExtensions: const ['csv'],
         );
@@ -132,6 +259,62 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
+  Future<void> _importCountryCsv() async {
+    setState(() => _loading = true);
+    try {
+      final initialDirectory = await _defaultPickerDirectory();
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['csv'],
+        dialogTitle: 'country_tld.csv auswählen',
+        initialDirectory: initialDirectory,
+      );
+
+      if (result == null || result.files.isEmpty) {
+        return;
+      }
+
+      final file = result.files.single;
+      final path = file.path;
+      if (path == null || path.isEmpty) {
+        throw Exception('Dateipfad konnte nicht gelesen werden.');
+      }
+
+      final content = await File(path).readAsString();
+      final countries = _countryCsvService.importCountries(content);
+
+      if (countries.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Keine gültigen Länder in country_tld.csv gefunden.')),
+        );
+        return;
+      }
+
+      final inserted = await _repository.bulkUpsertCountries(countries);
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$inserted Länder importiert.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('country_tld Import fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -144,35 +327,81 @@ class _CustomerPageState extends State<CustomerPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Action Buttons
             Wrap(
               spacing: 12,
               runSpacing: 12,
               children: [
-                FilledButton.icon(
-                  onPressed: _loading ? null : _importCsv,
-                  icon: const Icon(Icons.file_upload_outlined),
-                  label: const Text('CSV importieren'),
+                Tooltip(
+                  message: 'Exportiert alle Kunden als CSV-Datei.',
+                  child: FilledButton.icon(
+                    onPressed: _loading ? null : _exportCsv,
+                    icon: const Icon(Icons.file_download_outlined),
+                    label: const Text('CSV exportieren'),
+                  ),
                 ),
-                FilledButton.icon(
-                  onPressed: _loading ? null : _exportCsv,
-                  icon: const Icon(Icons.file_download_outlined),
-                  label: const Text('CSV exportieren'),
+                Tooltip(
+                  message: 'Importiert Länder-Codes aus country_tld.csv.',
+                  child: FilledButton.icon(
+                    onPressed: _loading ? null : _importCountryCsv,
+                    icon: const Icon(Icons.flag_outlined),
+                    label: const Text('country_tld.csv importieren'),
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _loadCustomers,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Aktualisieren'),
+                Tooltip(
+                  message: 'Lädt die Kundenliste neu aus der SQLite-Datenbank.',
+                  child: OutlinedButton.icon(
+                    onPressed: _loading ? null : _loadCustomers,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Aktualisieren'),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            Text('Datensatze: ${_customers.length}'),
+            SelectableText(
+              'SQLite: $_databasePath',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            // Import Section with FilePicker
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CSV importieren',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Tooltip(
+                      message: 'Öffnet den Dateidialog zum Import von customer.csv.',
+                      child: FilledButton.icon(
+                        onPressed: _loading ? null : _importCsv,
+                        icon: const Icon(Icons.upload_file_outlined),
+                        label: const Text('customer.csv auswählen'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Customer List
+            Text(
+              'Kundendaten (${_customers.length})',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _customers.isEmpty
-                      ? const Center(child: Text('Noch keine Kundendaten vorhanden.'))
+                      ? const Center(
+                          child: Text('Noch keine Kundendaten vorhanden.'),
+                        )
                       : ListView.separated(
                           itemCount: _customers.length,
                           separatorBuilder: (_, index) => const Divider(height: 1),

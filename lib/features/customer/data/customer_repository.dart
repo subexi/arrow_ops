@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../core/database/app_database.dart';
+import '../domain/country_tld.dart';
 import '../domain/customer.dart';
 
 class CustomerRepository {
@@ -14,11 +16,16 @@ class CustomerRepository {
 
   Future<void> upsert(Customer customer) async {
     final db = await AppDatabase.instance.database;
-    await db.insert(
-      'customer',
-      customer.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((txn) async {
+      await _ensureCountryExists(txn, customer.cCountryBId);
+      await _ensureCountryExists(txn, customer.cCountryDId);
+
+      await txn.insert(
+        'customer',
+        customer.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
   }
 
   Future<int> bulkUpsert(List<Customer> customers) async {
@@ -26,20 +33,115 @@ class CustomerRepository {
       return 0;
     }
 
-    final db = await AppDatabase.instance.database;
+    try {
+      final db = await AppDatabase.instance.database;
+      debugPrint('📊 Datenbank verbunden');
 
+      return db.transaction((txn) async {
+        debugPrint('🔄 Starte Batch-Insert mit ${customers.length} Einträgen');
+
+        final countryCodes = _collectCountryCodes(customers);
+        if (countryCodes.isNotEmpty) {
+          debugPrint('🌍 Stelle ${countryCodes.length} Länderreferenzen sicher');
+          for (final code in countryCodes) {
+            await _ensureCountryExists(txn, code);
+          }
+        }
+        
+        final batch = txn.batch();
+        
+        for (int i = 0; i < customers.length; i++) {
+          final customer = customers[i];
+          try {
+            final map = customer.toMap();
+            batch.insert(
+              'customer',
+              map,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          } catch (e) {
+            debugPrint('❌ Fehler bei Customer $i (${customer.cId}): $e');
+            rethrow;
+          }
+        }
+
+        debugPrint('⏳ Führe Batch-Commit aus...');
+        final result = await batch.commit();
+        debugPrint('✅ Batch-Commit erfolgreich: ${result.length} Einträge');
+        
+        return result.length;
+      });
+    } catch (e, stackTrace) {
+      debugPrint('🔥 bulkUpsert-Fehler: $e');
+      debugPrint('📍 Stack: $stackTrace');
+      rethrow;
+    }
+  }
+
+  Future<int> bulkUpsertCountries(List<CountryTld> countries) async {
+    if (countries.isEmpty) {
+      return 0;
+    }
+
+    final db = await AppDatabase.instance.database;
     return db.transaction((txn) async {
       final batch = txn.batch();
-      for (final customer in customers) {
+
+      for (final country in countries) {
         batch.insert(
-          'customer',
-          customer.toMap(),
+          'country_tld',
+          {
+            'co_tld': country.coTld,
+            'co_name': country.coName,
+          },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
 
-      final result = await batch.commit(noResult: true);
+      final result = await batch.commit();
       return result.length;
     });
+  }
+
+  Set<String> _collectCountryCodes(List<Customer> customers) {
+    final codes = <String>{};
+
+    for (final customer in customers) {
+      final billing = _normalizeCountryCode(customer.cCountryBId);
+      final delivery = _normalizeCountryCode(customer.cCountryDId);
+
+      if (billing != null) {
+        codes.add(billing);
+      }
+      if (delivery != null) {
+        codes.add(delivery);
+      }
+    }
+
+    return codes;
+  }
+
+  String? _normalizeCountryCode(String? code) {
+    final normalized = code?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty || normalized == '-') {
+      return null;
+    }
+    return normalized;
+  }
+
+  Future<void> _ensureCountryExists(DatabaseExecutor db, String? rawCode) async {
+    final code = _normalizeCountryCode(rawCode);
+    if (code == null) {
+      return;
+    }
+
+    await db.insert(
+      'country_tld',
+      {
+        'co_tld': code,
+        'co_name': code.toUpperCase(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 }
