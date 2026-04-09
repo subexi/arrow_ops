@@ -103,6 +103,43 @@ class CustomerRepository {
     });
   }
 
+  Future<Customer?> getById(String customerId) async {
+    final db = await AppDatabase.instance.database;
+    final rows = await db.query(
+      'customer',
+      where: 'c_id = ?',
+      whereArgs: [customerId],
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return Customer.fromMap(rows.first);
+  }
+
+  Future<void> update(Customer customer) async {
+    final db = await AppDatabase.instance.database;
+    await db.transaction((txn) async {
+      await _ensureCountryExists(txn, customer.cCountryBId);
+      await _ensureCountryExists(txn, customer.cCountryDId);
+
+      await txn.update(
+        'customer',
+        customer.toMap(),
+        where: 'c_id = ?',
+        whereArgs: [customer.cId],
+      );
+    });
+  }
+
+  Future<void> delete(String customerId) async {
+    final db = await AppDatabase.instance.database;
+    await db.delete(
+      'customer',
+      where: 'c_id = ?',
+      whereArgs: [customerId],
+    );
+  }
+
   Set<String> _collectCountryCodes(List<Customer> customers) {
     final codes = <String>{};
 

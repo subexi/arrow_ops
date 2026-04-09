@@ -12,6 +12,8 @@ import '../data/customer_csv_service.dart';
 import '../data/customer_repository.dart';
 import '../domain/customer.dart';
 import 'widgets/csv_import_preview_dialog.dart';
+import 'widgets/customer_detail_dialog.dart';
+import 'widgets/customer_form_dialog.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -25,15 +27,26 @@ class _CustomerPageState extends State<CustomerPage> {
   final CustomerCsvService _csvService = CustomerCsvService();
   final CountryCsvService _countryCsvService = CountryCsvService();
 
+  late final TextEditingController _searchController;
+
   bool _loading = false;
   List<Customer> _customers = const [];
+  List<Customer> _filteredCustomers = const [];
   String _databasePath = 'wird geladen...';
 
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController();
+    _searchController.addListener(_filterCustomers);
     _loadDatabasePath();
     _loadCustomers();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDatabasePath() async {
@@ -58,12 +71,45 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      setState(() => _customers = customers);
+      setState(() {
+        _customers = customers;
+        _filterCustomers();
+      });
     } finally {
       if (mounted) {
         setState(() => _loading = false);
       }
     }
+  }
+
+  void _filterCustomers() {
+    final query = _searchController.text.toLowerCase().trim();
+
+    if (query.isEmpty) {
+      if (!mounted) return;
+      setState(() => _filteredCustomers = _customers);
+      return;
+    }
+
+    final filtered = _customers.where((c) {
+      return c.cId.toLowerCase().contains(query) ||
+          c.cLastName.toLowerCase().contains(query) ||
+          c.cFirstName.toLowerCase().contains(query) ||
+          c.cCompany.toLowerCase().contains(query) ||
+          c.cCityB.toLowerCase().contains(query) ||
+          c.cCityD.toLowerCase().contains(query) ||
+          c.cMail.toLowerCase().contains(query) ||
+          c.cPhone.toLowerCase().contains(query) ||
+          c.cStreetB.toLowerCase().contains(query) ||
+          c.cStreetD.toLowerCase().contains(query) ||
+          c.cPostalCodeB.toLowerCase().contains(query) ||
+          c.cPostalCodeD.toLowerCase().contains(query) ||
+          (c.cCountryBId?.toLowerCase().contains(query) ?? false) ||
+          (c.cCountryDId?.toLowerCase().contains(query) ?? false);
+    }).toList();
+
+    if (!mounted) return;
+    setState(() => _filteredCustomers = filtered);
   }
 
   Future<String?> _defaultPickerDirectory() async {
@@ -315,6 +361,114 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
+  Future<void> _createCustomer() async {
+    final result = await showDialog<Customer>(
+      context: context,
+      builder: (context) => const CustomerFormDialog(),
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      debugPrint('➕ Erstelle neuen Kundendatensatz: ${result.cId}');
+      await _repository.upsert(result);
+      debugPrint('✅ Kunde erstellt: ${result.cLastName}, ${result.cFirstName}');
+      
+      await _loadCustomers();
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Kunde erstellt: ${result.cLastName}, ${result.cFirstName}')),
+      );
+    } catch (error) {
+      debugPrint('❌ Fehler beim Erstellen: $error');
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fehler beim Erstellen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _editCustomer(Customer customer) async {
+    final result = await showDialog<Customer>(
+      context: context,
+      builder: (context) => CustomerFormDialog(customer: customer),
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      debugPrint('✏️ Aktualisiere Kundendatensatz: ${result.cId}');
+      await _repository.update(result);
+      debugPrint('✅ Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}');
+      
+      await _loadCustomers();
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}')),
+      );
+    } catch (error) {
+      debugPrint('❌ Fehler beim Aktualisieren: $error');
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fehler beim Aktualisieren: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _deleteCustomer(Customer customer) async {
+    setState(() => _loading = true);
+    try {
+      debugPrint('🗑️ Lösche Kundendatensatz: ${customer.cId}');
+      await _repository.delete(customer.cId);
+      debugPrint('✅ Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}');
+      
+      await _loadCustomers();
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}')),
+      );
+    } catch (error) {
+      debugPrint('❌ Fehler beim Löschen: $error');
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fehler beim Löschen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -332,6 +486,14 @@ class _CustomerPageState extends State<CustomerPage> {
               spacing: 12,
               runSpacing: 12,
               children: [
+                Tooltip(
+                  message: 'Erstellt einen neuen Kundendatensatz.',
+                  child: FilledButton.icon(
+                    onPressed: _loading ? null : _createCustomer,
+                    icon: const Icon(Icons.person_add),
+                    label: const Text('Neuer Kunde'),
+                  ),
+                ),
                 Tooltip(
                   message: 'Exportiert alle Kunden als CSV-Datei.',
                   child: FilledButton.icon(
@@ -364,7 +526,25 @@ class _CustomerPageState extends State<CustomerPage> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            // Import Section with FilePicker
+            // Search Field
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Kundendaten durchsuchen...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => _searchController.clear(),
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+            const SizedBox(height: 12),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -391,7 +571,9 @@ class _CustomerPageState extends State<CustomerPage> {
             const SizedBox(height: 16),
             // Customer List
             Text(
-              'Kundendaten (${_customers.length})',
+              _searchController.text.isEmpty
+                  ? 'Kundendaten (${_customers.length})'
+                  : 'Kundendaten (${_filteredCustomers.length} von ${_customers.length})',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -402,21 +584,35 @@ class _CustomerPageState extends State<CustomerPage> {
                       ? const Center(
                           child: Text('Noch keine Kundendaten vorhanden.'),
                         )
-                      : ListView.separated(
-                          itemCount: _customers.length,
-                          separatorBuilder: (_, index) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final c = _customers[index];
-                            return ListTile(
-                              dense: true,
-                              title: Text('${c.cLastName}, ${c.cFirstName}'),
-                              subtitle: Text(
-                                '${c.cCompany} | ${c.cCityB} | ${c.cMail}',
-                              ),
-                              trailing: Text(c.cId),
-                            );
-                          },
-                        ),
+                      : _filteredCustomers.isEmpty
+                          ? const Center(
+                              child: Text('Keine Kunden gefunden, die dem Suchbegriff entsprechen.'),
+                            )
+                          : ListView.separated(
+                              itemCount: _filteredCustomers.length,
+                              separatorBuilder: (_, index) => const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final c = _filteredCustomers[index];
+                                return ListTile(
+                                  dense: true,
+                                  title: Text('${c.cLastName}, ${c.cFirstName}'),
+                                  subtitle: Text(
+                                    '${c.cCompany} | ${c.cCityB} | ${c.cMail}',
+                                  ),
+                                  trailing: Text(c.cId),
+                                  onTap: _loading ? null : () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) => CustomerDetailDialog(
+                                        customer: c,
+                                        onEdit: () => _editCustomer(c),
+                                        onDelete: () => _deleteCustomer(c),
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            ),
             ),
           ],
         ),
