@@ -140,6 +140,14 @@ class CustomerRepository {
     );
   }
 
+  Future<List<CountryTld>> getAllCountries() async {
+    final db = await AppDatabase.instance.database;
+    final rows = await db.query('country_tld', orderBy: 'co_tld ASC');
+    return rows
+        .map((r) => CountryTld(coTld: r['co_tld'] as String, coName: r['co_name'] as String))
+        .toList();
+  }
+
   Set<String> _collectCountryCodes(List<Customer> customers) {
     final codes = <String>{};
 

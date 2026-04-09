@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import 'database_path_config.dart';
 import 'database_migration.dart';
 
 class AppDatabase {
@@ -8,7 +11,6 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const String _dbFileName = 'arrow_ops.db';
   static const int _currentVersion = 1;
 
   Database? _database;
@@ -22,8 +24,7 @@ class AppDatabase {
       return _database!;
     }
 
-    final databasesPath = await getDatabasesPath();
-    final path = p.join(databasesPath, _dbFileName);
+    final path = await _resolveDatabasePath();
 
     _database = await openDatabase(
       path,
@@ -48,6 +49,57 @@ class AppDatabase {
     );
 
     return _database!;
+  }
+
+  Future<String> _resolveDatabasePath() async {
+    final preferredPath = DatabasePathConfig.databasePath;
+    final defaultPath = await _defaultDatabasePath();
+
+    try {
+      await _prepareDatabaseFile(
+        preferredPath,
+        migrationSourcePath: defaultPath,
+      );
+      return preferredPath;
+    } catch (_) {
+      // Fallback fuer Plattformen/Umgebungen ohne Schreibzugriff auf den
+      // konfigurierten absoluten Pfad.
+      await _prepareDatabaseFile(defaultPath);
+      return defaultPath;
+    }
+  }
+
+  Future<String> _defaultDatabasePath() async {
+    final databasesPath = await getDatabasesPath();
+    return p.join(databasesPath, DatabasePathConfig.databaseFileName);
+  }
+
+  Future<void> _prepareDatabaseFile(
+    String targetPath, {
+    String? migrationSourcePath,
+  }) async {
+    final targetFile = File(targetPath);
+    await targetFile.parent.create(recursive: true);
+
+    if (await targetFile.exists()) {
+      return;
+    }
+
+    final sourcePath = migrationSourcePath;
+    if (sourcePath == null || sourcePath == targetPath) {
+      return;
+    }
+
+    final sourceFile = File(sourcePath);
+    if (await sourceFile.exists()) {
+      try {
+        await sourceFile.rename(targetPath);
+      } catch (_) {
+        // Rename kann bei unterschiedlichen Volumes fehlschlagen.
+        await sourceFile.copy(targetPath);
+        await sourceFile.delete();
+      }
+    }
   }
 
   static Future<void> _migrationV1(Database db) async {

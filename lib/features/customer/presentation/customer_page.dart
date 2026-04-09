@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/database/database_path_config.dart';
 import '../data/country_csv_service.dart';
 import '../data/customer_csv_service.dart';
 import '../data/customer_repository.dart';
@@ -51,11 +52,13 @@ class _CustomerPageState extends State<CustomerPage> {
 
   Future<void> _loadDatabasePath() async {
     try {
-      final db = await AppDatabase.instance.database;
+      // Initialisiert die DB (inkl. Migration in den Zielordner),
+      // die UI zeigt danach den konfigurierten Pfad an.
+      await AppDatabase.instance.database;
       if (!mounted) {
         return;
       }
-      setState(() => _databasePath = db.path);
+      setState(() => _databasePath = DatabasePathConfig.databasePath);
     } catch (_) {
       if (!mounted) {
         return;
@@ -362,9 +365,12 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<void> _createCustomer() async {
+    final countries = await _repository.getAllCountries();
+    if (!mounted) return;
+
     final result = await showDialog<Customer>(
       context: context,
-      builder: (context) => const CustomerFormDialog(),
+      builder: (context) => CustomerFormDialog(countries: countries),
     );
 
     if (result == null) {
@@ -401,9 +407,12 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<void> _editCustomer(Customer customer) async {
+    final countries = await _repository.getAllCountries();
+    if (!mounted) return;
+
     final result = await showDialog<Customer>(
       context: context,
-      builder: (context) => CustomerFormDialog(customer: customer),
+      builder: (context) => CustomerFormDialog(customer: customer, countries: countries),
     );
 
     if (result == null) {

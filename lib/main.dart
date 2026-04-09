@@ -6,7 +6,11 @@ import 'core/database/app_database.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await AppDatabase.instance.database;
+  try {
+    await AppDatabase.instance.database;
+  } catch (error) {
+    debugPrint('⚠️ Datenbank konnte beim Start nicht initialisiert werden: $error');
+  }
 
   runApp(const ArrowOpsApp());
 }
