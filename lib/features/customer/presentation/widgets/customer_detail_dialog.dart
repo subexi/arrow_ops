@@ -6,18 +6,59 @@ class CustomerDetailDialog extends StatelessWidget {
   const CustomerDetailDialog({
     super.key,
     required this.customer,
+    this.countryNameByCode = const {},
     required this.onEdit,
     required this.onDelete,
   });
 
   final Customer customer;
+  final Map<String, String> countryNameByCode;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
+  bool _isUsaAddress(String? countryCode) {
+    final normalized = countryCode?.trim().toLowerCase();
+    return normalized == 'us' || normalized == 'usa';
+  }
+
+  String _buildStreetLine({
+    required String street,
+    required String houseNumber,
+    required bool isUsa,
+  }) {
+    if (isUsa) {
+      return '${houseNumber.trim()} ${street.trim()}'.trim();
+    }
+    return '${street.trim()} ${houseNumber.trim()}'.trim();
+  }
+
+  String _buildCityLine({
+    required String postalCode,
+    required String city,
+    required bool isUsa,
+  }) {
+    if (isUsa) {
+      return '${city.trim()} ${postalCode.trim()}'.trim();
+    }
+    return '${postalCode.trim()} ${city.trim()}'.trim();
+  }
+
+  String _resolveCountryName(String? countryCode) {
+    final normalized = countryCode?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) {
+      return '-';
+    }
+    return countryNameByCode[normalized] ?? countryCode!.toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final lastNameUpper = customer.cLastName.toUpperCase();
+    final isUsaBilling = _isUsaAddress(customer.cCountryBId);
+    final isUsaDelivery = _isUsaAddress(customer.cCountryDId);
+
     return AlertDialog(
-      title: Text('${customer.cLastName}, ${customer.cFirstName}'),
+      title: Text('$lastNameUpper, ${customer.cFirstName}'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -26,20 +67,53 @@ class CustomerDetailDialog extends StatelessWidget {
             _buildSection('Allgemein', [
               _buildField('ID', customer.cId),
               _buildField('Firma', customer.cCompany),
-              _buildField('Reseller', customer.cDealer ? 'Ja' : 'Nein'),
-              _buildField('MwSt.-Priv.', customer.cVat ? 'Ja' : 'Nein'),
+              _buildCheckboxField('Reseller', customer.cDealer),
+              _buildCheckboxField('Keine MwSt', customer.cVat),
+              _buildField('VAT-ID', customer.cVatId),
             ]),
             const SizedBox(height: 16),
             _buildSection('Rechnungsadresse', [
-              _buildField('Straße', '${customer.cStreetB} ${customer.cHouseNumberB}'),
-              _buildField('Ort', '${customer.cPostalCodeB} ${customer.cCityB}'),
-              _buildField('Land', customer.cCountryBId ?? '-'),
+              _buildField('℅', customer.cCareofB),
+              _buildField(
+                'Straße',
+                _buildStreetLine(
+                  street: customer.cStreetB,
+                  houseNumber: customer.cHouseNumberB,
+                  isUsa: isUsaBilling,
+                ),
+              ),
+              _buildField(
+                'Ort',
+                _buildCityLine(
+                  postalCode: customer.cPostalCodeB,
+                  city: customer.cCityB,
+                  isUsa: isUsaBilling,
+                ),
+              ),
+              _buildField('Verwaltungseinheit', customer.cStateB),
+              _buildField('Land', _resolveCountryName(customer.cCountryBId)),
             ]),
             const SizedBox(height: 16),
             _buildSection('Lieferadresse', [
-              _buildField('Straße', '${customer.cStreetD} ${customer.cHouseNumberD}'),
-              _buildField('Ort', '${customer.cPostalCodeD} ${customer.cCityD}'),
-              _buildField('Land', customer.cCountryDId ?? '-'),
+              _buildField('℅', customer.cCareofD),
+              _buildField(
+                'Straße',
+                _buildStreetLine(
+                  street: customer.cStreetD,
+                  houseNumber: customer.cHouseNumberD,
+                  isUsa: isUsaDelivery,
+                ),
+              ),
+              _buildField(
+                'Ort',
+                _buildCityLine(
+                  postalCode: customer.cPostalCodeD,
+                  city: customer.cCityD,
+                  isUsa: isUsaDelivery,
+                ),
+              ),
+              _buildField('Verwaltungseinheit', customer.cStateD),
+              _buildField('Land', _resolveCountryName(customer.cCountryDId)),
             ]),
             const SizedBox(height: 16),
             _buildSection('Kontakt', [
@@ -78,12 +152,14 @@ class CustomerDetailDialog extends StatelessWidget {
   }
 
   void _showDeleteConfirmation(BuildContext context) {
+    final lastNameUpper = customer.cLastName.toUpperCase();
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Kunde löschen?'),
         content: Text(
-          'Möchten Sie "${customer.cLastName}, ${customer.cFirstName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
+          'Möchten Sie "$lastNameUpper, ${customer.cFirstName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
         ),
         actions: [
           TextButton(
@@ -128,7 +204,7 @@ class CustomerDetailDialog extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 100,
+            width: 140,
             child: Text(
               label,
               style: const TextStyle(
@@ -141,6 +217,33 @@ class CustomerDetailDialog extends StatelessWidget {
             child: Text(
               value.isEmpty ? '-' : value,
               overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCheckboxField(String label, bool value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          IgnorePointer(
+            child: Checkbox(
+              value: value,
+              onChanged: (_) {},
+              visualDensity: VisualDensity.compact,
             ),
           ),
         ],

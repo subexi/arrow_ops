@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/country_tld.dart';
 import '../../domain/customer.dart';
@@ -22,10 +23,13 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   late final TextEditingController _lastNameControl;
   late final TextEditingController _firstNameControl;
   late final TextEditingController _companyControl;
+  late final TextEditingController _vatIdControl;
+  late final TextEditingController _careofBControl;
   late final TextEditingController _streetBControl;
   late final TextEditingController _houseNumberBControl;
   late final TextEditingController _postalCodeBControl;
   late final TextEditingController _cityBControl;
+  late final TextEditingController _stateBControl;
   late final TextEditingController _streetDControl;
   late final TextEditingController _houseNumberDControl;
   late final TextEditingController _postalCodeDControl;
@@ -48,13 +52,16 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     final c = widget.customer;
     _isEditing = c != null;
     _idControl = TextEditingController(text: c?.cId ?? '');
-    _lastNameControl = TextEditingController(text: c?.cLastName ?? '');
+    _lastNameControl = TextEditingController(text: c?.cLastName.toUpperCase() ?? '');
     _firstNameControl = TextEditingController(text: c?.cFirstName ?? '');
     _companyControl = TextEditingController(text: c?.cCompany ?? '-');
+    _vatIdControl = TextEditingController(text: c?.cVatId ?? '-');
+    _careofBControl = TextEditingController(text: c?.cCareofB ?? '-');
     _streetBControl = TextEditingController(text: c?.cStreetB ?? '');
     _houseNumberBControl = TextEditingController(text: c?.cHouseNumberB ?? '');
     _postalCodeBControl = TextEditingController(text: c?.cPostalCodeB ?? '');
     _cityBControl = TextEditingController(text: c?.cCityB ?? '');
+    _stateBControl = TextEditingController(text: c?.cStateB ?? '-');
     _countryBId = c?.cCountryBId?.toLowerCase();
     _countryBTextControl = TextEditingController(
       text: _countryDisplayText(_countryBId),
@@ -79,10 +86,13 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _lastNameControl.dispose();
     _firstNameControl.dispose();
     _companyControl.dispose();
+    _vatIdControl.dispose();
+    _careofBControl.dispose();
     _streetBControl.dispose();
     _houseNumberBControl.dispose();
     _postalCodeBControl.dispose();
     _cityBControl.dispose();
+    _stateBControl.dispose();
     _streetDControl.dispose();
     _houseNumberDControl.dispose();
     _postalCodeDControl.dispose();
@@ -152,17 +162,22 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   }
 
   Customer _buildCustomer() {
+    final lastName = _lastNameControl.text.trim().toUpperCase();
+
     return Customer(
       cId: _idControl.text.trim(),
-      cLastName: _lastNameControl.text.trim(),
+      cLastName: lastName,
       cFirstName: _firstNameControl.text.trim(),
       cCompany: _companyControl.text.trim().isEmpty ? '-' : _companyControl.text.trim(),
       cDealer: _dealer,
       cVat: _vat,
+      cVatId: _vatIdControl.text.trim().isEmpty ? '-' : _vatIdControl.text.trim(),
+      cCareofB: _careofBControl.text.trim().isEmpty ? '-' : _careofBControl.text.trim(),
       cStreetB: _streetBControl.text.trim(),
       cHouseNumberB: _houseNumberBControl.text.trim(),
       cPostalCodeB: _postalCodeBControl.text.trim(),
       cCityB: _cityBControl.text.trim(),
+      cStateB: _stateBControl.text.trim().isEmpty ? '-' : _stateBControl.text.trim(),
       cCountryBId: _countryBId,
       cStreetD: _streetDControl.text.trim(),
       cHouseNumberD: _houseNumberDControl.text.trim(),
@@ -287,6 +302,16 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _lastNameControl,
+              inputFormatters: [FilteringTextInputFormatter.singleLineFormatter],
+              onChanged: (value) {
+                final upper = value.toUpperCase();
+                if (value != upper) {
+                  _lastNameControl.value = _lastNameControl.value.copyWith(
+                    text: upper,
+                    selection: TextSelection.collapsed(offset: upper.length),
+                  );
+                }
+              },
               decoration: const InputDecoration(labelText: 'Nachname (erforderlich)'),
             ),
             const SizedBox(height: 12),
@@ -313,10 +338,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                       value: _vat,
                       onChanged: (v) => setState(() => _vat = v ?? false),
                     ),
-                    const Text('MwSt.'),
+                    const Text('keine MwSt'),
                   ],
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _vatIdControl,
+              decoration: const InputDecoration(labelText: 'VAT-ID'),
             ),
             const SizedBox(height: 16),
             const Divider(),
@@ -324,6 +354,11 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             const Text(
               'Rechnungsadresse',
               style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _careofBControl,
+              decoration: const InputDecoration(labelText: '℅'),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -354,6 +389,11 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             TextField(
               controller: _cityBControl,
               decoration: const InputDecoration(labelText: 'Stadt'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _stateBControl,
+              decoration: const InputDecoration(labelText: 'Verwaltungseinheit'),
             ),
             const SizedBox(height: 12),
             _buildCountryDropdown(

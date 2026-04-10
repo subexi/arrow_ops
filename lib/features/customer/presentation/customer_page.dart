@@ -33,6 +33,7 @@ class _CustomerPageState extends State<CustomerPage> {
   bool _loading = false;
   List<Customer> _customers = const [];
   List<Customer> _filteredCustomers = const [];
+  Map<String, String> _countryNameByCode = const {};
   String _databasePath = 'wird geladen...';
 
   @override
@@ -71,11 +72,16 @@ class _CustomerPageState extends State<CustomerPage> {
     setState(() => _loading = true);
     try {
       final customers = await _repository.getAll();
+      final countries = await _repository.getAllCountries();
+      final countryNameByCode = <String, String>{
+        for (final country in countries) country.coTld.toLowerCase(): country.coName,
+      };
       if (!mounted) {
         return;
       }
       setState(() {
         _customers = customers;
+        _countryNameByCode = countryNameByCode;
         _filterCustomers();
       });
     } finally {
@@ -614,6 +620,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                       context: context,
                                       builder: (context) => CustomerDetailDialog(
                                         customer: c,
+                                        countryNameByCode: _countryNameByCode,
                                         onEdit: () => _editCustomer(c),
                                         onDelete: () => _deleteCustomer(c),
                                       ),
