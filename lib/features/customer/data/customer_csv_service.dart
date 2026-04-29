@@ -38,6 +38,21 @@ class CustomerCsvService {
     'c_last_modified',
   ];
 
+  static const Map<String, String> _headerAliases = {
+    'latitude': 'c_lat',
+    'lat': 'c_lat',
+    'longitude': 'c_long',
+    'long': 'c_long',
+    'lon': 'c_long',
+    'lng': 'c_long',
+    'c_lon': 'c_long',
+  };
+
+  String _normalizeHeader(String header) {
+    final lower = header.toLowerCase();
+    return _headerAliases[lower] ?? header;
+  }
+
   List<Customer> importCustomers(String csvContent) {
     final csvRows = csv.decode(csvContent);
 
@@ -47,7 +62,7 @@ class CustomerCsvService {
 
     final dynamicHeaders = csvRows.first;
     final normalizedHeaders = dynamicHeaders
-        .map((header) => header.toString().trim())
+        .map((header) => _normalizeHeader(header.toString().trim()))
         .toList();
 
     debugPrint('📥 CSV hat ${csvRows.length} Zeilen, ${normalizedHeaders.length} Spalten');

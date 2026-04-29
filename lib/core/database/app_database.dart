@@ -53,20 +53,16 @@ class AppDatabase {
 
   Future<String> _resolveDatabasePath() async {
     final preferredPath = DatabasePathConfig.databasePath;
-    final defaultPath = await _defaultDatabasePath();
+    final migrationSources = <String>{
+      await _defaultDatabasePath(),
+      _legacyMacOsContainerDatabasePath(),
+    };
 
-    try {
-      await _prepareDatabaseFile(
-        preferredPath,
-        migrationSourcePath: defaultPath,
-      );
-      return preferredPath;
-    } catch (_) {
-      // Fallback fuer Plattformen/Umgebungen ohne Schreibzugriff auf den
-      // konfigurierten absoluten Pfad.
-      await _prepareDatabaseFile(defaultPath);
-      return defaultPath;
-    }
+    await _prepareDatabaseFile(
+      preferredPath,
+      migrationSourcePaths: migrationSources,
+    );
+    return preferredPath;
   }
 
   Future<String> _defaultDatabasePath() async {
@@ -74,9 +70,22 @@ class AppDatabase {
     return p.join(databasesPath, DatabasePathConfig.databaseFileName);
   }
 
+  String _legacyMacOsContainerDatabasePath() {
+    final home = Platform.environment['HOME'] ?? '';
+    return p.join(
+      home,
+      'Library',
+      'Containers',
+      'com.example.arrowOps',
+      'Data',
+      'Documents',
+      DatabasePathConfig.databaseFileName,
+    );
+  }
+
   Future<void> _prepareDatabaseFile(
     String targetPath, {
-    String? migrationSourcePath,
+    Iterable<String> migrationSourcePaths = const [],
   }) async {
     final targetFile = File(targetPath);
     await targetFile.parent.create(recursive: true);
@@ -85,19 +94,21 @@ class AppDatabase {
       return;
     }
 
-    final sourcePath = migrationSourcePath;
-    if (sourcePath == null || sourcePath == targetPath) {
-      return;
-    }
+    for (final sourcePath in migrationSourcePaths) {
+      if (sourcePath == targetPath) {
+        continue;
+      }
 
-    final sourceFile = File(sourcePath);
-    if (await sourceFile.exists()) {
-      try {
-        await sourceFile.rename(targetPath);
-      } catch (_) {
-        // Rename kann bei unterschiedlichen Volumes fehlschlagen.
-        await sourceFile.copy(targetPath);
-        await sourceFile.delete();
+      final sourceFile = File(sourcePath);
+      if (await sourceFile.exists()) {
+        try {
+          await sourceFile.rename(targetPath);
+        } catch (_) {
+          // Rename kann bei unterschiedlichen Volumes fehlschlagen.
+          await sourceFile.copy(targetPath);
+          await sourceFile.delete();
+        }
+        return;
       }
     }
   }

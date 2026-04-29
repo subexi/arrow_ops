@@ -7,7 +7,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await AppDatabase.instance.database;
+    final db = await AppDatabase.instance.database;
+    debugPrint('🗄️ SQLite-Pfad: ${db.path}');
   } catch (error) {
     debugPrint('⚠️ Datenbank konnte beim Start nicht initialisiert werden: $error');
   }
