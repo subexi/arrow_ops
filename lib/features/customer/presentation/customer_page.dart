@@ -3,8 +3,13 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:data_table_2/data_table_2.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_path_config.dart';
@@ -35,6 +40,80 @@ class _CustomerPageState extends State<CustomerPage> {
   List<Customer> _filteredCustomers = const [];
   Map<String, String> _countryNameByCode = const {};
   String _databasePath = 'wird geladen...';
+  int _sortColumnIndex = 0;
+  bool _sortAscending = true;
+
+  Future<bool> _openUrlWithPlatformCommand(Uri uri) async {
+    final url = uri.toString();
+    try {
+      if (Platform.isMacOS) {
+        final result = await Process.run('open', [url]);
+        return result.exitCode == 0;
+      }
+      if (Platform.isLinux) {
+        final result = await Process.run('xdg-open', [url]);
+        return result.exitCode == 0;
+      }
+      if (Platform.isWindows) {
+        final result = await Process.run('cmd', ['/c', 'start', '', url]);
+        return result.exitCode == 0;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
+
+  Future<void> _openMapInBrowser(String mapUrl) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final uri = Uri.tryParse(mapUrl);
+
+    if (uri == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Kartenlink ist ungueltig.')),
+      );
+      return;
+    }
+
+    var opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
+    } catch (_) {
+      opened = false;
+    }
+
+    if (!opened) {
+      opened = await _openUrlWithPlatformCommand(uri);
+    }
+
+    if (!opened && mounted) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Kartenlink konnte nicht im Browser geoeffnet werden.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _copyMapLink(String mapUrl) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await Clipboard.setData(ClipboardData(text: mapUrl));
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Kartenlink wurde in die Zwischenablage kopiert.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Kartenlink konnte nicht kopiert werden.')),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -94,31 +173,230 @@ class _CustomerPageState extends State<CustomerPage> {
   void _filterCustomers() {
     final query = _searchController.text.toLowerCase().trim();
 
-    if (query.isEmpty) {
-      if (!mounted) return;
-      setState(() => _filteredCustomers = _customers);
-      return;
-    }
+    final filtered = query.isEmpty
+        ? List<Customer>.from(_customers)
+        : _customers.where((c) {
+            return c.cId.toLowerCase().contains(query) ||
+                c.cLastName.toLowerCase().contains(query) ||
+                c.cFirstName.toLowerCase().contains(query) ||
+                c.cCompany.toLowerCase().contains(query) ||
+                c.cCityB.toLowerCase().contains(query) ||
+                c.cCityD.toLowerCase().contains(query) ||
+                c.cMail.toLowerCase().contains(query) ||
+                c.cPhone.toLowerCase().contains(query) ||
+                c.cStreetB.toLowerCase().contains(query) ||
+                c.cStreetD.toLowerCase().contains(query) ||
+                c.cPostalCodeB.toLowerCase().contains(query) ||
+                c.cPostalCodeD.toLowerCase().contains(query) ||
+                (c.cCountryBId?.toLowerCase().contains(query) ?? false) ||
+                (c.cCountryDId?.toLowerCase().contains(query) ?? false);
+          }).toList();
 
-    final filtered = _customers.where((c) {
-      return c.cId.toLowerCase().contains(query) ||
-          c.cLastName.toLowerCase().contains(query) ||
-          c.cFirstName.toLowerCase().contains(query) ||
-          c.cCompany.toLowerCase().contains(query) ||
-          c.cCityB.toLowerCase().contains(query) ||
-          c.cCityD.toLowerCase().contains(query) ||
-          c.cMail.toLowerCase().contains(query) ||
-          c.cPhone.toLowerCase().contains(query) ||
-          c.cStreetB.toLowerCase().contains(query) ||
-          c.cStreetD.toLowerCase().contains(query) ||
-          c.cPostalCodeB.toLowerCase().contains(query) ||
-          c.cPostalCodeD.toLowerCase().contains(query) ||
-          (c.cCountryBId?.toLowerCase().contains(query) ?? false) ||
-          (c.cCountryDId?.toLowerCase().contains(query) ?? false);
-    }).toList();
+    _applyCurrentSort(filtered);
 
     if (!mounted) return;
     setState(() => _filteredCustomers = filtered);
+  }
+
+  void _sortFilteredCustomers(
+    int columnIndex,
+    bool ascending,
+    String Function(Customer customer) selector,
+  ) {
+    final sorted = List<Customer>.from(_filteredCustomers)
+      ..sort((a, b) {
+        final aValue = selector(a);
+        final bValue = selector(b);
+        return ascending ? aValue.compareTo(bValue) : bValue.compareTo(aValue);
+      });
+
+    setState(() {
+      _sortColumnIndex = columnIndex;
+      _sortAscending = ascending;
+      _filteredCustomers = sorted;
+    });
+  }
+
+  void _applyCurrentSort(List<Customer> customers) {
+    switch (_sortColumnIndex) {
+      case 0:
+        customers.sort((a, b) => _sortAscending
+            ? a.cId.toLowerCase().compareTo(b.cId.toLowerCase())
+            : b.cId.toLowerCase().compareTo(a.cId.toLowerCase()));
+        break;
+      case 1:
+        customers.sort((a, b) => _sortAscending
+            ? a.cLastName.toLowerCase().compareTo(b.cLastName.toLowerCase())
+            : b.cLastName.toLowerCase().compareTo(a.cLastName.toLowerCase()));
+        break;
+      case 2:
+        customers.sort((a, b) => _sortAscending
+            ? a.cFirstName.toLowerCase().compareTo(b.cFirstName.toLowerCase())
+            : b.cFirstName.toLowerCase().compareTo(a.cFirstName.toLowerCase()));
+        break;
+      case 3:
+        customers.sort((a, b) => _sortAscending
+            ? a.cCompany.toLowerCase().compareTo(b.cCompany.toLowerCase())
+            : b.cCompany.toLowerCase().compareTo(a.cCompany.toLowerCase()));
+        break;
+      case 4:
+        customers.sort((a, b) => _sortAscending
+            ? a.cCityB.toLowerCase().compareTo(b.cCityB.toLowerCase())
+            : b.cCityB.toLowerCase().compareTo(a.cCityB.toLowerCase()));
+        break;
+      case 5:
+        customers.sort((a, b) {
+          final aVal = (_countryNameByCode[a.cCountryDId?.toLowerCase() ?? ''] ?? a.cCountryDId ?? '').toLowerCase();
+          final bVal = (_countryNameByCode[b.cCountryDId?.toLowerCase() ?? ''] ?? b.cCountryDId ?? '').toLowerCase();
+          return _sortAscending ? aVal.compareTo(bVal) : bVal.compareTo(aVal);
+        });
+        break;
+      case 6:
+        customers.sort((a, b) => _sortAscending
+            ? a.cMail.toLowerCase().compareTo(b.cMail.toLowerCase())
+            : b.cMail.toLowerCase().compareTo(a.cMail.toLowerCase()));
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _showMapDialog(Customer customer) {
+    final lat = customer.cLat;
+    final lon = customer.cLong;
+
+    if ((lat == 0 && lon == 0) || lat.isNaN || lon.isNaN) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine gueltigen Koordinaten vorhanden.')),
+      );
+      return;
+    }
+
+    final mapUrl =
+        'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon';
+    final location = LatLng(lat, lon);
+    final mapController = MapController();
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Location: ${customer.cLastName}, ${customer.cFirstName}'),
+        content: SizedBox(
+          width: 760,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  height: 280,
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: mapController,
+                        options: MapOptions(
+                          initialCenter: location,
+                          initialZoom: 16,
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.example.arrow_ops',
+                            errorTileCallback: (tile, error, stackTrace) {
+                              debugPrint(
+                                'Tile konnte nicht geladen werden (${tile.coordinates}): $error',
+                              );
+                            },
+                          ),
+                          MarkerLayer(
+                            markers: [
+                              Marker(
+                                width: 42,
+                                height: 42,
+                                point: location,
+                                child: const Icon(
+                                  Icons.location_pin,
+                                  color: Colors.red,
+                                  size: 40,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Material(
+                              color: Colors.white,
+                              elevation: 2,
+                              borderRadius: BorderRadius.circular(4),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(4),
+                                onTap: () => mapController.move(
+                                  mapController.camera.center,
+                                  mapController.camera.zoom + 1,
+                                ),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(6),
+                                  child: Icon(Icons.add, size: 20),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Material(
+                              color: Colors.white,
+                              elevation: 2,
+                              borderRadius: BorderRadius.circular(4),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(4),
+                                onTap: () => mapController.move(
+                                  mapController.camera.center,
+                                  mapController.camera.zoom - 1,
+                                ),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(6),
+                                  child: Icon(Icons.remove, size: 20),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SelectableText('Lat: $lat, Lon: $lon'),
+              const SizedBox(height: 8),
+              SelectableText(mapUrl),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () => _copyMapLink(mapUrl),
+            icon: const Icon(Icons.copy),
+            label: const Text('Link kopieren'),
+          ),
+          TextButton.icon(
+            onPressed: () => _openMapInBrowser(mapUrl),
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Im Browser oeffnen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Schliessen'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<String?> _defaultPickerDirectory() async {
@@ -603,31 +881,113 @@ class _CustomerPageState extends State<CustomerPage> {
                           ? const Center(
                               child: Text('Keine Kunden gefunden, die dem Suchbegriff entsprechen.'),
                             )
-                          : ListView.separated(
-                              itemCount: _filteredCustomers.length,
-                              separatorBuilder: (_, index) => const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final c = _filteredCustomers[index];
-                                return ListTile(
-                                  dense: true,
-                                  title: Text('${c.cLastName}, ${c.cFirstName}'),
-                                  subtitle: Text(
-                                    '${c.cCompany} | ${c.cCityB} | ${c.cMail}',
+                          : DataTable2(
+                              sortColumnIndex: _sortColumnIndex,
+                              sortAscending: _sortAscending,
+                              minWidth: 1200,
+                              fixedLeftColumns: 0,
+                              columns: [
+                                  DataColumn(
+                                    label: const Text('ID'),
+                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                      columnIndex,
+                                      ascending,
+                                      (c) => c.cId.toLowerCase(),
+                                    ),
                                   ),
-                                  trailing: Text(c.cId),
-                                  onTap: _loading ? null : () {
-                                    showDialog(
-                                      context: context,
-                                      builder: (context) => CustomerDetailDialog(
-                                        customer: c,
-                                        countryNameByCode: _countryNameByCode,
-                                        onEdit: () => _editCustomer(c),
-                                        onDelete: () => _deleteCustomer(c),
+                                  DataColumn(
+                                    label: const Text('Nachname'),
+                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                      columnIndex,
+                                      ascending,
+                                      (c) => c.cLastName.toLowerCase(),
+                                    ),
+                                  ),
+                                  DataColumn(
+                                    label: const Text('Vorname'),
+                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                      columnIndex,
+                                      ascending,
+                                      (c) => c.cFirstName.toLowerCase(),
+                                    ),
+                                  ),
+                                  DataColumn(
+                                    label: const Text('Firma'),
+                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                      columnIndex,
+                                      ascending,
+                                      (c) => c.cCompany.toLowerCase(),
+                                    ),
+                                  ),
+                                  DataColumn(
+                                    label: const Text('Stadt'),
+                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                      columnIndex,
+                                      ascending,
+                                      (c) => c.cCityB.toLowerCase(),
+                                    ),
+                                  ),
+                                  DataColumn(
+                                    label: const Text('Land'),
+                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                      columnIndex,
+                                      ascending,
+                                      (c) => (_countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ?? c.cCountryDId ?? '').toLowerCase(),
+                                    ),
+                                  ),
+                                  DataColumn(
+                                    label: const Text('E-Mail'),
+                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                      columnIndex,
+                                      ascending,
+                                      (c) => c.cMail.toLowerCase(),
+                                    ),
+                                  ),
+                                  const DataColumn(
+                                    label: Text('Maps'),
+                                  ),
+                                ],
+                                rows: _filteredCustomers.map((c) {
+                                  return DataRow(
+                                    onSelectChanged: _loading
+                                        ? null
+                                        : (_) {
+                                            showDialog(
+                                              context: context,
+                                              builder: (context) => CustomerDetailDialog(
+                                                customer: c,
+                                                countryNameByCode: _countryNameByCode,
+                                                onEdit: () => _editCustomer(c),
+                                                onDelete: () => _deleteCustomer(c),
+                                              ),
+                                            );
+                                          },
+                                    cells: [
+                                      DataCell(Text(c.cId, softWrap: false, overflow: TextOverflow.ellipsis)),
+                                      DataCell(Text(c.cLastName, softWrap: false, overflow: TextOverflow.ellipsis)),
+                                      DataCell(Text(c.cFirstName, softWrap: false, overflow: TextOverflow.ellipsis)),
+                                      DataCell(Text(c.cCompany, softWrap: false, overflow: TextOverflow.ellipsis)),
+                                      DataCell(Text(c.cCityB, softWrap: false, overflow: TextOverflow.ellipsis)),
+                                      DataCell(Text(
+                                        _countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ??
+                                            c.cCountryDId ??
+                                            '-',
+                                        softWrap: false,
+                                        overflow: TextOverflow.ellipsis,
+                                      )),
+                                      DataCell(Text(c.cMail, softWrap: false, overflow: TextOverflow.ellipsis)),
+                                      DataCell(
+                                        Tooltip(
+                                          message: 'Location aus Koordinaten anzeigen',
+                                          child: IconButton(
+                                            icon: const Icon(Icons.map_outlined),
+                                            onPressed: () => _showMapDialog(c),
+                                          ),
+                                        ),
                                       ),
-                                    );
-                                  },
-                                );
-                              },
+                                    ],
+                                  );
+                                }).toList(),
                             ),
             ),
           ],

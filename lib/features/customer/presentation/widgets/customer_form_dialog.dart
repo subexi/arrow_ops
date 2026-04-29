@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../../core/database/app_database.dart';
 import '../../domain/country_tld.dart';
@@ -50,6 +53,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   late final FocusNode _streetBFocusNode;
   late final FocusNode _houseNumberBFocusNode;
   late final FocusNode _postalCodeBFocusNode;
+  late final FocusNode _postalCodeDFocusNode;
   late final FocusNode _cityBFocusNode;
   late final FocusNode _stateBFocusNode;
 
@@ -58,6 +62,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   late bool _dealer;
   late bool _vat;
   late bool _isEditing;
+  bool _isFetchingCoordinates = false;
+
 
   String? _defaultCountryId() {
     for (final country in widget.countries) {
@@ -161,6 +167,18 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       source: _postalCodeBControl,
       target: _postalCodeDControl,
     );
+    _postalCodeBFocusNode.addListener(() {
+      if (!_postalCodeBFocusNode.hasFocus) {
+        _updateStateFromCountryAndPostalCode(billing: true);
+        _updateStateFromCountryAndPostalCode(billing: false);
+      }
+    });
+    _postalCodeDFocusNode = FocusNode();
+    _postalCodeDFocusNode.addListener(() {
+      if (!_postalCodeDFocusNode.hasFocus) {
+        _updateStateFromCountryAndPostalCode(billing: false);
+      }
+    });
     _syncOnBlur(
       focusNode: _cityBFocusNode,
       source: _cityBControl,
@@ -171,6 +189,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       source: _stateBControl,
       target: _stateDControl,
     );
+
+    final lat = double.tryParse(_latControl.text) ?? 0;
+    final lng = double.tryParse(_longControl.text) ?? 0;
+    if (lat == 0 && lng == 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fetchCoordinates());
+    }
   }
 
   @override
@@ -205,6 +229,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _streetBFocusNode.dispose();
     _houseNumberBFocusNode.dispose();
     _postalCodeBFocusNode.dispose();
+    _postalCodeDFocusNode.dispose();
     _cityBFocusNode.dispose();
     _stateBFocusNode.dispose();
     super.dispose();
@@ -212,7 +237,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
   String? _validateId(String cId) {
     if (cId.length != 10 || !RegExp(r'^\d{10}$').hasMatch(cId)) {
-      return 'The Customer-ID must have exactly 10 digits.';
+      return 'Die Kundennummer muss genau 10 Ziffern haben.';
     }
 
     final year = int.parse(cId.substring(0, 2));
@@ -223,24 +248,24 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     final currentYear = DateTime.now().year % 100;
 
     if (year < 0 || year > currentYear) {
-      return 'The first 2 digits of the Customer-ID must be between 00 and $currentYear.';
+      return 'Die ersten 2 Ziffern der Kundennummer müssen zwischen 00 und $currentYear liegen.';
     }
     if (month < 1 || month > 12) {
-      return 'The 3rd and 4th digit of the Customer-ID must be between 01 and 12.';
+      return 'Die 3. und 4. Ziffer der Kundennummer müssen zwischen 01 und 12 liegen.';
     }
     if (day < 1 || day > 31) {
-      return 'The 5th and 6th digit of the Customer-ID must be between 01 and 31.';
+      return 'Die 5. und 6. Ziffer der Kundennummer müssen zwischen 01 und 31 liegen.';
     }
     if (hour < 0 || hour > 23) {
-      return 'The 7th and 8th digit of the Customer-ID must be between 00 and 23.';
+      return 'Die 7. und 8. Ziffer der Kundennummer müssen zwischen 00 und 23 liegen.';
     }
     if (minute < 0 || minute > 59) {
-      return 'The 9th and 10th digit of the Customer-ID must be between 00 and 59.';
+      return 'Die 9. und 10. Ziffer der Kundennummer müssen zwischen 00 und 59 liegen.';
     }
 
     final date = DateTime(2000 + year, month, day);
     if (date.month != month || date.day != day) {
-      return 'The Customer-ID is not valid.';
+      return 'Die Kundennummer ist ungültig.';
     }
 
     return null;
@@ -248,6 +273,174 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
   bool _isGermany(String? countryId) {
     return countryId?.trim().toLowerCase() == 'de';
+  }
+
+  bool _isUSA(String? countryId) {
+    final result = countryId?.trim().toLowerCase() == 'us';
+    debugPrint('[_isUSA] countryId="$countryId" → $result');
+    return result;
+  }
+
+  Future<String?> _resolveUSState(String postalCode) async {
+    // US ZIP+4-Format (z.B. "94040-1234") → nur die 5-stellige Basis-ZIP verwenden
+    final zip = postalCode.trim().split('-').first.trim();
+    if (zip.isEmpty) {
+      debugPrint('[_resolveUSState] ZIP ist leer – abgebrochen.');
+      return null;
+    }
+
+    debugPrint('[_resolveUSState] Starte Nominatim-Abfrage für ZIP: $zip');
+
+    final uri = Uri.https(
+      'nominatim.openstreetmap.org',
+      '/search',
+      {
+        'postalcode': zip,
+        'country': 'us',
+        'format': 'json',
+        'addressdetails': '1',
+        'limit': '1',
+      },
+    );
+
+    http.Response response;
+    try {
+      response = await http.get(
+        uri,
+        headers: {'User-Agent': 'arrow_ops/1.0'},
+      );
+    } catch (e) {
+      debugPrint('[_resolveUSState] HTTP-Fehler: $e');
+      return null;
+    }
+
+    debugPrint('[_resolveUSState] HTTP Status: ${response.statusCode}');
+    debugPrint('[_resolveUSState] Body: ${response.body}');
+
+    if (response.statusCode != 200) {
+      return null;
+    }
+
+    List<dynamic> results;
+    try {
+      results = jsonDecode(response.body) as List<dynamic>;
+    } catch (e) {
+      debugPrint('[_resolveUSState] JSON-Parse-Fehler: $e');
+      return null;
+    }
+
+    if (results.isEmpty) {
+      debugPrint('[_resolveUSState] Keine Ergebnisse für ZIP: $zip');
+      return null;
+    }
+
+    final firstResult = results[0];
+    if (firstResult is! Map<String, dynamic>) {
+      debugPrint('[_resolveUSState] Unerwartetes Ergebnisformat: $firstResult');
+      return null;
+    }
+
+    final addressRaw = firstResult['address'];
+    if (addressRaw == null) {
+      debugPrint('[_resolveUSState] Kein address-Feld im Ergebnis.');
+      return null;
+    }
+
+    final address = Map<String, dynamic>.from(addressRaw as Map);
+
+    final stateFull = address['state']?.toString().trim() ?? '';
+    // ISO3166-2-lvl4 liefert z.B. 'US-CA'
+    final isoCode = address['ISO3166-2-lvl4']?.toString().trim() ?? '';
+    final stateShort = isoCode.contains('-')
+        ? isoCode.split('-').last.trim()
+        : isoCode;
+
+    debugPrint('[_resolveUSState] state="$stateFull", isoCode="$isoCode", stateShort="$stateShort"');
+
+    if (stateFull.isEmpty && stateShort.isEmpty) {
+      return null;
+    }
+    if (stateShort.isEmpty) {
+      return stateFull;
+    }
+    if (stateFull.isEmpty) {
+      return stateShort;
+    }
+    return '$stateShort - $stateFull';
+  }
+
+  Future<void> _fetchCoordinates() async {
+    final parts = [
+      _streetDControl.text.trim(),
+      _houseNumberDControl.text.trim(),
+      _postalCodeDControl.text.trim(),
+      _cityDControl.text.trim(),
+      _countryNameForId(_countryDId),
+    ].where((s) => s.isNotEmpty && s != '-').toList();
+
+    if (parts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lieferadresse ist unvollständig.')),
+      );
+      return;
+    }
+
+    final address = parts.join(', ');
+    setState(() => _isFetchingCoordinates = true);
+
+    try {
+      final uri = Uri.https(
+        'nominatim.openstreetmap.org',
+        '/search',
+        {'q': address, 'format': 'json', 'limit': '1'},
+      );
+      final response = await http.get(uri, headers: {'User-Agent': 'arrow_ops/1.0'});
+
+      if (!mounted) return;
+
+      if (response.statusCode != 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler bei der Anfrage: ${response.statusCode}')),
+        );
+        return;
+      }
+
+      final results = jsonDecode(response.body) as List<dynamic>;
+      if (results.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Keine Koordinaten gefunden für:\n$address'),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        return;
+      }
+
+      final first = results[0] as Map<String, dynamic>;
+      final latRaw = first['lat']?.toString();
+      final lonRaw = first['lon']?.toString();
+      final lat = latRaw == null ? null : double.tryParse(latRaw);
+      final lon = lonRaw == null ? null : double.tryParse(lonRaw);
+
+      if (lat == null || lon == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Koordinaten konnten nicht aus lat/lon gelesen werden.')),
+        );
+        return;
+      }
+
+      setState(() {
+        _latControl.text = lat.toString();
+        _longControl.text = lon.toString();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fehler: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isFetchingCoordinates = false);
+    }
   }
 
   Future<String?> _resolveGermanState(String postalCode) async {
@@ -287,21 +480,30 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
   Future<void> _updateStateFromCountryAndPostalCode({required bool billing}) async {
     final countryId = billing ? _countryBId : _countryDId;
-    if (!_isGermany(countryId)) {
-      return;
+    final postalCode = billing ? _postalCodeBControl.text : _postalCodeDControl.text;
+
+    debugPrint('[_updateState] billing=$billing, countryId="$countryId", postalCode="$postalCode"');
+
+    String? resolvedState;
+    if (_isGermany(countryId)) {
+      resolvedState = await _resolveGermanState(postalCode);
+    } else if (_isUSA(countryId)) {
+      resolvedState = await _resolveUSState(postalCode);
+    } else {
+      debugPrint('[_updateState] Kein passender Länder-Handler für countryId="$countryId"');
     }
 
-    final postalCode = billing ? _postalCodeBControl.text : _postalCodeDControl.text;
-    final resolvedState = await _resolveGermanState(postalCode);
+    debugPrint('[_updateState] resolvedState="$resolvedState"');
+
     if (!mounted || resolvedState == null || resolvedState.isEmpty) {
       return;
     }
 
     setState(() {
       if (billing) {
-        _stateBControl.text = resolvedState;
+        _stateBControl.text = resolvedState!;
       } else {
-        _stateDControl.text = resolvedState;
+        _stateDControl.text = resolvedState!;
       }
     });
   }
@@ -324,7 +526,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
     if (!_firstNameControl.text.trim().replaceAll(' ', '').split('').every((c) => RegExp(r'[a-zA-ZÀ-ÖØ-öø-ÿ]').hasMatch(c))) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('First Name must contain only letters and spaces.')),
+        const SnackBar(content: Text('Vorname darf nur Buchstaben und Leerzeichen enthalten.')),
+
       );
       return false;
     }
@@ -336,7 +539,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
     if (!_lastNameControl.text.trim().replaceAll(' ', '').split('').every((c) => RegExp(r'[a-zA-ZÀ-ÖØ-öø-ÿ]').hasMatch(c))) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Last Name must contain only letters and spaces.')),
+        const SnackBar(content: Text('Nachname darf nur Buchstaben und Leerzeichen enthalten.')),
+
       );
       return false;
     }
@@ -348,7 +552,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
     if (_streetBControl.text.trim().length < 2) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Too short for a street name.')),
+        const SnackBar(content: Text('Straßenname ist zu kurz.')),
+
       );
       return false;
     }
@@ -369,7 +574,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       final stripped = city.replaceAll(' ', '').replaceAll('-', '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('Stadt (Rechnungsadresse) must contain at least 2 letters and only alphabetic characters.')),
+          const SnackBar(content: Text('Stadt (Rechnungsadresse) muss mindestens 2 Buchstaben enthalten und darf nur alphabetische Zeichen enthalten.')),
+
         );
         return false;
       }
@@ -387,11 +593,20 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
           return false;
         }
         messenger.showSnackBar(
-          const SnackBar(content: Text('Please enter a valid postal code for the Rechnungsadresse.')),
+          const SnackBar(content: Text('Bitte eine gültige PLZ für die Rechnungsadresse eingeben.')),
+
         );
         return false;
       }
       _stateBControl.text = billingState;
+    } else if (_isUSA(_countryBId)) {
+      final billingState = await _resolveUSState(_postalCodeBControl.text);
+      if (!mounted) {
+        return false;
+      }
+      if (billingState != null && billingState.isNotEmpty) {
+        _stateBControl.text = billingState;
+      }
     }
     if (_streetDControl.text.trim().isEmpty) {
       messenger.showSnackBar(
@@ -416,7 +631,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       final stripped = city.replaceAll(' ', '').replaceAll('-', '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('Stadt (Lieferadresse) must contain at least 2 letters and only alphabetic characters.')),
+          const SnackBar(content: Text('Stadt (Lieferadresse) muss mindestens 2 Buchstaben enthalten und darf nur alphabetische Zeichen enthalten.')),
+
         );
         return false;
       }
@@ -434,17 +650,36 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
           return false;
         }
         messenger.showSnackBar(
-          const SnackBar(content: Text('Please enter a valid postal code for the Lieferadresse.')),
+          const SnackBar(content: Text('Bitte eine gültige PLZ für die Lieferadresse eingeben.')),
+
         );
         return false;
       }
       _stateDControl.text = deliveryState;
+    } else if (_isUSA(_countryDId)) {
+      final deliveryState = await _resolveUSState(_postalCodeDControl.text);
+      if (!mounted) {
+        return false;
+      }
+      if (deliveryState != null && deliveryState.isNotEmpty) {
+        _stateDControl.text = deliveryState;
+      }
+    }
+    final mail = _mailControl.text.trim();
+    if (mail.isNotEmpty && mail != '-') {
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(mail)) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Bitte eine gültige E-Mail-Adresse eingeben.')),
+        );
+        return false;
+      }
     }
     return true;
   }
 
   Customer _buildCustomer() {
     final lastName = _lastNameControl.text.trim().toUpperCase();
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
     return Customer(
       cId: _idControl.text.trim(),
@@ -475,6 +710,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       cLat: double.tryParse(_latControl.text.trim()) ?? 0,
       cLong: double.tryParse(_longControl.text.trim()) ?? 0,
       cNote: _noteControl.text.trim().isEmpty ? '-' : _noteControl.text.trim(),
+      cLastModified: now,
     );
   }
 
@@ -712,6 +948,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                   flex: 1,
                   child: TextField(
                     controller: _postalCodeDControl,
+                    focusNode: _postalCodeDFocusNode,
                     decoration: const InputDecoration(labelText: 'PLZ (erforderlich)'),
                   ),
                 ),
@@ -766,6 +1003,14 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
               'Koordinaten',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _isFetchingCoordinates ? null : _fetchCoordinates,
+              icon: _isFetchingCoordinates
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.location_on_outlined),
+              label: const Text('Koordinaten aus Lieferadresse ermitteln'),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -797,6 +1042,18 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                 alignLabelWithHint: true,
               ),
             ),
+            const SizedBox(height: 12),
+            if (_isEditing && widget.customer?.cLastModified != null && widget.customer!.cLastModified > 0)
+              InputDecorator(
+                decoration: const InputDecoration(labelText: 'Zuletzt geändert'),
+                child: Text(
+                  () {
+                    final dt = DateTime.fromMillisecondsSinceEpoch(widget.customer!.cLastModified * 1000);
+                    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+                  }(),
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
           ],
         ),
       ),
