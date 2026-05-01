@@ -56,98 +56,151 @@ class CustomerDetailDialog extends StatelessWidget {
     final lastNameUpper = customer.cLastName.toUpperCase();
     final isUsaBilling = _isUsaAddress(customer.cCountryBId);
     final isUsaDelivery = _isUsaAddress(customer.cCountryDId);
+    final screenSize = MediaQuery.of(context).size;
+    final isWide = screenSize.width >= 700;
 
-    return AlertDialog(
-      title: Text('$lastNameUpper, ${customer.cFirstName}'),
-      content: SingleChildScrollView(
+    final billingSection = _buildSection('Rechnungsadresse', [
+      _buildField('℅', customer.cCareofB),
+      _buildField(
+        'Straße',
+        _buildStreetLine(
+          street: customer.cStreetB,
+          houseNumber: customer.cHouseNumberB,
+          isUsa: isUsaBilling,
+        ),
+      ),
+      _buildField(
+        'Ort',
+        _buildCityLine(
+          postalCode: customer.cPostalCodeB,
+          city: customer.cCityB,
+          isUsa: isUsaBilling,
+        ),
+      ),
+      _buildField('Verwaltungseinheit', customer.cStateB),
+      _buildField('Land', _resolveCountryName(customer.cCountryBId)),
+    ]);
+
+    final deliverySection = _buildSection('Lieferadresse', [
+      _buildField('℅', customer.cCareofD),
+      _buildField(
+        'Straße',
+        _buildStreetLine(
+          street: customer.cStreetD,
+          houseNumber: customer.cHouseNumberD,
+          isUsa: isUsaDelivery,
+        ),
+      ),
+      _buildField(
+        'Ort',
+        _buildCityLine(
+          postalCode: customer.cPostalCodeD,
+          city: customer.cCityD,
+          isUsa: isUsaDelivery,
+        ),
+      ),
+      _buildField('Verwaltungseinheit', customer.cStateD),
+      _buildField('Land', _resolveCountryName(customer.cCountryDId)),
+    ]);
+
+    return Dialog(
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isWide ? 60 : 16,
+        vertical: 24,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: isWide ? 780 : 480,
+          maxHeight: screenSize.height * 0.90,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildSection('Allgemein', [
-              _buildField('ID', customer.cId),
-              _buildField('Firma', customer.cCompany),
-              _buildCheckboxField('Reseller', customer.cDealer),
-              _buildCheckboxField('Keine MwSt', customer.cVat),
-              _buildField('VAT-ID', customer.cVatId),
-            ]),
-            const SizedBox(height: 16),
-            _buildSection('Rechnungsadresse', [
-              _buildField('℅', customer.cCareofB),
-              _buildField(
-                'Straße',
-                _buildStreetLine(
-                  street: customer.cStreetB,
-                  houseNumber: customer.cHouseNumberB,
-                  isUsa: isUsaBilling,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: Text(
+                '$lastNameUpper, ${customer.cFirstName}',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSection('Allgemein', [
+                      _buildField('ID', customer.cId),
+                      _buildField('Firma', customer.cCompany),
+                      _buildCheckboxField('Reseller', customer.cDealer),
+                      _buildCheckboxField('Keine MwSt', customer.cVat),
+                      _buildField('VAT-ID', customer.cVatId),
+                    ]),
+                    const SizedBox(height: 16),
+                    if (isWide)
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: billingSection),
+                            const SizedBox(width: 16),
+                            const VerticalDivider(),
+                            const SizedBox(width: 16),
+                            Expanded(child: deliverySection),
+                          ],
+                        ),
+                      )
+                    else ...[
+                      billingSection,
+                      const SizedBox(height: 16),
+                      deliverySection,
+                    ],
+                    const SizedBox(height: 16),
+                    _buildSection('Kontakt', [
+                      _buildField('E-Mail', customer.cMail),
+                      _buildField('Telefon', customer.cPhone),
+                    ]),
+                    const SizedBox(height: 8),
+                  ],
                 ),
               ),
-              _buildField(
-                'Ort',
-                _buildCityLine(
-                  postalCode: customer.cPostalCodeB,
-                  city: customer.cCityB,
-                  isUsa: isUsaBilling,
-                ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: OverflowBar(
+                alignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Schließen'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      onEdit();
+                    },
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Bearbeiten'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _showDeleteConfirmation(context);
+                    },
+                    icon: const Icon(Icons.delete),
+                    label: const Text('Löschen'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.red,
+                    ),
+                  ),
+                ],
               ),
-              _buildField('Verwaltungseinheit', customer.cStateB),
-              _buildField('Land', _resolveCountryName(customer.cCountryBId)),
-            ]),
-            const SizedBox(height: 16),
-            _buildSection('Lieferadresse', [
-              _buildField('℅', customer.cCareofD),
-              _buildField(
-                'Straße',
-                _buildStreetLine(
-                  street: customer.cStreetD,
-                  houseNumber: customer.cHouseNumberD,
-                  isUsa: isUsaDelivery,
-                ),
-              ),
-              _buildField(
-                'Ort',
-                _buildCityLine(
-                  postalCode: customer.cPostalCodeD,
-                  city: customer.cCityD,
-                  isUsa: isUsaDelivery,
-                ),
-              ),
-              _buildField('Verwaltungseinheit', customer.cStateD),
-              _buildField('Land', _resolveCountryName(customer.cCountryDId)),
-            ]),
-            const SizedBox(height: 16),
-            _buildSection('Kontakt', [
-              _buildField('E-Mail', customer.cMail),
-              _buildField('Telefon', customer.cPhone),
-            ]),
+            ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Schließen'),
-        ),
-        OutlinedButton.icon(
-          onPressed: () {
-            Navigator.pop(context);
-            onEdit();
-          },
-          icon: const Icon(Icons.edit),
-          label: const Text('Bearbeiten'),
-        ),
-        FilledButton.icon(
-          onPressed: () {
-            Navigator.pop(context);
-            _showDeleteConfirmation(context);
-          },
-          icon: const Icon(Icons.delete),
-          label: const Text('Löschen'),
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.red,
-          ),
-        ),
-      ],
     );
   }
 

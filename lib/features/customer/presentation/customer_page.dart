@@ -261,6 +261,45 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
+  Widget _buildMobileCustomerList() {
+    return ListView.separated(
+      itemCount: _filteredCustomers.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final c = _filteredCustomers[index];
+        final countryName =
+            _countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ??
+            c.cCountryDId ??
+            '';
+        final subtitle = [
+          if (c.cCompany.isNotEmpty && c.cCompany != '-') c.cCompany,
+          if (c.cCityB.isNotEmpty) c.cCityB,
+          if (countryName.isNotEmpty) countryName,
+        ].join(' · ');
+        return ListTile(
+          title: Text('${c.cLastName}, ${c.cFirstName}'),
+          subtitle: subtitle.isNotEmpty
+              ? Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)
+              : null,
+          trailing: IconButton(
+            icon: const Icon(Icons.map_outlined),
+            onPressed: () => _showMapDialog(c),
+            tooltip: 'Karte anzeigen',
+          ),
+          onTap: () => showDialog(
+            context: context,
+            builder: (context) => CustomerDetailDialog(
+              customer: c,
+              countryNameByCode: _countryNameByCode,
+              onEdit: () => _editCustomer(c),
+              onDelete: () => _deleteCustomer(c),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showMapDialog(Customer customer) {
     final lat = customer.cLat;
     final lon = customer.cLong;
@@ -276,13 +315,16 @@ class _CustomerPageState extends State<CustomerPage> {
         'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon';
     final location = LatLng(lat, lon);
     final mapController = MapController();
+    final screenSize = MediaQuery.of(context).size;
+    final dialogWidth = (screenSize.width * 0.85).clamp(300.0, 760.0);
+    final mapHeight = (screenSize.height * 0.40).clamp(180.0, 320.0);
 
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Location: ${customer.cLastName}, ${customer.cFirstName}'),
         content: SizedBox(
-          width: 760,
+          width: dialogWidth,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -290,7 +332,7 @@ class _CustomerPageState extends State<CustomerPage> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: SizedBox(
-                  height: 280,
+                  height: mapHeight,
                   child: Stack(
                     children: [
                       FlutterMap(
@@ -881,11 +923,16 @@ class _CustomerPageState extends State<CustomerPage> {
                           ? const Center(
                               child: Text('Keine Kunden gefunden, die dem Suchbegriff entsprechen.'),
                             )
-                          : DataTable2(
-                              sortColumnIndex: _sortColumnIndex,
-                              sortAscending: _sortAscending,
-                              minWidth: 1200,
-                              fixedLeftColumns: 0,
+                          : LayoutBuilder(
+                              builder: (context, constraints) {
+                                if (constraints.maxWidth < 600) {
+                                  return _buildMobileCustomerList();
+                                }
+                                return DataTable2(
+                                  sortColumnIndex: _sortColumnIndex,
+                                  sortAscending: _sortAscending,
+                                  minWidth: 1200,
+                                  fixedLeftColumns: 0,
                               columns: [
                                   DataColumn(
                                     label: const Text('ID'),
@@ -988,6 +1035,8 @@ class _CustomerPageState extends State<CustomerPage> {
                                     ],
                                   );
                                 }).toList(),
+                            );
+                              },
                             ),
             ),
           ],

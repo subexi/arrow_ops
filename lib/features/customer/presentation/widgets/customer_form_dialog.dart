@@ -276,20 +276,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   }
 
   bool _isUSA(String? countryId) {
-    final result = countryId?.trim().toLowerCase() == 'us';
-    debugPrint('[_isUSA] countryId="$countryId" → $result');
-    return result;
+    return countryId?.trim().toLowerCase() == 'us';
   }
 
   Future<String?> _resolveUSState(String postalCode) async {
     // US ZIP+4-Format (z.B. "94040-1234") → nur die 5-stellige Basis-ZIP verwenden
     final zip = postalCode.trim().split('-').first.trim();
     if (zip.isEmpty) {
-      debugPrint('[_resolveUSState] ZIP ist leer – abgebrochen.');
       return null;
     }
-
-    debugPrint('[_resolveUSState] Starte Nominatim-Abfrage für ZIP: $zip');
 
     final uri = Uri.https(
       'nominatim.openstreetmap.org',
@@ -309,13 +304,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         uri,
         headers: {'User-Agent': 'arrow_ops/1.0'},
       );
-    } catch (e) {
-      debugPrint('[_resolveUSState] HTTP-Fehler: $e');
+    } catch (_) {
       return null;
     }
-
-    debugPrint('[_resolveUSState] HTTP Status: ${response.statusCode}');
-    debugPrint('[_resolveUSState] Body: ${response.body}');
 
     if (response.statusCode != 200) {
       return null;
@@ -324,27 +315,17 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     List<dynamic> results;
     try {
       results = jsonDecode(response.body) as List<dynamic>;
-    } catch (e) {
-      debugPrint('[_resolveUSState] JSON-Parse-Fehler: $e');
+    } catch (_) {
       return null;
     }
 
-    if (results.isEmpty) {
-      debugPrint('[_resolveUSState] Keine Ergebnisse für ZIP: $zip');
-      return null;
-    }
+    if (results.isEmpty) return null;
 
     final firstResult = results[0];
-    if (firstResult is! Map<String, dynamic>) {
-      debugPrint('[_resolveUSState] Unerwartetes Ergebnisformat: $firstResult');
-      return null;
-    }
+    if (firstResult is! Map<String, dynamic>) return null;
 
     final addressRaw = firstResult['address'];
-    if (addressRaw == null) {
-      debugPrint('[_resolveUSState] Kein address-Feld im Ergebnis.');
-      return null;
-    }
+    if (addressRaw == null) return null;
 
     final address = Map<String, dynamic>.from(addressRaw as Map);
 
@@ -354,8 +335,6 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     final stateShort = isoCode.contains('-')
         ? isoCode.split('-').last.trim()
         : isoCode;
-
-    debugPrint('[_resolveUSState] state="$stateFull", isoCode="$isoCode", stateShort="$stateShort"');
 
     if (stateFull.isEmpty && stateShort.isEmpty) {
       return null;
@@ -533,18 +512,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     final countryId = billing ? _countryBId : _countryDId;
     final postalCode = billing ? _postalCodeBControl.text : _postalCodeDControl.text;
 
-    debugPrint('[_updateState] billing=$billing, countryId="$countryId", postalCode="$postalCode"');
-
     String? resolvedState;
     if (_isGermany(countryId)) {
       resolvedState = await _resolveGermanState(postalCode);
     } else if (_isUSA(countryId)) {
       resolvedState = await _resolveUSState(postalCode);
-    } else {
-      debugPrint('[_updateState] Kein passender Länder-Handler für countryId="$countryId"');
     }
-
-    debugPrint('[_updateState] resolvedState="$resolvedState"');
 
     if (!mounted || resolvedState == null || resolvedState.isEmpty) {
       return;
@@ -830,300 +803,325 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     );
   }
 
+  Widget _buildAddressFields({required bool billing}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          billing ? 'Rechnungsadresse' : 'Lieferadresse',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: billing ? _careofBControl : _careofDControl,
+          focusNode: billing ? _careofBFocusNode : null,
+          decoration: const InputDecoration(labelText: '℅'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: billing ? _streetBControl : _streetDControl,
+          focusNode: billing ? _streetBFocusNode : null,
+          decoration: const InputDecoration(labelText: 'Straße (erforderlich)'),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: TextField(
+                controller: billing ? _houseNumberBControl : _houseNumberDControl,
+                focusNode: billing ? _houseNumberBFocusNode : null,
+                decoration: const InputDecoration(labelText: 'Hausnr.'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 1,
+              child: TextField(
+                controller: billing ? _postalCodeBControl : _postalCodeDControl,
+                focusNode: billing ? _postalCodeBFocusNode : _postalCodeDFocusNode,
+                decoration: const InputDecoration(labelText: 'PLZ (erforderlich)'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: billing ? _cityBControl : _cityDControl,
+          focusNode: billing ? _cityBFocusNode : null,
+          decoration: const InputDecoration(labelText: 'Stadt (erforderlich)'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: billing ? _stateBControl : _stateDControl,
+          focusNode: billing ? _stateBFocusNode : null,
+          decoration: const InputDecoration(labelText: 'Verwaltungseinheit'),
+        ),
+        const SizedBox(height: 12),
+        _buildCountryDropdown(
+          label: billing
+              ? 'Land (Rechnungsadresse, erforderlich)'
+              : 'Land (Lieferadresse, erforderlich)',
+          value: billing ? _countryBId : _countryDId,
+          controller: billing ? _countryBControl : _countryDControl,
+          onChanged: billing
+              ? (v) async {
+                  setState(() {
+                    _countryBId = v;
+                    _countryDId = v;
+                    _countryDControl.text = _countryNameForId(v);
+                  });
+                  await _updateStateFromCountryAndPostalCode(billing: true);
+                  await _updateStateFromCountryAndPostalCode(billing: false);
+                }
+              : (v) async {
+                  setState(() => _countryDId = v);
+                  await _updateStateFromCountryAndPostalCode(billing: false);
+                },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final isWide = screenSize.width >= 700;
     final title = _isEditing ? 'Kunde bearbeiten' : 'Neuer Kunde';
 
-    return AlertDialog(
-      title: Text(title),
-      content: SingleChildScrollView(
+    final addressSection = isWide
+        ? IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildAddressFields(billing: true)),
+                const SizedBox(width: 16),
+                const VerticalDivider(),
+                const SizedBox(width: 16),
+                Expanded(child: _buildAddressFields(billing: false)),
+              ],
+            ),
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildAddressFields(billing: true),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              _buildAddressFields(billing: false),
+            ],
+          );
+
+    return Dialog(
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isWide ? 40 : 12,
+        vertical: 16,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: isWide ? 900 : 500,
+          maxHeight: screenSize.height * 0.92,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
-              controller: _idControl,
-              enabled: !_isEditing,
-              decoration: const InputDecoration(labelText: 'ID (erforderlich)'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _firstNameControl,
-              decoration: const InputDecoration(labelText: 'Vorname (erforderlich)'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _lastNameControl,
-              inputFormatters: [FilteringTextInputFormatter.singleLineFormatter],
-              onChanged: (value) {
-                final upper = value.toUpperCase();
-                if (value != upper) {
-                  _lastNameControl.value = _lastNameControl.value.copyWith(
-                    text: upper,
-                    selection: TextSelection.collapsed(offset: upper.length),
-                  );
-                }
-              },
-              decoration: const InputDecoration(labelText: 'Nachname (erforderlich)'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _companyControl,
-              decoration: const InputDecoration(labelText: 'Firma'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                Row(
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Checkbox(
-                      value: _dealer,
-                      onChanged: (v) => setState(() => _dealer = v ?? false),
+                    TextField(
+                      controller: _idControl,
+                      enabled: !_isEditing,
+                      decoration: const InputDecoration(labelText: 'ID (erforderlich)'),
                     ),
-                    const Text('Reseller'),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _firstNameControl,
+                      decoration: const InputDecoration(labelText: 'Vorname (erforderlich)'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _lastNameControl,
+                      inputFormatters: [FilteringTextInputFormatter.singleLineFormatter],
+                      onChanged: (value) {
+                        final upper = value.toUpperCase();
+                        if (value != upper) {
+                          _lastNameControl.value = _lastNameControl.value.copyWith(
+                            text: upper,
+                            selection: TextSelection.collapsed(offset: upper.length),
+                          );
+                        }
+                      },
+                      decoration: const InputDecoration(labelText: 'Nachname (erforderlich)'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _companyControl,
+                      decoration: const InputDecoration(labelText: 'Firma'),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _dealer,
+                              onChanged: (v) => setState(() => _dealer = v ?? false),
+                            ),
+                            const Text('Reseller'),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _vat,
+                              onChanged: (v) => setState(() => _vat = v ?? false),
+                            ),
+                            const Text('keine MwSt'),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _vatIdControl,
+                      decoration: const InputDecoration(labelText: 'VAT-ID'),
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    addressSection,
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _mailControl,
+                      decoration: const InputDecoration(labelText: 'E-Mail'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _phoneControl,
+                      decoration: const InputDecoration(labelText: 'Telefon'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _webControl,
+                      decoration: const InputDecoration(labelText: 'Website'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _socialMediaControl,
+                      decoration: const InputDecoration(labelText: 'Social Media'),
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Koordinaten',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _isFetchingCoordinates ? null : _fetchCoordinates,
+                      icon: _isFetchingCoordinates
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.location_on_outlined),
+                      label: const Text('Koordinaten aus Lieferadresse ermitteln'),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _latControl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true, signed: true),
+                            decoration: const InputDecoration(labelText: 'Breitengrad (Lat)'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _longControl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true, signed: true),
+                            decoration: const InputDecoration(labelText: 'Längengrad (Long)'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _noteControl,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Notiz',
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_isEditing &&
+                        widget.customer?.cLastModified != null &&
+                        widget.customer!.cLastModified > 0)
+                      InputDecorator(
+                        decoration: const InputDecoration(labelText: 'Zuletzt geändert'),
+                        child: Text(
+                          () {
+                            final dt = DateTime.fromMillisecondsSinceEpoch(
+                                widget.customer!.cLastModified * 1000);
+                            return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+                          }(),
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
                   ],
                 ),
-                Row(
-                  children: [
-                    Checkbox(
-                      value: _vat,
-                      onChanged: (v) => setState(() => _vat = v ?? false),
-                    ),
-                    const Text('keine MwSt'),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _vatIdControl,
-              decoration: const InputDecoration(labelText: 'VAT-ID'),
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text(
-              'Rechnungsadresse',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _careofBControl,
-              focusNode: _careofBFocusNode,
-              decoration: const InputDecoration(labelText: '℅'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _streetBControl,
-              focusNode: _streetBFocusNode,
-              decoration: const InputDecoration(labelText: 'Straße (erforderlich)'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _houseNumberBControl,
-                    focusNode: _houseNumberBFocusNode,
-                    decoration: const InputDecoration(labelText: 'Hausnr.'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 1,
-                  child: TextField(
-                    controller: _postalCodeBControl,
-                    focusNode: _postalCodeBFocusNode,
-                    decoration: const InputDecoration(labelText: 'PLZ (erforderlich)'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _cityBControl,
-              focusNode: _cityBFocusNode,
-              decoration: const InputDecoration(labelText: 'Stadt (erforderlich)'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _stateBControl,
-              focusNode: _stateBFocusNode,
-              decoration: const InputDecoration(labelText: 'Verwaltungseinheit'),
-            ),
-            const SizedBox(height: 12),
-            _buildCountryDropdown(
-              label: 'Land (Rechnungsadresse, erforderlich)',
-              value: _countryBId,
-              controller: _countryBControl,
-              onChanged: (v) async {
-                setState(() {
-                  _countryBId = v;
-                  _countryDId = v;
-                  _countryDControl.text = _countryNameForId(v);
-                });
-                await _updateStateFromCountryAndPostalCode(billing: true);
-                await _updateStateFromCountryAndPostalCode(billing: false);
-              },
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text(
-              'Lieferadresse',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _careofDControl,
-              decoration: const InputDecoration(labelText: '℅'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _streetDControl,
-              decoration: const InputDecoration(labelText: 'Straße (erforderlich)'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _houseNumberDControl,
-                    decoration: const InputDecoration(labelText: 'Hausnr.'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 1,
-                  child: TextField(
-                    controller: _postalCodeDControl,
-                    focusNode: _postalCodeDFocusNode,
-                    decoration: const InputDecoration(labelText: 'PLZ (erforderlich)'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _cityDControl,
-              decoration: const InputDecoration(labelText: 'Stadt (erforderlich)'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _stateDControl,
-              decoration: const InputDecoration(labelText: 'Verwaltungseinheit'),
-            ),
-            const SizedBox(height: 12),
-            _buildCountryDropdown(
-              label: 'Land (Lieferadresse, erforderlich)',
-              value: _countryDId,
-              controller: _countryDControl,
-              onChanged: (v) async {
-                setState(() => _countryDId = v);
-                await _updateStateFromCountryAndPostalCode(billing: false);
-              },
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _mailControl,
-              decoration: const InputDecoration(labelText: 'E-Mail'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _phoneControl,
-              decoration: const InputDecoration(labelText: 'Telefon'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _webControl,
-              decoration: const InputDecoration(labelText: 'Website'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _socialMediaControl,
-              decoration: const InputDecoration(labelText: 'Social Media'),
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text(
-              'Koordinaten',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _isFetchingCoordinates ? null : _fetchCoordinates,
-              icon: _isFetchingCoordinates
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.location_on_outlined),
-              label: const Text('Koordinaten aus Lieferadresse ermitteln'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _latControl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                    decoration: const InputDecoration(labelText: 'Breitengrad (Lat)'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _longControl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                    decoration: const InputDecoration(labelText: 'Längengrad (Long)'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _noteControl,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: 'Notiz',
-                alignLabelWithHint: true,
               ),
             ),
-            const SizedBox(height: 12),
-            if (_isEditing && widget.customer?.cLastModified != null && widget.customer!.cLastModified > 0)
-              InputDecorator(
-                decoration: const InputDecoration(labelText: 'Zuletzt geändert'),
-                child: Text(
-                  () {
-                    final dt = DateTime.fromMillisecondsSinceEpoch(widget.customer!.cLastModified * 1000);
-                    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
-                  }(),
-                  style: const TextStyle(fontSize: 14),
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: OverflowBar(
+                alignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Abbrechen'),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      final navigator = Navigator.of(context);
+                      if (await _validateForm()) {
+                        if (!mounted) return;
+                        navigator.pop(_buildCustomer());
+                      }
+                    },
+                    child: Text(_isEditing ? 'Aktualisieren' : 'Erstellen'),
+                  ),
+                ],
               ),
+            ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Abbrechen'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            final navigator = Navigator.of(context);
-            if (await _validateForm()) {
-              if (!mounted) return;
-              navigator.pop(_buildCustomer());
-            }
-          },
-          child: Text(_isEditing ? 'Aktualisieren' : 'Erstellen'),
-        ),
-      ],
     );
   }
 }
