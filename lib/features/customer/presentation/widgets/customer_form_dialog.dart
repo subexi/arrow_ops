@@ -369,47 +369,89 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     return '$stateShort - $stateFull';
   }
 
-  Future<void> _fetchCoordinates() async {
-    final parts = [
-      _streetDControl.text.trim(),
-      _houseNumberDControl.text.trim(),
-      _postalCodeDControl.text.trim(),
-      _cityDControl.text.trim(),
-      _countryNameForId(_countryDId),
-    ].where((s) => s.isNotEmpty && s != '-').toList();
+  /// Wandelt Länder-TLDs in ISO-3166-Alpha-2-Codes um (für Nominatim countrycodes).
+  String _tldToIso(String tld) {
+    const mapping = <String, String>{
+      'uk': 'gb', // .uk TLD → GB (United Kingdom)
+      'ac': 'sh', // Ascension Island → Saint Helena (ISO)
+      'eu': '',   // EU-TLD → kein Ländercode
+    };
+    return mapping[tld] ?? tld;
+  }
 
-    if (parts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+  Future<void> _fetchCoordinates() async {
+    final rawCode = _countryDId?.trim().toLowerCase() ?? '';
+    final countryCode = _tldToIso(rawCode);
+    final countryName = _countryNameForId(_countryDId);
+
+    final street = _streetDControl.text.trim();
+    final houseNumber = _houseNumberDControl.text.trim();
+    final postalCode = _postalCodeDControl.text.trim();
+    final city = _cityDControl.text.trim();
+
+    // Straßenname + Hausnummer kombinieren (Hausnummer voran, internationaler Standard)
+    final streetWithNumber = [
+      if (houseNumber.isNotEmpty && houseNumber != '-') houseNumber,
+      if (street.isNotEmpty) street,
+    ].join(' ');
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (streetWithNumber.trim().isEmpty && postalCode.isEmpty && city.isEmpty) {
+      messenger.showSnackBar(
         const SnackBar(content: Text('Lieferadresse ist unvollständig.')),
       );
       return;
     }
 
-    final address = parts.join(', ');
     setState(() => _isFetchingCoordinates = true);
 
     try {
-      final uri = Uri.https(
-        'nominatim.openstreetmap.org',
-        '/search',
-        {'q': address, 'format': 'json', 'limit': '1'},
-      );
-      final response = await http.get(uri, headers: {'User-Agent': 'arrow_ops/1.0'});
+      // 1. Versuch: strukturierte Nominatim-API (präziser bei Hausnummern)
+      final structuredParams = <String, String>{
+        'format': 'json',
+        'limit': '1',
+        'addressdetails': '0',
+      };
+      if (streetWithNumber.isNotEmpty) structuredParams['street'] = streetWithNumber;
+      if (postalCode.isNotEmpty) structuredParams['postalcode'] = postalCode;
+      if (city.isNotEmpty) structuredParams['city'] = city;
+      if (countryCode.isNotEmpty) {
+        structuredParams['countrycodes'] = countryCode;
+      } else if (countryName.isNotEmpty) {
+        structuredParams['country'] = countryName;
+      }
+
+      var results = await _nominatimSearch(structuredParams);
+
+      // 2. Fallback: freie Suche (besser bei unvollständigen Adressen)
+      if (results.isEmpty) {
+        final freeParts = [
+          streetWithNumber,
+          if (postalCode.isNotEmpty) postalCode,
+          if (city.isNotEmpty) city,
+          if (countryCode.isEmpty && countryName.isNotEmpty) countryName,
+        ].where((s) => s.isNotEmpty).toList();
+
+        final freeParams = <String, String>{
+          'q': freeParts.join(', '),
+          'format': 'json',
+          'limit': '1',
+        };
+        if (countryCode.isNotEmpty) freeParams['countrycodes'] = countryCode;
+
+        results = await _nominatimSearch(freeParams);
+      }
 
       if (!mounted) return;
 
-      if (response.statusCode != 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fehler bei der Anfrage: ${response.statusCode}')),
-        );
-        return;
-      }
-
-      final results = jsonDecode(response.body) as List<dynamic>;
       if (results.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        final displayAddr = [streetWithNumber, postalCode, city, if (countryCode.isEmpty) countryName]
+            .where((s) => s.isNotEmpty)
+            .join(', ');
+        messenger.showSnackBar(
           SnackBar(
-            content: Text('Keine Koordinaten gefunden für:\n$address'),
+            content: Text('Keine Koordinaten gefunden für:\n$displayAddr'),
             duration: const Duration(seconds: 6),
           ),
         );
@@ -417,13 +459,11 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       }
 
       final first = results[0] as Map<String, dynamic>;
-      final latRaw = first['lat']?.toString();
-      final lonRaw = first['lon']?.toString();
-      final lat = latRaw == null ? null : double.tryParse(latRaw);
-      final lon = lonRaw == null ? null : double.tryParse(lonRaw);
+      final lat = double.tryParse(first['lat']?.toString() ?? '');
+      final lon = double.tryParse(first['lon']?.toString() ?? '');
 
       if (lat == null || lon == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Koordinaten konnten nicht aus lat/lon gelesen werden.')),
         );
         return;
@@ -435,11 +475,22 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fehler: $e')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Fehler: $e')));
     } finally {
       if (mounted) setState(() => _isFetchingCoordinates = false);
+    }
+  }
+
+  Future<List<dynamic>> _nominatimSearch(Map<String, String> params) async {
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', params);
+      final response = await http.get(uri, headers: {'User-Agent': 'arrow_ops/1.0'});
+      if (response.statusCode != 200) return [];
+      final results = jsonDecode(response.body);
+      if (results is List) return results;
+      return [];
+    } catch (_) {
+      return [];
     }
   }
 
