@@ -50,15 +50,28 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   late final TextEditingController _countryBControl;
   late final TextEditingController _countryDControl;
   late final FocusNode _careofBFocusNode;
+  late final FocusNode _careofDFocusNode;
   late final FocusNode _streetBFocusNode;
   late final FocusNode _houseNumberBFocusNode;
   late final FocusNode _postalCodeBFocusNode;
   late final FocusNode _postalCodeDFocusNode;
   late final FocusNode _cityBFocusNode;
   late final FocusNode _stateBFocusNode;
+  late final FocusNode _stateDFocusNode;
+  late final FocusNode _companyFocusNode;
+  late final FocusNode _vatIdFocusNode;
+  late final FocusNode _mailFocusNode;
+  late final FocusNode _phoneFocusNode;
+  late final FocusNode _webFocusNode;
+  late final FocusNode _socialMediaFocusNode;
+  late final FocusNode _noteFocusNode;
+  late final FocusNode _countryBFocusNode;
+  late final FocusNode _countryDFocusNode;
 
   String? _countryBId;
   String? _countryDId;
+  String? _countryBIdOnFocus;
+  String? _countryDIdOnFocus;
   late bool _dealer;
   late bool _vat;
   late bool _isEditing;
@@ -100,6 +113,34 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     focusNode.addListener(() {
       if (!focusNode.hasFocus) {
         target.text = source.text;
+      }
+    });
+  }
+
+  void _handleDashPlaceholderOnFocusChange({
+    required FocusNode focusNode,
+    required TextEditingController controller,
+    TextEditingController? mirrorOnBlur,
+  }) {
+    focusNode.addListener(() {
+      if (focusNode.hasFocus) {
+        if (controller.text.trim() == '-') {
+          controller.clear();
+        }
+        return;
+      }
+
+      final trimmed = controller.text.trim();
+      final normalized = trimmed.isEmpty ? '-' : trimmed;
+      if (controller.text != normalized) {
+        controller.value = controller.value.copyWith(
+          text: normalized,
+          selection: TextSelection.collapsed(offset: normalized.length),
+          composing: TextRange.empty,
+        );
+      }
+      if (mirrorOnBlur != null) {
+        mirrorOnBlur.text = normalized;
       }
     });
   }
@@ -146,11 +187,22 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _postalCodeBFocusNode = FocusNode();
     _cityBFocusNode = FocusNode();
     _stateBFocusNode = FocusNode();
+    _careofDFocusNode = FocusNode();
+    _stateDFocusNode = FocusNode();
+    _companyFocusNode = FocusNode();
+    _vatIdFocusNode = FocusNode();
+    _mailFocusNode = FocusNode();
+    _phoneFocusNode = FocusNode();
+    _webFocusNode = FocusNode();
+    _socialMediaFocusNode = FocusNode();
+    _noteFocusNode = FocusNode();
+    _countryBFocusNode = FocusNode();
+    _countryDFocusNode = FocusNode();
 
-    _syncOnBlur(
+    _handleDashPlaceholderOnFocusChange(
       focusNode: _careofBFocusNode,
-      source: _careofBControl,
-      target: _careofDControl,
+      controller: _careofBControl,
+      mirrorOnBlur: _careofDControl,
     );
     _syncOnBlur(
       focusNode: _streetBFocusNode,
@@ -179,15 +231,74 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         _updateStateFromCountryAndPostalCode(billing: false);
       }
     });
+    _countryBFocusNode.addListener(() {
+      if (_countryBFocusNode.hasFocus) {
+        _countryBIdOnFocus = _countryBId;
+        return;
+      }
+
+      _countryBControl.text = _countryNameForId(_countryBId);
+      if (_countryBId != _countryBIdOnFocus) {
+        _updateStateFromCountryAndPostalCode(billing: true);
+        _updateStateFromCountryAndPostalCode(billing: false);
+      }
+    });
+    _countryDFocusNode.addListener(() {
+      if (_countryDFocusNode.hasFocus) {
+        _countryDIdOnFocus = _countryDId;
+        return;
+      }
+
+      _countryDControl.text = _countryNameForId(_countryDId);
+      if (_countryDId != _countryDIdOnFocus) {
+        _updateStateFromCountryAndPostalCode(billing: false);
+      }
+    });
     _syncOnBlur(
       focusNode: _cityBFocusNode,
       source: _cityBControl,
       target: _cityDControl,
     );
-    _syncOnBlur(
+    _handleDashPlaceholderOnFocusChange(
       focusNode: _stateBFocusNode,
-      source: _stateBControl,
-      target: _stateDControl,
+      controller: _stateBControl,
+      mirrorOnBlur: _stateDControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _careofDFocusNode,
+      controller: _careofDControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _stateDFocusNode,
+      controller: _stateDControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _companyFocusNode,
+      controller: _companyControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _vatIdFocusNode,
+      controller: _vatIdControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _mailFocusNode,
+      controller: _mailControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _phoneFocusNode,
+      controller: _phoneControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _webFocusNode,
+      controller: _webControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _socialMediaFocusNode,
+      controller: _socialMediaControl,
+    );
+    _handleDashPlaceholderOnFocusChange(
+      focusNode: _noteFocusNode,
+      controller: _noteControl,
     );
 
     final lat = double.tryParse(_latControl.text) ?? 0;
@@ -226,12 +337,23 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _countryBControl.dispose();
     _countryDControl.dispose();
     _careofBFocusNode.dispose();
+    _careofDFocusNode.dispose();
     _streetBFocusNode.dispose();
     _houseNumberBFocusNode.dispose();
     _postalCodeBFocusNode.dispose();
     _postalCodeDFocusNode.dispose();
     _cityBFocusNode.dispose();
     _stateBFocusNode.dispose();
+    _stateDFocusNode.dispose();
+    _companyFocusNode.dispose();
+    _vatIdFocusNode.dispose();
+    _mailFocusNode.dispose();
+    _phoneFocusNode.dispose();
+    _webFocusNode.dispose();
+    _socialMediaFocusNode.dispose();
+    _noteFocusNode.dispose();
+    _countryBFocusNode.dispose();
+    _countryDFocusNode.dispose();
     super.dispose();
   }
 
@@ -742,6 +864,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     required String label,
     required String? value,
     required TextEditingController controller,
+    required FocusNode focusNode,
     required ValueChanged<String?> onChanged,
   }) {
     final countries = widget.countries;
@@ -761,6 +884,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
     return DropdownMenu<String>(
       controller: controller,
+      focusNode: focusNode,
       initialSelection: value,
       width: 360,
       expandedInsets: EdgeInsets.zero,
@@ -815,7 +939,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         const SizedBox(height: 12),
         TextField(
           controller: billing ? _careofBControl : _careofDControl,
-          focusNode: billing ? _careofBFocusNode : null,
+          focusNode: billing ? _careofBFocusNode : _careofDFocusNode,
           decoration: const InputDecoration(labelText: '℅'),
         ),
         const SizedBox(height: 12),
@@ -855,7 +979,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         const SizedBox(height: 12),
         TextField(
           controller: billing ? _stateBControl : _stateDControl,
-          focusNode: billing ? _stateBFocusNode : null,
+          focusNode: billing ? _stateBFocusNode : _stateDFocusNode,
           decoration: const InputDecoration(labelText: 'Verwaltungseinheit'),
         ),
         const SizedBox(height: 12),
@@ -865,19 +989,17 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
               : 'Land (Lieferadresse, erforderlich)',
           value: billing ? _countryBId : _countryDId,
           controller: billing ? _countryBControl : _countryDControl,
+          focusNode: billing ? _countryBFocusNode : _countryDFocusNode,
           onChanged: billing
-              ? (v) async {
+              ? (v) {
                   setState(() {
                     _countryBId = v;
                     _countryDId = v;
                     _countryDControl.text = _countryNameForId(v);
                   });
-                  await _updateStateFromCountryAndPostalCode(billing: true);
-                  await _updateStateFromCountryAndPostalCode(billing: false);
                 }
-              : (v) async {
+              : (v) {
                   setState(() => _countryDId = v);
-                  await _updateStateFromCountryAndPostalCode(billing: false);
                 },
         ),
       ],
@@ -968,6 +1090,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _companyControl,
+                      focusNode: _companyFocusNode,
                       decoration: const InputDecoration(labelText: 'Firma'),
                     ),
                     const SizedBox(height: 12),
@@ -997,6 +1120,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _vatIdControl,
+                      focusNode: _vatIdFocusNode,
                       decoration: const InputDecoration(labelText: 'VAT-ID'),
                     ),
                     const SizedBox(height: 16),
@@ -1008,21 +1132,25 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     const SizedBox(height: 8),
                     TextField(
                       controller: _mailControl,
+                      focusNode: _mailFocusNode,
                       decoration: const InputDecoration(labelText: 'E-Mail'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _phoneControl,
+                      focusNode: _phoneFocusNode,
                       decoration: const InputDecoration(labelText: 'Telefon'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _webControl,
+                      focusNode: _webFocusNode,
                       decoration: const InputDecoration(labelText: 'Website'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _socialMediaControl,
+                      focusNode: _socialMediaFocusNode,
                       decoration: const InputDecoration(labelText: 'Social Media'),
                     ),
                     const SizedBox(height: 16),
@@ -1071,6 +1199,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     const SizedBox(height: 8),
                     TextField(
                       controller: _noteControl,
+                      focusNode: _noteFocusNode,
                       maxLines: 4,
                       decoration: const InputDecoration(
                         labelText: 'Notiz',

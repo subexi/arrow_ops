@@ -148,6 +148,31 @@ class CustomerRepository {
         .toList();
   }
 
+  Future<int> deleteCountriesByCodes(List<String> rawCodes) async {
+    final codes = rawCodes
+        .map((code) => code.trim().toLowerCase())
+        .where((code) => code.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (codes.isEmpty) {
+      return 0;
+    }
+
+    final db = await AppDatabase.instance.database;
+    return db.transaction((txn) async {
+      var deleted = 0;
+      for (final code in codes) {
+        deleted += await txn.delete(
+          'country_tld',
+          where: 'co_tld = ?',
+          whereArgs: [code],
+        );
+      }
+      return deleted;
+    });
+  }
+
   Set<String> _collectCountryCodes(List<Customer> customers) {
     final codes = <String>{};
 
