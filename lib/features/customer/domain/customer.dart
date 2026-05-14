@@ -116,14 +116,14 @@ class Customer {
       cPostalCodeB: _str(row['c_postal_code_b']),
       cCityB: _str(row['c_city_b']),
       cStateB: _str(row['c_state_b'], fallback: '-'),
-      cCountryBId: _nullableStr(row['c_country_b_id']),
+      cCountryBId: _normalizeCountryCode(_nullableStr(row['c_country_b_id'])),
       cCareofD: _str(row['c_careof_d'], fallback: '-'),
       cStreetD: _str(row['c_street_d']),
       cHouseNumberD: _str(row['c_house_number_d']),
       cPostalCodeD: _str(row['c_postal_code_d']),
       cCityD: _str(row['c_city_d']),
       cStateD: _str(row['c_state_d'], fallback: '-'),
-      cCountryDId: _nullableStr(row['c_country_d_id']),
+      cCountryDId: _normalizeCountryCode(_nullableStr(row['c_country_d_id'])),
       cMail: _str(row['c_mail'], fallback: '-'),
       cPhone: _str(row['c_phone'], fallback: '-'),
       cWeb: _str(row['c_web'], fallback: '-'),
@@ -171,6 +171,17 @@ class Customer {
       'c_total_value_usd': cTotalValueUsd,
       'c_last_modified': cLastModified,
     };
+  }
+
+  static String? _normalizeCountryCode(String? code) {
+    if (code == null || code.isEmpty) {
+      return null;
+    }
+    final normalized = code.trim().toLowerCase();
+    if (normalized == '-') {
+      return null;
+    }
+    return normalized;
   }
 
   static String _str(Object? value, {String fallback = ''}) {

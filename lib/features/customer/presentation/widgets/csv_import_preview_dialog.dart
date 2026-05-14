@@ -7,10 +7,12 @@ class CsvImportPreviewDialog extends StatelessWidget {
     super.key,
     required this.customers,
     required this.onConfirm,
+    this.replaceExisting = false,
   });
 
   final List<Customer> customers;
-  final VoidCallback onConfirm;
+  final Future<void> Function() onConfirm;
+  final bool replaceExisting;
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +60,22 @@ class CsvImportPreviewDialog extends StatelessWidget {
                             color: Colors.grey[600],
                           ),
                     ),
+                    if (replaceExisting) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          border: Border.all(color: Colors.orange.shade300),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Achtung: Beim Import werden alle vorhandenen Kundendaten gelöscht.',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -105,11 +123,39 @@ class CsvImportPreviewDialog extends StatelessWidget {
                   ),
                   FilledButton(
                     onPressed: () async {
-                      Navigator.of(context).pop();
+                      final navigator = Navigator.of(context);
+
+                      if (replaceExisting) {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) => AlertDialog(
+                            title: const Text('Löschen wirklich durchführen?'),
+                            content: const Text(
+                              'Alle bestehenden Kundendatensätze werden vor dem Import gelöscht. Dieser Schritt kann nicht rückgängig gemacht werden.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(dialogContext).pop(false),
+                                child: const Text('Abbrechen'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.of(dialogContext).pop(true),
+                                child: const Text('Endgültig löschen'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirmed != true) {
+                          return;
+                        }
+                      }
+
+                      navigator.pop();
                       await Future.delayed(const Duration(milliseconds: 100));
-                      onConfirm();
+                      await onConfirm();
                     },
-                    child: const Text('Importieren'),
+                    child: Text(replaceExisting ? 'Löschen und importieren' : 'Importieren'),
                   ),
                 ],
               ),

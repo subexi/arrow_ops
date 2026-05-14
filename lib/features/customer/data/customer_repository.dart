@@ -140,6 +140,11 @@ class CustomerRepository {
     );
   }
 
+  Future<int> deleteAllCustomers() async {
+    final db = await AppDatabase.instance.database;
+    return db.delete('customer');
+  }
+
   Future<List<CountryTld>> getAllCountries() async {
     final db = await AppDatabase.instance.database;
     final rows = await db.query('country_tld', orderBy: 'co_tld ASC');

@@ -8,6 +8,8 @@ import '../../../../core/database/app_database.dart';
 import '../../domain/country_tld.dart';
 import '../../domain/customer.dart';
 
+enum _DialogSnackBarType { validation, info, warning, error }
+
 class CustomerFormDialog extends StatefulWidget {
   const CustomerFormDialog({
     super.key,
@@ -23,6 +25,65 @@ class CustomerFormDialog extends StatefulWidget {
 }
 
 class _CustomerFormDialogState extends State<CustomerFormDialog> {
+  final GlobalKey<ScaffoldMessengerState> _dialogMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
+  void _showDialogSnackBar(
+    String message, {
+    _DialogSnackBarType type = _DialogSnackBarType.info,
+  }) {
+    final messenger = _dialogMessengerKey.currentState ?? ScaffoldMessenger.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    final duration = switch (type) {
+      _DialogSnackBarType.validation => const Duration(seconds: 2),
+      _DialogSnackBarType.info => const Duration(seconds: 3),
+      _DialogSnackBarType.warning => const Duration(seconds: 4),
+      _DialogSnackBarType.error => const Duration(seconds: 5),
+    };
+
+    final iconData = switch (type) {
+      _DialogSnackBarType.validation => Icons.rule_folder_outlined,
+      _DialogSnackBarType.info => Icons.info_outline,
+      _DialogSnackBarType.warning => Icons.warning_amber_rounded,
+      _DialogSnackBarType.error => Icons.error_outline,
+    };
+
+    final backgroundColor = switch (type) {
+      _DialogSnackBarType.validation => colorScheme.secondaryContainer,
+      _DialogSnackBarType.info => colorScheme.primaryContainer,
+      _DialogSnackBarType.warning => Colors.amber.shade200,
+      _DialogSnackBarType.error => colorScheme.errorContainer,
+    };
+
+    final foregroundColor = switch (type) {
+      _DialogSnackBarType.validation => colorScheme.onSecondaryContainer,
+      _DialogSnackBarType.info => colorScheme.onPrimaryContainer,
+      _DialogSnackBarType.warning => Colors.brown.shade900,
+      _DialogSnackBarType.error => colorScheme.onErrorContainer,
+    };
+
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: backgroundColor,
+          content: Row(
+            children: [
+              Icon(iconData, color: foregroundColor, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(color: foregroundColor),
+                ),
+              ),
+            ],
+          ),
+          duration: duration,
+        ),
+      );
+  }
+
   late final TextEditingController _idControl;
   late final TextEditingController _lastNameControl;
   late final TextEditingController _firstNameControl;
@@ -496,12 +557,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       if (street.isNotEmpty) street,
     ].join(' ');
 
-    final messenger = ScaffoldMessenger.of(context);
-
     if (streetWithNumber.trim().isEmpty && postalCode.isEmpty && city.isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Lieferadresse ist unvollständig.')),
-      );
+      _showDialogSnackBar('Lieferadresse ist unvollständig.', type: _DialogSnackBarType.validation);
       return;
     }
 
@@ -550,11 +607,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         final displayAddr = [streetWithNumber, postalCode, city, if (countryCode.isEmpty) countryName]
             .where((s) => s.isNotEmpty)
             .join(', ');
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('Keine Koordinaten gefunden für:\n$displayAddr'),
-            duration: const Duration(seconds: 6),
-          ),
+        _showDialogSnackBar(
+          'Keine Koordinaten gefunden für:\n$displayAddr',
+          type: _DialogSnackBarType.warning,
         );
         return;
       }
@@ -564,8 +619,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       final lon = double.tryParse(first['lon']?.toString() ?? '');
 
       if (lat == null || lon == null) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Koordinaten konnten nicht aus lat/lon gelesen werden.')),
+        _showDialogSnackBar(
+          'Koordinaten konnten nicht aus lat/lon gelesen werden.',
+          type: _DialogSnackBarType.error,
         );
         return;
       }
@@ -576,7 +632,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       });
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Fehler: $e')));
+      _showDialogSnackBar('Fehler: $e', type: _DialogSnackBarType.error);
     } finally {
       if (mounted) setState(() => _isFetchingCoordinates = false);
     }
@@ -655,81 +711,63 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   }
 
   Future<bool> _validateForm() async {
-    final messenger = ScaffoldMessenger.of(context);
     final cId = _idControl.text.trim();
     final idValidationError = _validateId(cId);
     if (idValidationError != null) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(idValidationError)),
-      );
+      _showDialogSnackBar(idValidationError, type: _DialogSnackBarType.validation);
       return false;
     }
     if (_firstNameControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Vorname erforderlich')),
-      );
+      _showDialogSnackBar('Vorname erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (!_firstNameControl.text.trim().replaceAll(' ', '').split('').every((c) => RegExp(r'[a-zA-ZÀ-ÖØ-öø-ÿ]').hasMatch(c))) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Vorname darf nur Buchstaben und Leerzeichen enthalten.')),
-
+      _showDialogSnackBar(
+        'Vorname darf nur Buchstaben und Leerzeichen enthalten.',
+        type: _DialogSnackBarType.validation,
       );
       return false;
     }
     if (_lastNameControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Nachname erforderlich')),
-      );
+      _showDialogSnackBar('Nachname erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (!_lastNameControl.text.trim().replaceAll(' ', '').split('').every((c) => RegExp(r'[a-zA-ZÀ-ÖØ-öø-ÿ]').hasMatch(c))) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Nachname darf nur Buchstaben und Leerzeichen enthalten.')),
-
+      _showDialogSnackBar(
+        'Nachname darf nur Buchstaben und Leerzeichen enthalten.',
+        type: _DialogSnackBarType.validation,
       );
       return false;
     }
     if (_streetBControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Straße (Rechnungsadresse) erforderlich')),
-      );
+      _showDialogSnackBar('Straße (Rechnungsadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (_streetBControl.text.trim().length < 2) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Straßenname ist zu kurz.')),
-
-      );
+      _showDialogSnackBar('Straßenname ist zu kurz.', type: _DialogSnackBarType.validation);
       return false;
     }
     if (_postalCodeBControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('PLZ (Rechnungsadresse) erforderlich')),
-      );
+      _showDialogSnackBar('PLZ (Rechnungsadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (_cityBControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Stadt (Rechnungsadresse) erforderlich')),
-      );
+      _showDialogSnackBar('Stadt (Rechnungsadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     {
       final city = _cityBControl.text.trim();
       final stripped = city.replaceAll(' ', '').replaceAll('-', '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Stadt (Rechnungsadresse) muss mindestens 2 Buchstaben enthalten und darf nur alphabetische Zeichen enthalten.')),
-
+        _showDialogSnackBar(
+          'Stadt (Rechnungsadresse) muss mindestens 2 Buchstaben enthalten und darf nur alphabetische Zeichen enthalten.',
+          type: _DialogSnackBarType.validation,
         );
         return false;
       }
     }
     if (_countryBId == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Land (Rechnungsadresse) erforderlich')),
-      );
+      _showDialogSnackBar('Land (Rechnungsadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (_isGermany(_countryBId)) {
@@ -738,9 +776,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         if (!mounted) {
           return false;
         }
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Bitte eine gültige PLZ für die Rechnungsadresse eingeben.')),
-
+        _showDialogSnackBar(
+          'Bitte eine gültige PLZ für die Rechnungsadresse eingeben.',
+          type: _DialogSnackBarType.validation,
         );
         return false;
       }
@@ -755,38 +793,30 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       }
     }
     if (_streetDControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Straße (Lieferadresse) erforderlich')),
-      );
+      _showDialogSnackBar('Straße (Lieferadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (_postalCodeDControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('PLZ (Lieferadresse) erforderlich')),
-      );
+      _showDialogSnackBar('PLZ (Lieferadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (_cityDControl.text.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Stadt (Lieferadresse) erforderlich')),
-      );
+      _showDialogSnackBar('Stadt (Lieferadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     {
       final city = _cityDControl.text.trim();
       final stripped = city.replaceAll(' ', '').replaceAll('-', '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Stadt (Lieferadresse) muss mindestens 2 Buchstaben enthalten und darf nur alphabetische Zeichen enthalten.')),
-
+        _showDialogSnackBar(
+          'Stadt (Lieferadresse) muss mindestens 2 Buchstaben enthalten und darf nur alphabetische Zeichen enthalten.',
+          type: _DialogSnackBarType.validation,
         );
         return false;
       }
     }
     if (_countryDId == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Land (Lieferadresse) erforderlich')),
-      );
+      _showDialogSnackBar('Land (Lieferadresse) erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
     if (_isGermany(_countryDId)) {
@@ -795,9 +825,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         if (!mounted) {
           return false;
         }
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Bitte eine gültige PLZ für die Lieferadresse eingeben.')),
-
+        _showDialogSnackBar(
+          'Bitte eine gültige PLZ für die Lieferadresse eingeben.',
+          type: _DialogSnackBarType.validation,
         );
         return false;
       }
@@ -814,9 +844,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     final mail = _mailControl.text.trim();
     if (mail.isNotEmpty && mail != '-') {
       if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(mail)) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Bitte eine gültige E-Mail-Adresse eingeben.')),
-        );
+        _showDialogSnackBar('Bitte eine gültige E-Mail-Adresse eingeben.', type: _DialogSnackBarType.validation);
         return false;
       }
     }
@@ -1010,7 +1038,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final isWide = screenSize.width >= 700;
+    final isCompact = screenSize.width < 480;
     final title = _isEditing ? 'Kunde bearbeiten' : 'Neuer Kunde';
+    final horizontalSnackBarPadding = isCompact ? 10.0 : 16.0;
+    final topSnackBarPadding = isCompact ? 8.0 : 12.0;
+    final topSnackBarBottomMargin =
+        (screenSize.height * (isWide ? 0.72 : 0.66)).clamp(240.0, 640.0).toDouble();
 
     final addressSection = isWide
         ? IntrinsicHeight(
@@ -1042,15 +1075,36 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         horizontal: isWide ? 40 : 12,
         vertical: 16,
       ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: isWide ? 900 : 500,
-          maxHeight: screenSize.height * 0.92,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      child: ScaffoldMessenger(
+        key: _dialogMessengerKey,
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            snackBarTheme: SnackBarThemeData(
+              behavior: SnackBarBehavior.floating,
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(isCompact ? 10 : 12),
+              ),
+              contentTextStyle: Theme.of(context).textTheme.bodyMedium,
+              insetPadding: EdgeInsets.fromLTRB(
+                horizontalSnackBarPadding,
+                topSnackBarPadding,
+                horizontalSnackBarPadding,
+                topSnackBarBottomMargin,
+              ),
+            ),
+          ),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isWide ? 900 : 500,
+                maxHeight: screenSize.height * 0.92,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
               child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
@@ -1226,31 +1280,34 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: OverflowBar(
-                alignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Abbrechen'),
-                  ),
-                  FilledButton(
-                    onPressed: () async {
-                      final navigator = Navigator.of(context);
-                      if (await _validateForm()) {
-                        if (!mounted) return;
-                        navigator.pop(_buildCustomer());
-                      }
-                    },
-                    child: Text(_isEditing ? 'Aktualisieren' : 'Erstellen'),
-                  ),
-                ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: OverflowBar(
+                  alignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Abbrechen'),
+                    ),
+                    FilledButton(
+                      onPressed: () async {
+                        final navigator = Navigator.of(context);
+                        if (await _validateForm()) {
+                          if (!mounted) return;
+                          navigator.pop(_buildCustomer());
+                        }
+                      },
+                      child: Text(_isEditing ? 'Aktualisieren' : 'Erstellen'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
+    ),
+  ),
     );
   }
 }

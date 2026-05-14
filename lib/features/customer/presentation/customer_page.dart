@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -35,10 +36,12 @@ class _CustomerPageState extends State<CustomerPage> {
   final CountryCsvService _countryCsvService = CountryCsvService();
 
   late final TextEditingController _searchController;
+  Timer? _searchDebounce;
 
   bool _loading = false;
   List<Customer> _customers = const [];
   List<Customer> _filteredCustomers = const [];
+  List<String> _customerSearchIndex = const [];
   Map<String, String> _countryNameByCode = const {};
   String _databasePath = 'wird geladen...';
   int _sortColumnIndex = 0;
@@ -122,13 +125,14 @@ class _CustomerPageState extends State<CustomerPage> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    _searchController.addListener(_filterCustomers);
+    _searchController.addListener(_onSearchChanged);
     _loadDatabasePath();
     _loadCustomers();
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -158,14 +162,16 @@ class _CustomerPageState extends State<CustomerPage> {
       final countryNameByCode = <String, String>{
         for (final country in countries) country.coTld.toLowerCase(): country.coName,
       };
+      final customerSearchIndex = customers.map(_buildSearchIndex).toList(growable: false);
       if (!mounted) {
         return;
       }
       setState(() {
         _customers = customers;
+        _customerSearchIndex = customerSearchIndex;
         _countryNameByCode = countryNameByCode;
-        _filterCustomers();
       });
+      _filterCustomers();
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -173,27 +179,48 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 180), _filterCustomers);
+  }
+
+  String _buildSearchIndex(Customer c) {
+    return [
+      c.cId,
+      c.cLastName,
+      c.cFirstName,
+      c.cCompany,
+      c.cCityB,
+      c.cCityD,
+      c.cMail,
+      c.cPhone,
+      c.cStreetB,
+      c.cStreetD,
+      c.cPostalCodeB,
+      c.cPostalCodeD,
+      c.cCountryBId ?? '',
+      c.cCountryDId ?? '',
+    ].join('|').toLowerCase();
+  }
+
   void _filterCustomers() {
     final query = _searchController.text.toLowerCase().trim();
 
-    final filtered = query.isEmpty
-        ? List<Customer>.from(_customers)
-        : _customers.where((c) {
-            return c.cId.toLowerCase().contains(query) ||
-                c.cLastName.toLowerCase().contains(query) ||
-                c.cFirstName.toLowerCase().contains(query) ||
-                c.cCompany.toLowerCase().contains(query) ||
-                c.cCityB.toLowerCase().contains(query) ||
-                c.cCityD.toLowerCase().contains(query) ||
-                c.cMail.toLowerCase().contains(query) ||
-                c.cPhone.toLowerCase().contains(query) ||
-                c.cStreetB.toLowerCase().contains(query) ||
-                c.cStreetD.toLowerCase().contains(query) ||
-                c.cPostalCodeB.toLowerCase().contains(query) ||
-                c.cPostalCodeD.toLowerCase().contains(query) ||
-                (c.cCountryBId?.toLowerCase().contains(query) ?? false) ||
-                (c.cCountryDId?.toLowerCase().contains(query) ?? false);
-          }).toList();
+    List<Customer> filtered;
+    if (query.isEmpty) {
+      filtered = List<Customer>.from(_customers);
+    } else {
+      final results = <Customer>[];
+      final limit = _customers.length < _customerSearchIndex.length
+          ? _customers.length
+          : _customerSearchIndex.length;
+      for (var i = 0; i < limit; i++) {
+        if (_customerSearchIndex[i].contains(query)) {
+          results.add(_customers[i]);
+        }
+      }
+      filtered = results;
+    }
 
     _applyCurrentSort(filtered);
 
@@ -607,7 +634,7 @@ class _CustomerPageState extends State<CustomerPage> {
     return null;
   }
 
-  Future<void> _importCsv() async {
+  Future<void> _importCsv({bool replaceExisting = false}) async {
     setState(() => _loading = true);
     try {
       debugPrint('📂 Öffne FilePicker...');
@@ -633,7 +660,7 @@ class _CustomerPageState extends State<CustomerPage> {
           : await File(file.path!).readAsString();
 
       debugPrint('📖 Datei gelesen: ${content.length} Zeichen');
-      await _processImport(content);
+        await _processImport(content, replaceExisting: replaceExisting);
     } catch (error, stackTrace) {
       debugPrint('❌ FilePicker-Fehler: $error');
       debugPrint('📍 Stack: $stackTrace');
@@ -650,7 +677,35 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
-  Future<void> _processImport(String content) async {
+  Future<void> _importCsvWithReplacement() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Bestand vor Import löschen?'),
+        content: const Text(
+          'Der bestehende Kundenbestand wird vor dem Import vollständig gelöscht. Fortfahren?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Löschen und importieren'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await _importCsv(replaceExisting: true);
+  }
+
+  Future<void> _processImport(String content, {bool replaceExisting = false}) async {
     final customers = _csvService.importCustomers(content);
 
     if (!mounted) {
@@ -700,18 +755,25 @@ class _CustomerPageState extends State<CustomerPage> {
       context: context,
       builder: (context) => CsvImportPreviewDialog(
         customers: validCustomers,
+        replaceExisting: replaceExisting,
         onConfirm: () async {
-          await _performImport(validCustomers);
+          await _performImport(validCustomers, replaceExisting: replaceExisting);
         },
       ),
     );
   }
 
-  Future<void> _performImport(List<Customer> customers) async {
+  Future<void> _performImport(List<Customer> customers, {bool replaceExisting = false}) async {
     setState(() => _loading = true);
     try {
       debugPrint('🔄 Starte Import von ${customers.length} Kundendatensätzen...');
       debugPrint('📋 Erste Kundin: ${customers.isNotEmpty ? customers.first.cLastName : "keine"}');
+
+      var deleted = 0;
+      if (replaceExisting) {
+        deleted = await _repository.deleteAllCustomers();
+        debugPrint('🗑️ Vor Import wurden $deleted bestehende Kundendatensätze gelöscht');
+      }
       
       final inserted = await _repository.bulkUpsert(customers);
       
@@ -723,7 +785,13 @@ class _CustomerPageState extends State<CustomerPage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$inserted Kundendatensätze importiert.')),
+        SnackBar(
+          content: Text(
+            replaceExisting
+                ? '$inserted Kundendatensätze importiert, $deleted alte Datensätze gelöscht.'
+                : '$inserted Kundendatensätze importiert.',
+          ),
+        ),
       );
     } catch (error, stackTrace) {
       debugPrint('⚠️ Import-Fehler: $error');
@@ -1097,6 +1165,10 @@ class _CustomerPageState extends State<CustomerPage> {
                   onPressed: _loading ? null : _importCsv,
                   child: const Text('Customers als csv importieren'),
                 ),
+                MenuItemButton(
+                  onPressed: _loading ? null : _importCsvWithReplacement,
+                  child: const Text('Customers importieren (Bestand löschen)'),
+                ),
               ],
               child: const Text('Customer'),
             ),
@@ -1314,7 +1386,8 @@ class _CustomerPageState extends State<CustomerPage> {
                                       (c) => c.cId.toLowerCase(),
                                     ),
                                   ),
-                                  DataColumn(
+                                  DataColumn2(
+                                    fixedWidth: 190,
                                     label: const Text('Nachname'),
                                     onSort: (columnIndex, ascending) => _sortFilteredCustomers(
                                       columnIndex,
