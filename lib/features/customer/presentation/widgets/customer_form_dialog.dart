@@ -1268,13 +1268,18 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     CupertinoButton(
                       onPressed: _isFetchingCoordinates ? null : _fetchCoordinates,
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisSize: MainAxisSize.max,
                         children: [
                           _isFetchingCoordinates
                               ? const CupertinoActivityIndicator(radius: 8)
                               : const Icon(CupertinoIcons.location_solid, size: 18),
                           const SizedBox(width: 8),
-                          const Text('Koordinaten aus Lieferadresse ermitteln'),
+                          const Flexible(
+                            child: Text(
+                              'Koordinaten aus Lieferadresse ermitteln',
+                              softWrap: true,
+                            ),
+                          ),
                         ],
                       ),
                     ),

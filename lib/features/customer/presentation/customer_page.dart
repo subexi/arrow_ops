@@ -673,7 +673,7 @@ class _CustomerPageState extends State<CustomerPage> {
     final mapController = MapController();
     final screenSize = MediaQuery.of(context).size;
     final dialogWidth = (screenSize.width * 0.90).clamp(320.0, 1000.0);
-    final mapHeight = (screenSize.height * 0.65).clamp(300.0, 700.0);
+    final mapHeight = (screenSize.height * 0.50).clamp(250.0, 400.0);
 
     showDialog<void>(
       context: context,
@@ -899,10 +899,16 @@ class _CustomerPageState extends State<CustomerPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              SelectableText('Lat: $lat, Lon: $lon'),
               const SizedBox(height: 8),
-              SelectableText(mapUrl),
+              SelectableText('Lat: $lat, Lon: $lon'),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                child: SelectableText(
+                  mapUrl,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
             ],
           ),
         ),
