@@ -1,0 +1,44 @@
+COMM 0 SIZE 70
+  SAMPLE: DKImageGroupDataManagerObserver, DKImagePickerControllerAware, DKImagePickerControllerObserver, DKAssetGroupDetailVC.swift, DKAssetGroupListVC.swift, UICollectionViewDataSource, UICollectionViewDelegate, UITableViewCell
+
+COMM 1 SIZE 58
+  SAMPLE: DKPhotoGallery, .contentVCCanScrollToPreviousOrNext(), .currentContentVC(), .currentContentView(), .currentIndex(), .dismissGallery(), .handleSingleTap(), .hasIncrementalDataForLeft()
+
+COMM 2 SIZE 57
+  SAMPLE: SDImageCache, -applicationDidEnterBackground, -applicationWillTerminate, -_archivedDataWithImageforKey, -cachePathForKey, -calculateSizeWithCompletionBlock, -clearDiskOnCompletion, -clearMemory
+
+COMM 3 SIZE 54
+  SAMPLE: DKImageBaseManager, DKImageGroupDataManager, .collectionType(), .deinit(), .fetchAsset(), .fetchGroup(), .fetchGroups(), .fetchGroupThumbnail()
+
+COMM 4 SIZE 53
+  SAMPLE: ../../../core/database/database_path_config.dart, dart:async, ../data/country_csv_service.dart, ../data/customer_csv_service.dart, ../data/customer_repository.dart, customer_page.dart, package:data_table_2/data_table_2.dart, package:file_picker/file_picker.dart
+
+COMM 5 SIZE 50
+  SAMPLE: DKAssetGroupDetailCameraCell, .cellReuseIdentifier(), .init(), DKAssetGroupDetailImageCell, .cellReuseIdentifier(), .init(), DKImageCheckView, .init()
+
+COMM 6 SIZE 48
+  SAMPLE: SDAnimatedImageFrameProvider, -animatedImageData, -animatedImageDurationAtIndex, -animatedImageFrameAtIndex, -animatedImageFrameCount, -animatedImageLoopCount, -hash, -initWithProvidertransformer
+
+COMM 7 SIZE 43
+  SAMPLE: SDImageBaseTransformer, -init, -transformedImageWithImageforKey, -transformerKey, SDImageBlurTransformer, -transformedImageWithImageforKey, -transformerKey, -transformerWithRadius
+
+COMM 8 SIZE 43
+  SAMPLE: DKPhotoGalleryScrollView, .cellOrigin(), .cellRect(), .cellWidth(), .hitTest(), .init(), .insertAfter(), .insertBefore()
+
+COMM 9 SIZE 43
+  SAMPLE: Error, NSImage+SwiftyGif.swift, UIImage+SwiftyGif.swift, LocalizedError, GifLevelOfIntegrity, GifParseError, invalidFilename, noGifDictionary
+
+COMM 10 SIZE 42
+  SAMPLE: SDWebImageDownloader, -cancelAllDownloads, -canRequestImageForURL, -canRequestImageForURLoptionscontext, -createDownloaderOperationWithUrloptionscontext, -currentDownloadCount, -dealloc, -downloadImageWithURLcompleted
+
+COMM 11 SIZE 42
+  SAMPLE: DKImageBaseManagerObserver, DKImagePickerController, .add(), .cancelCurrentExportRequestIfNeeded(), .canSelect(), .clearSelectedAssetsCache(), .contains(), .createDefaultAssetFetchOptions()
+
+COMM 12 SIZE 41
+  SAMPLE: DKPhotoBasePreviewVC.swift, DKPhotoBasePreviewDataSource, DKPhotoBasePreviewVC, .centerContentView(), .contentSize(), .createContentView(), .defaultLongPressActions(), .defaultPreviewActions()
+
+COMM 13 SIZE 39
+  SAMPLE: SDAnimatedImage, -animatedImageData, -animatedImageDurationAtIndex, -animatedImageFormat, -animatedImageFrameAtIndex, -animatedImageFrameCount, -animatedImageLoopCount, -encodeWithCoder
+
+COMM 14 SIZE 35
+  SAMPLE: SDImageIOAnimatedCoder, -animatedImageData, -animatedImageDurationAtIndex, -animatedImageFrameAtIndex, -animatedImageFrameCount, -animatedImageLoopCount, -animatedImageUTType, -canDecodeFromData
