@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -965,50 +966,50 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
-        TextField(
+        _buildCupertinoField(
+          label: '℅',
           controller: billing ? _careofBControl : _careofDControl,
           focusNode: billing ? _careofBFocusNode : _careofDFocusNode,
-          decoration: const InputDecoration(labelText: '℅'),
         ),
         const SizedBox(height: 12),
-        TextField(
+        _buildCupertinoField(
+          label: 'Straße (erforderlich)',
           controller: billing ? _streetBControl : _streetDControl,
           focusNode: billing ? _streetBFocusNode : null,
-          decoration: const InputDecoration(labelText: 'Straße (erforderlich)'),
         ),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
               flex: 2,
-              child: TextField(
+              child: _buildCupertinoField(
+                label: 'Hausnr.',
                 controller: billing ? _houseNumberBControl : _houseNumberDControl,
                 focusNode: billing ? _houseNumberBFocusNode : null,
-                decoration: const InputDecoration(labelText: 'Hausnr.'),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               flex: 1,
-              child: TextField(
+              child: _buildCupertinoField(
+                label: 'PLZ (erforderlich)',
                 controller: billing ? _postalCodeBControl : _postalCodeDControl,
                 focusNode: billing ? _postalCodeBFocusNode : _postalCodeDFocusNode,
-                decoration: const InputDecoration(labelText: 'PLZ (erforderlich)'),
               ),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        TextField(
+        _buildCupertinoField(
+          label: 'Stadt (erforderlich)',
           controller: billing ? _cityBControl : _cityDControl,
           focusNode: billing ? _cityBFocusNode : null,
-          decoration: const InputDecoration(labelText: 'Stadt (erforderlich)'),
         ),
         const SizedBox(height: 12),
-        TextField(
+        _buildCupertinoField(
+          label: 'Verwaltungseinheit',
           controller: billing ? _stateBControl : _stateDControl,
           focusNode: billing ? _stateBFocusNode : _stateDFocusNode,
-          decoration: const InputDecoration(labelText: 'Verwaltungseinheit'),
         ),
         const SizedBox(height: 12),
         _buildCountryDropdown(
@@ -1029,6 +1030,55 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
               : (v) {
                   setState(() => _countryDId = v);
                 },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCupertinoField({
+    required String label,
+    required TextEditingController controller,
+    FocusNode? focusNode,
+    bool enabled = true,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+    ValueChanged<String>? onChanged,
+    int maxLines = 1,
+    bool alignLabelWithHint = false,
+  }) {
+    final titleStyle = CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        );
+    final fillColor = enabled
+        ? CupertinoColors.secondarySystemGroupedBackground.resolveFrom(context)
+        : CupertinoColors.systemGrey5.resolveFrom(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: titleStyle),
+        const SizedBox(height: 6),
+        CupertinoTextField(
+          controller: controller,
+          focusNode: focusNode,
+          enabled: enabled,
+          keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
+          onChanged: onChanged,
+          maxLines: maxLines,
+          padding: EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: alignLabelWithHint ? 10 : 12,
+          ),
+          decoration: BoxDecoration(
+            color: fillColor,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: CupertinoColors.systemGrey4.resolveFrom(context),
+              width: 0.8,
+            ),
+          ),
         ),
       ],
     );
@@ -1116,18 +1166,19 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'ID (erforderlich)',
                       controller: _idControl,
                       enabled: !_isEditing,
-                      decoration: const InputDecoration(labelText: 'ID (erforderlich)'),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'Vorname (erforderlich)',
                       controller: _firstNameControl,
-                      decoration: const InputDecoration(labelText: 'Vorname (erforderlich)'),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'Nachname (erforderlich)',
                       controller: _lastNameControl,
                       inputFormatters: [FilteringTextInputFormatter.singleLineFormatter],
                       onChanged: (value) {
@@ -1139,13 +1190,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                           );
                         }
                       },
-                      decoration: const InputDecoration(labelText: 'Nachname (erforderlich)'),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'Firma',
                       controller: _companyControl,
                       focusNode: _companyFocusNode,
-                      decoration: const InputDecoration(labelText: 'Firma'),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -1153,18 +1203,18 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                       children: [
                         Row(
                           children: [
-                            Checkbox(
+                            CupertinoSwitch(
                               value: _dealer,
-                              onChanged: (v) => setState(() => _dealer = v ?? false),
+                              onChanged: (v) => setState(() => _dealer = v),
                             ),
                             const Text('Reseller'),
                           ],
                         ),
                         Row(
                           children: [
-                            Checkbox(
+                            CupertinoSwitch(
                               value: _vat,
-                              onChanged: (v) => setState(() => _vat = v ?? false),
+                              onChanged: (v) => setState(() => _vat = v),
                             ),
                             const Text('keine MwSt'),
                           ],
@@ -1172,10 +1222,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'VAT-ID',
                       controller: _vatIdControl,
                       focusNode: _vatIdFocusNode,
-                      decoration: const InputDecoration(labelText: 'VAT-ID'),
                     ),
                     const SizedBox(height: 16),
                     const Divider(),
@@ -1184,28 +1234,28 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     const SizedBox(height: 16),
                     const Divider(),
                     const SizedBox(height: 8),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'E-Mail',
                       controller: _mailControl,
                       focusNode: _mailFocusNode,
-                      decoration: const InputDecoration(labelText: 'E-Mail'),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'Telefon',
                       controller: _phoneControl,
                       focusNode: _phoneFocusNode,
-                      decoration: const InputDecoration(labelText: 'Telefon'),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'Website',
                       controller: _webControl,
                       focusNode: _webFocusNode,
-                      decoration: const InputDecoration(labelText: 'Website'),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'Social Media',
                       controller: _socialMediaControl,
                       focusNode: _socialMediaFocusNode,
-                      decoration: const InputDecoration(labelText: 'Social Media'),
                     ),
                     const SizedBox(height: 16),
                     const Divider(),
@@ -1215,35 +1265,41 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    OutlinedButton.icon(
+                    CupertinoButton(
                       onPressed: _isFetchingCoordinates ? null : _fetchCoordinates,
-                      icon: _isFetchingCoordinates
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.location_on_outlined),
-                      label: const Text('Koordinaten aus Lieferadresse ermitteln'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _isFetchingCoordinates
+                              ? const CupertinoActivityIndicator(radius: 8)
+                              : const Icon(CupertinoIcons.location_solid, size: 18),
+                          const SizedBox(width: 8),
+                          const Text('Koordinaten aus Lieferadresse ermitteln'),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
+                          child: _buildCupertinoField(
+                            label: 'Breitengrad (Lat)',
                             controller: _latControl,
                             keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true, signed: true),
-                            decoration: const InputDecoration(labelText: 'Breitengrad (Lat)'),
+                              decimal: true,
+                              signed: true,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: TextField(
+                          child: _buildCupertinoField(
+                            label: 'Längengrad (Long)',
                             controller: _longControl,
                             keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true, signed: true),
-                            decoration: const InputDecoration(labelText: 'Längengrad (Long)'),
+                              decimal: true,
+                              signed: true,
+                            ),
                           ),
                         ),
                       ],
@@ -1251,22 +1307,29 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     const SizedBox(height: 16),
                     const Divider(),
                     const SizedBox(height: 8),
-                    TextField(
+                    _buildCupertinoField(
+                      label: 'Notiz',
                       controller: _noteControl,
                       focusNode: _noteFocusNode,
                       maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText: 'Notiz',
-                        alignLabelWithHint: true,
-                      ),
+                      alignLabelWithHint: true,
                     ),
                     const SizedBox(height: 12),
                     if (_isEditing &&
                         widget.customer?.cLastModified != null &&
                         widget.customer!.cLastModified > 0)
-                      InputDecorator(
-                        decoration: const InputDecoration(labelText: 'Zuletzt geändert'),
-                        child: Text(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Zuletzt geändert',
+                            style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
                           () {
                             final dt = DateTime.fromMillisecondsSinceEpoch(
                                 widget.customer!.cLastModified * 1000);
@@ -1274,6 +1337,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                           }(),
                           style: const TextStyle(fontSize: 14),
                         ),
+                        ],
                       ),
                     const SizedBox(height: 8),
                   ],
@@ -1285,11 +1349,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                 child: OverflowBar(
                   alignment: MainAxisAlignment.end,
                   children: [
-                    TextButton(
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       onPressed: () => Navigator.pop(context),
                       child: const Text('Abbrechen'),
                     ),
-                    FilledButton(
+                    CupertinoButton.filled(
                       onPressed: () async {
                         final navigator = Navigator.of(context);
                         if (await _validateForm()) {

@@ -1,4 +1,6 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../features/customer/presentation/customer_page.dart';
 
@@ -7,14 +9,28 @@ class ArrowOpsApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return CupertinoApp(
       title: 'Arrow Ops',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF005D77)),
-        useMaterial3: true,
+      theme: const CupertinoThemeData(
+        primaryColor: Color(0xFF005D77),
+        barBackgroundColor: Color(0xFFF7F9FA),
+        scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
       ),
-      home: const CustomerPage(),
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      supportedLocales: const [
+        Locale('de'),
+        Locale('en'),
+      ],
+      home: Theme(
+        data: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF005D77)),
+          useMaterial3: true,
+        ),
+        child: const ScaffoldMessenger(
+          child: CustomerPage(),
+        ),
+      ),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/customer.dart';
@@ -19,7 +20,9 @@ class CsvImportPreviewDialog extends StatelessWidget {
     final screenSize = MediaQuery.of(context).size;
     final isWide = screenSize.width >= 600;
 
-    return Dialog(
+    return CupertinoPopupSurface(
+      isSurfacePainted: true,
+      child: Dialog(
       insetPadding: EdgeInsets.symmetric(
         horizontal: isWide ? 60 : 16,
         vertical: 24,
@@ -117,28 +120,33 @@ class CsvImportPreviewDialog extends StatelessWidget {
               child: OverflowBar(
                 alignment: MainAxisAlignment.end,
                 children: [
-                  TextButton(
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     onPressed: Navigator.of(context).pop,
                     child: const Text('Abbrechen'),
                   ),
-                  FilledButton(
+                  CupertinoButton.filled(
                     onPressed: () async {
                       final navigator = Navigator.of(context);
 
                       if (replaceExisting) {
-                        final confirmed = await showDialog<bool>(
+                        final confirmed = await showCupertinoDialog<bool>(
                           context: context,
-                          builder: (dialogContext) => AlertDialog(
+                          builder: (dialogContext) => CupertinoAlertDialog(
                             title: const Text('Löschen wirklich durchführen?'),
-                            content: const Text(
-                              'Alle bestehenden Kundendatensätze werden vor dem Import gelöscht. Dieser Schritt kann nicht rückgängig gemacht werden.',
+                            content: const Padding(
+                              padding: EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Alle bestehenden Kundendatensätze werden vor dem Import gelöscht. Dieser Schritt kann nicht rückgängig gemacht werden.',
+                              ),
                             ),
                             actions: [
-                              TextButton(
+                              CupertinoDialogAction(
                                 onPressed: () => Navigator.of(dialogContext).pop(false),
                                 child: const Text('Abbrechen'),
                               ),
-                              FilledButton(
+                              CupertinoDialogAction(
+                                isDestructiveAction: true,
                                 onPressed: () => Navigator.of(dialogContext).pop(true),
                                 child: const Text('Endgültig löschen'),
                               ),
@@ -162,6 +170,7 @@ class CsvImportPreviewDialog extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -79,16 +80,28 @@ class _CustomerPageState extends State<CustomerPage> {
     final url = uri.toString();
     try {
       if (Platform.isMacOS) {
-        final result = await Process.run('open', [url]);
-        return result.exitCode == 0;
+        await Process.start(
+          '/usr/bin/open',
+          [url],
+          mode: ProcessStartMode.detached,
+        );
+        return true;
       }
       if (Platform.isLinux) {
-        final result = await Process.run('xdg-open', [url]);
-        return result.exitCode == 0;
+        await Process.start(
+          'xdg-open',
+          [url],
+          mode: ProcessStartMode.detached,
+        );
+        return true;
       }
       if (Platform.isWindows) {
-        final result = await Process.run('cmd', ['/c', 'start', '', url]);
-        return result.exitCode == 0;
+        await Process.start(
+          'cmd',
+          ['/c', 'start', '', url],
+          mode: ProcessStartMode.detached,
+        );
+        return true;
       }
     } catch (_) {
       return false;
@@ -96,7 +109,47 @@ class _CustomerPageState extends State<CustomerPage> {
     return false;
   }
 
-  Future<void> _openMapInBrowser(String mapUrl) async {
+  Future<bool> _copyTextWithPlatformFallback(String text) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      final check = await Clipboard.getData('text/plain');
+      if (check?.text == text) {
+        return true;
+      }
+    } catch (_) {
+      // continue with platform fallback
+    }
+
+    try {
+      Future<bool> writeToCommand(String command, List<String> args) async {
+        final process = await Process.start(command, args);
+        process.stdin.write(text);
+        await process.stdin.close();
+        final exitCode = await process.exitCode;
+        return exitCode == 0;
+      }
+
+      if (Platform.isMacOS) {
+        return writeToCommand('/usr/bin/pbcopy', const []);
+      }
+      if (Platform.isLinux) {
+        final wlCopyOk = await writeToCommand('wl-copy', const []);
+        if (wlCopyOk) {
+          return true;
+        }
+        return writeToCommand('xclip', const ['-selection', 'clipboard']);
+      }
+      if (Platform.isWindows) {
+        return writeToCommand('cmd', const ['/c', 'clip']);
+      }
+    } catch (_) {
+      return false;
+    }
+
+    return false;
+  }
+
+  Future<bool> _openMapInBrowser(String mapUrl) async {
     final messenger = ScaffoldMessenger.of(context);
     final uri = Uri.tryParse(mapUrl);
 
@@ -104,14 +157,22 @@ class _CustomerPageState extends State<CustomerPage> {
       messenger.showSnackBar(
         const SnackBar(content: Text('Kartenlink ist ungueltig.')),
       );
-      return;
+      return false;
     }
 
     var opened = false;
     try {
-      opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       opened = false;
+    }
+
+    if (!opened) {
+      try {
+        opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
+      } catch (_) {
+        opened = false;
+      }
     }
 
     if (!opened) {
@@ -124,27 +185,28 @@ class _CustomerPageState extends State<CustomerPage> {
           content: Text('Kartenlink konnte nicht im Browser geoeffnet werden.'),
         ),
       );
+      return false;
     }
+
+    return opened;
   }
 
-  Future<void> _copyMapLink(String mapUrl) async {
+  Future<bool> _copyMapLink(String mapUrl) async {
     final messenger = ScaffoldMessenger.of(context);
-    try {
-      await Clipboard.setData(ClipboardData(text: mapUrl));
-      if (!mounted) {
-        return;
-      }
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Kartenlink wurde in die Zwischenablage kopiert.')),
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Kartenlink konnte nicht kopiert werden.')),
-      );
+    final copied = await _copyTextWithPlatformFallback(mapUrl);
+    if (!mounted) {
+      return copied;
     }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          copied
+              ? 'Kartenlink wurde in die Zwischenablage kopiert.'
+              : 'Kartenlink konnte nicht kopiert werden.',
+        ),
+      ),
+    );
+    return copied;
   }
 
   @override
@@ -423,7 +485,7 @@ class _CustomerPageState extends State<CustomerPage> {
   Widget _buildMobileCustomerList() {
     return ListView.separated(
       itemCount: _filteredCustomers.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final c = _filteredCustomers[index];
         final countryName =
@@ -435,17 +497,9 @@ class _CustomerPageState extends State<CustomerPage> {
           if (c.cCityB.isNotEmpty) c.cCityB,
           if (countryName.isNotEmpty) countryName,
         ].join(' · ');
-        return ListTile(
-          title: Text('${c.cLastName}, ${c.cFirstName}'),
-          subtitle: subtitle.isNotEmpty
-              ? Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)
-              : null,
-          trailing: IconButton(
-            icon: const Icon(Icons.map_outlined),
-            onPressed: () => _showMapDialog(c),
-            tooltip: 'Karte anzeigen',
-          ),
-          onTap: () => showDialog(
+        return CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: () => showCupertinoDialog(
             context: context,
             builder: (context) => CustomerDetailDialog(
               customer: c,
@@ -454,8 +508,126 @@ class _CustomerPageState extends State<CustomerPage> {
               onDelete: () => _deleteCustomer(c),
             ),
           ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(context),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${c.cLastName}, ${c.cFirstName}',
+                        style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      if (subtitle.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: CupertinoTheme.of(context).textTheme.tabLabelTextStyle,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: const Size(28, 28),
+                  onPressed: () => _showMapDialog(c),
+                  child: const Icon(CupertinoIcons.map_pin_ellipse),
+                ),
+              ],
+            ),
+          ),
         );
       },
+    );
+  }
+
+  Future<void> _showDataActionsSheet() async {
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: const Text('Datenaktionen'),
+        message: const Text('Import, Export und Bereinigung auswaehlen.'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              if (_loading) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
+              _exportCsv();
+            },
+            child: const Text('Customers exportieren'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              if (_loading) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
+              _importCsv();
+            },
+            child: const Text('Customers als CSV importieren'),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              if (_loading) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
+              _importCsvWithReplacement();
+            },
+            child: const Text('Customers importieren (Bestand loeschen)'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              if (_loading) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
+              _exportCountryCsv();
+            },
+            child: const Text('Laender exportieren'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              if (_loading) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
+              _importCountryCsv();
+            },
+            child: const Text('Laender importieren'),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              if (_loading) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
+              _cleanupInvalidCountriesWithPreview();
+            },
+            child: const Text('Ungueltige Laender bereinigen'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: const Text('Abbrechen'),
+        ),
+      ),
     );
   }
 
@@ -466,7 +638,7 @@ class _CustomerPageState extends State<CustomerPage> {
 
     if (validCustomers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Keine gültigen Koordinaten in der aktuellen Liste vorhanden.')),
+        const SnackBar(content: Text('Keine gueltigen Koordinaten in der aktuellen Liste vorhanden.')),
       );
       return;
     }
@@ -491,12 +663,10 @@ class _CustomerPageState extends State<CustomerPage> {
     final maxLon = lons.reduce((a, b) => a > b ? a : b);
     final center = LatLng((minLat + maxLat) / 2, (minLon + maxLon) / 2);
     final geojsonFeatures = validCustomers.map((c) {
-      final name = '${c.cLastName}, ${c.cFirstName}'
-          .replaceAll('"', '\\"');
+      final name = '${c.cLastName}, ${c.cFirstName}'.replaceAll('"', '\\"');
       return '{"type":"Feature","geometry":{"type":"Point","coordinates":[${c.cLong},${c.cLat}]},"properties":{"name":"$name"}}';
     }).join(',');
-    final geojson =
-        '{"type":"FeatureCollection","features":[$geojsonFeatures]}';
+    final geojson = '{"type":"FeatureCollection","features":[$geojsonFeatures]}';
     final mapUrl =
         'https://geojson.io/#data=data:application/json,${Uri.encodeComponent(geojson)}';
 
@@ -529,8 +699,7 @@ class _CustomerPageState extends State<CustomerPage> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.example.arrow_ops',
                             errorTileCallback: (tile, error, stackTrace) {
                               debugPrint(
@@ -592,12 +761,19 @@ class _CustomerPageState extends State<CustomerPage> {
         ),
         actions: [
           TextButton.icon(
-            onPressed: () => _copyMapLink(mapUrl),
+            onPressed: () async {
+              await _copyMapLink(mapUrl);
+            },
             icon: const Icon(Icons.copy),
             label: const Text('Link kopieren'),
           ),
           TextButton.icon(
-            onPressed: () => _openMapInBrowser(mapUrl),
+            onPressed: () async {
+              final opened = await _openMapInBrowser(mapUrl);
+              if (opened && dialogContext.mounted) {
+                Navigator.of(dialogContext).pop();
+              }
+            },
             icon: const Icon(Icons.open_in_new),
             label: const Text('Im Browser öffnen'),
           ),
@@ -653,8 +829,7 @@ class _CustomerPageState extends State<CustomerPage> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.example.arrow_ops',
                             errorTileCallback: (tile, error, stackTrace) {
                               debugPrint(
@@ -733,12 +908,19 @@ class _CustomerPageState extends State<CustomerPage> {
         ),
         actions: [
           TextButton.icon(
-            onPressed: () => _copyMapLink(mapUrl),
+            onPressed: () async {
+              await _copyMapLink(mapUrl);
+            },
             icon: const Icon(Icons.copy),
             label: const Text('Link kopieren'),
           ),
           TextButton.icon(
-            onPressed: () => _openMapInBrowser(mapUrl),
+            onPressed: () async {
+              final opened = await _openMapInBrowser(mapUrl);
+              if (opened && dialogContext.mounted) {
+                Navigator.of(dialogContext).pop();
+              }
+            },
             icon: const Icon(Icons.open_in_new),
             label: const Text('Im Browser oeffnen'),
           ),
@@ -783,13 +965,13 @@ class _CustomerPageState extends State<CustomerPage> {
 
       final file = result.files.single;
       debugPrint('✅ Datei ausgewählt: ${file.name} (${file.size} bytes)');
-      
+
       final content = file.bytes != null
           ? utf8.decode(file.bytes!)
           : await File(file.path!).readAsString();
 
       debugPrint('📖 Datei gelesen: ${content.length} Zeichen');
-        await _processImport(content, replaceExisting: replaceExisting);
+      await _processImport(content, replaceExisting: replaceExisting);
     } catch (error, stackTrace) {
       debugPrint('❌ FilePicker-Fehler: $error');
       debugPrint('📍 Stack: $stackTrace');
@@ -807,19 +989,23 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<void> _importCsvWithReplacement() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => CupertinoAlertDialog(
         title: const Text('Bestand vor Import löschen?'),
-        content: const Text(
-          'Der bestehende Kundenbestand wird vor dem Import vollständig gelöscht. Fortfahren?',
+        content: const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text(
+            'Der bestehende Kundenbestand wird vor dem Import vollständig gelöscht. Fortfahren?',
+          ),
         ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Abbrechen'),
           ),
-          FilledButton(
+          CupertinoDialogAction(
+            isDestructiveAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('Löschen und importieren'),
           ),
@@ -880,7 +1066,7 @@ class _CustomerPageState extends State<CustomerPage> {
       return;
     }
 
-    await showDialog(
+    await showCupertinoDialog(
       context: context,
       builder: (context) => CsvImportPreviewDialog(
         customers: validCustomers,
@@ -1098,46 +1284,50 @@ class _CustomerPageState extends State<CustomerPage> {
             .join('\n');
       }
 
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showCupertinoDialog<bool>(
         context: context,
         builder: (dialogContext) {
-          return AlertDialog(
+          return CupertinoAlertDialog(
             title: const Text('Ungültige Länder-Codes bereinigen'),
-            content: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: SingleChildScrollView(
+            content: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('Gefunden: ${invalidCountries.length} ungültige Einträge'),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     Text('Werden gelöscht (${deletable.length}):'),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
                       formatCountries(deletable),
-                      style: const TextStyle(fontFamily: 'monospace'),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     Text('Nicht löschbar wegen Kundenreferenzen (${blocked.length}):'),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
                       formatCountries(blocked),
-                      style: const TextStyle(fontFamily: 'monospace'),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                     ),
                   ],
                 ),
               ),
             ),
             actions: [
-              TextButton(
+              CupertinoDialogAction(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
                 child: const Text('Abbrechen'),
               ),
-              FilledButton(
-                onPressed: deletable.isEmpty
-                    ? null
-                    : () => Navigator.of(dialogContext).pop(true),
+              CupertinoDialogAction(
+                isDestructiveAction: true,
+                onPressed: () {
+                  if (deletable.isEmpty) {
+                    return;
+                  }
+                  Navigator.of(dialogContext).pop(true);
+                },
                 child: const Text('Löschen'),
               ),
             ],
@@ -1238,7 +1428,7 @@ class _CustomerPageState extends State<CustomerPage> {
     final countries = await _repository.getAllCountries();
     if (!mounted) return;
 
-    final result = await showDialog<Customer>(
+    final result = await showCupertinoDialog<Customer>(
       context: context,
       builder: (context) => CustomerFormDialog(countries: countries),
     );
@@ -1289,60 +1479,11 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
-  Widget _buildDataMenu() {
-    return MenuBar(
-      style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(Theme.of(context).colorScheme.surface),
-      ),
-      children: [
-        SubmenuButton(
-          menuChildren: [
-            SubmenuButton(
-              menuChildren: [
-                MenuItemButton(
-                  onPressed: _loading ? null : _exportCsv,
-                  child: const Text('Customers exportieren'),
-                ),
-                MenuItemButton(
-                  onPressed: _loading ? null : _importCsv,
-                  child: const Text('Customers als csv importieren'),
-                ),
-                MenuItemButton(
-                  onPressed: _loading ? null : _importCsvWithReplacement,
-                  child: const Text('Customers importieren (Bestand löschen)'),
-                ),
-              ],
-              child: const Text('Customer'),
-            ),
-            SubmenuButton(
-              menuChildren: [
-                MenuItemButton(
-                  onPressed: _loading ? null : _exportCountryCsv,
-                  child: const Text('Länder exportieren'),
-                ),
-                MenuItemButton(
-                  onPressed: _loading ? null : _importCountryCsv,
-                  child: const Text('Länder importieren'),
-                ),
-                MenuItemButton(
-                  onPressed: _loading ? null : _cleanupInvalidCountriesWithPreview,
-                  child: const Text('Ungültige Länder bereinigen'),
-                ),
-              ],
-              child: const Text('Länder'),
-            ),
-          ],
-          child: const Text('Daten'),
-        ),
-      ],
-    );
-  }
-
   Future<void> _editCustomer(Customer customer) async {
     final countries = await _repository.getAllCountries();
     if (!mounted) return;
 
-    final result = await showDialog<Customer>(
+    final result = await showCupertinoDialog<Customer>(
       context: context,
       builder: (context) => CustomerFormDialog(customer: customer, countries: countries),
     );
@@ -1435,12 +1576,19 @@ class _CustomerPageState extends State<CustomerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Arrow Ops - Customer'),
+        title: const Text('Arrow Ops'),
         centerTitle: false,
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: _buildDataMenu(),
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            onPressed: _showDataActionsSheet,
+            child: const Row(
+              children: [
+                Icon(CupertinoIcons.ellipsis_circle, size: 20),
+                SizedBox(width: 6),
+                Text('Daten'),
+              ],
+            ),
           ),
         ],
       ),
@@ -1456,18 +1604,30 @@ class _CustomerPageState extends State<CustomerPage> {
               children: [
                 Tooltip(
                   message: 'Erstellt einen neuen Kundendatensatz.',
-                  child: FilledButton.icon(
+                  child: CupertinoButton.filled(
                     onPressed: _loading ? null : _createCustomer,
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('Neuer Kunde'),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.person_add, size: 18),
+                        SizedBox(width: 8),
+                        Text('Neuer Kunde'),
+                      ],
+                    ),
                   ),
                 ),
                 Tooltip(
                   message: 'Lädt die Kundenliste neu aus der SQLite-Datenbank.',
-                  child: OutlinedButton.icon(
+                  child: CupertinoButton(
                     onPressed: _loading ? null : _loadCustomers,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Aktualisieren'),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.refresh, size: 18),
+                        SizedBox(width: 8),
+                        Text('Aktualisieren'),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1479,22 +1639,9 @@ class _CustomerPageState extends State<CustomerPage> {
             ),
             const SizedBox(height: 12),
             // Search Field
-            TextField(
+            CupertinoSearchTextField(
               controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Kundendaten durchsuchen...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => _searchController.clear(),
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              ),
+              placeholder: 'Kundendaten durchsuchen...',
             ),
             const SizedBox(height: 16),
             // Customer List
@@ -1510,10 +1657,16 @@ class _CustomerPageState extends State<CustomerPage> {
                 ),
                 Tooltip(
                   message: 'Alle Locations der angezeigten Kunden auf einer Karte anzeigen.',
-                  child: OutlinedButton.icon(
+                  child: CupertinoButton(
                     onPressed: _filteredCustomers.isEmpty ? null : _showAllLocationsDialog,
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('Alle Locations'),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.map, size: 18),
+                        SizedBox(width: 8),
+                        Text('Alle Locations'),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1521,7 +1674,7 @@ class _CustomerPageState extends State<CustomerPage> {
             const SizedBox(height: 8),
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const Center(child: CupertinoActivityIndicator(radius: 14))
                   : _customers.isEmpty
                       ? const Center(
                           child: Text('Noch keine Kundendaten vorhanden.'),
@@ -1616,7 +1769,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                     countryNameByCode: _countryNameByCode,
                                     loading: _loading,
                                     onOpenDetails: (customer) {
-                                      showDialog(
+                                      showCupertinoDialog(
                                         context: context,
                                         builder: (context) => CustomerDetailDialog(
                                           customer: customer,

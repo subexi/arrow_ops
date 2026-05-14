@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/customer.dart';
@@ -103,7 +104,9 @@ class CustomerDetailDialog extends StatelessWidget {
       _buildField('Land', _resolveCountryName(customer.cCountryDId)),
     ]);
 
-    return Dialog(
+    return CupertinoPopupSurface(
+      isSurfacePainted: true,
+      child: Dialog(
       insetPadding: EdgeInsets.symmetric(
         horizontal: isWide ? 60 : 16,
         vertical: 24,
@@ -172,27 +175,38 @@ class CustomerDetailDialog extends StatelessWidget {
               child: OverflowBar(
                 alignment: MainAxisAlignment.end,
                 children: [
-                  TextButton(
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     onPressed: () => Navigator.pop(context),
                     child: const Text('Schließen'),
                   ),
-                  OutlinedButton.icon(
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     onPressed: () {
                       Navigator.pop(context);
                       onEdit();
                     },
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Bearbeiten'),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.pencil, size: 18),
+                        SizedBox(width: 8),
+                        Text('Bearbeiten'),
+                      ],
+                    ),
                   ),
-                  FilledButton.icon(
+                  CupertinoButton.filled(
                     onPressed: () {
                       Navigator.pop(context);
                       _showDeleteConfirmation(context);
                     },
-                    icon: const Icon(Icons.delete),
-                    label: const Text('Löschen'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.red,
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.delete, size: 18),
+                        SizedBox(width: 8),
+                        Text('Löschen'),
+                      ],
                     ),
                   ),
                 ],
@@ -201,32 +215,34 @@ class CustomerDetailDialog extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
   }
 
   void _showDeleteConfirmation(BuildContext context) {
     final lastNameUpper = customer.cLastName.toUpperCase();
 
-    showDialog(
+    showCupertinoDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => CupertinoAlertDialog(
         title: const Text('Kunde löschen?'),
-        content: Text(
-          'Möchten Sie "$lastNameUpper, ${customer.cFirstName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            'Möchten Sie "$lastNameUpper, ${customer.cFirstName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
+          ),
         ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () => Navigator.pop(context),
             child: const Text('Abbrechen'),
           ),
-          FilledButton(
+          CupertinoDialogAction(
+            isDestructiveAction: true,
             onPressed: () {
               Navigator.pop(context);
               onDelete();
             },
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
             child: const Text('Löschen'),
           ),
         ],
@@ -293,10 +309,9 @@ class CustomerDetailDialog extends StatelessWidget {
             ),
           ),
           IgnorePointer(
-            child: Checkbox(
+            child: CupertinoSwitch(
               value: value,
               onChanged: (_) {},
-              visualDensity: VisualDensity.compact,
             ),
           ),
         ],

@@ -1,5 +1,7 @@
 # Graph Report - .  (2026-05-14)
 
+<!-- markdownlint-disable MD022 MD032 MD037 -->
+
 ## Corpus Check
 - Large corpus: 372 files · ~176,167 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder, or use --no-semantic to run AST-only.
 
@@ -23,99 +25,99 @@
 - [[_COMMUNITY_Image Picker Controller|Image Picker Controller]]
 - [[_COMMUNITY_Photo Preview Base|Photo Preview Base]]
 - [[_COMMUNITY_Animated Image Codec|Animated Image Codec]]
-- [[_COMMUNITY_Animated Image Codec|Animated Image Codec]]
-- [[_COMMUNITY_Community 15|Community 15]]
-- [[_COMMUNITY_Community 16|Community 16]]
-- [[_COMMUNITY_Community 17|Community 17]]
-- [[_COMMUNITY_Community 18|Community 18]]
+- [[_COMMUNITY_Animated Image IO Codec|Animated Image IO Codec]]
+- [[_COMMUNITY_SDWebImage Manager Operations|SDWebImage Manager Operations]]
+- [[_COMMUNITY_DKImage Picker Asset Types|DKImage Picker Asset Types]]
+- [[_COMMUNITY_DKPhoto Preview Variants|DKPhoto Preview Variants]]
+- [[_COMMUNITY_Windows Runner Bootstrap|Windows Runner Bootstrap]]
 - [[_COMMUNITY_Community 19|Community 19]]
 - [[_COMMUNITY_Community 20|Community 20]]
-- [[_COMMUNITY_Community 21|Community 21]]
-- [[_COMMUNITY_Community 22|Community 22]]
-- [[_COMMUNITY_Community 23|Community 23]]
-- [[_COMMUNITY_Community 24|Community 24]]
-- [[_COMMUNITY_Community 25|Community 25]]
+- [[_COMMUNITY_SDImage Decode Helpers|SDImage Decode Helpers]]
+- [[_COMMUNITY_DKPhoto Content Controller|DKPhoto Content Controller]]
+- [[_COMMUNITY_UIButton SDWebImage Category|UIButton SDWebImage Category]]
+- [[_COMMUNITY_DKImage Extension Framework|DKImage Extension Framework]]
+- [[_COMMUNITY_SDWebImage Downloader Operation|SDWebImage Downloader Operation]]
 - [[_COMMUNITY_Customer Form Dialog|Customer Form Dialog]]
-- [[_COMMUNITY_Community 27|Community 27]]
-- [[_COMMUNITY_Community 28|Community 28]]
-- [[_COMMUNITY_Community 29|Community 29]]
-- [[_COMMUNITY_Community 30|Community 30]]
-- [[_COMMUNITY_Community 31|Community 31]]
+- [[_COMMUNITY_SDWebImage Prefetch Queue|SDWebImage Prefetch Queue]]
+- [[_COMMUNITY_DKImage Data Manager Bridge|DKImage Data Manager Bridge]]
+- [[_COMMUNITY_SD Image Cache Manager|SD Image Cache Manager]]
+- [[_COMMUNITY_DKPhoto Incremental Indicators|DKPhoto Incremental Indicators]]
+- [[_COMMUNITY_NSButton SDWebImage Category|NSButton SDWebImage Category]]
 - [[_COMMUNITY_Community 32|Community 32]]
-- [[_COMMUNITY_Community 33|Community 33]]
-- [[_COMMUNITY_Community 34|Community 34]]
+- [[_COMMUNITY_SD Animated Image Player|SD Animated Image Player]]
+- [[_COMMUNITY_SDWebImage Activity Indicator|SDWebImage Activity Indicator]]
 - [[_COMMUNITY_Database Infrastructure|Database Infrastructure]]
-- [[_COMMUNITY_Community 36|Community 36]]
-- [[_COMMUNITY_Community 37|Community 37]]
-- [[_COMMUNITY_Community 38|Community 38]]
+- [[_COMMUNITY_SD Disk Cache Core|SD Disk Cache Core]]
+- [[_COMMUNITY_UIView SDWebImage Category|UIView SDWebImage Category]]
+- [[_COMMUNITY_Cocoa Pods Dummy Targets|Cocoa Pods Dummy Targets]]
 - [[_COMMUNITY_Community 39|Community 39]]
-- [[_COMMUNITY_Community 40|Community 40]]
-- [[_COMMUNITY_Community 41|Community 41]]
-- [[_COMMUNITY_Community 42|Community 42]]
+- [[_COMMUNITY_SDWeakProxy Runtime Bridge|SDWeakProxy Runtime Bridge]]
+- [[_COMMUNITY_SDWebImage View Transitions|SDWebImage View Transitions]]
+- [[_COMMUNITY_UIImage SD Metadata Category|UIImage SD Metadata Category]]
 - [[_COMMUNITY_Customer CSV Services|Customer CSV Services]]
 - [[_COMMUNITY_Customer Detail Dialog|Customer Detail Dialog]]
-- [[_COMMUNITY_Community 45|Community 45]]
-- [[_COMMUNITY_Community 46|Community 46]]
-- [[_COMMUNITY_Community 47|Community 47]]
-- [[_COMMUNITY_Community 48|Community 48]]
-- [[_COMMUNITY_Community 49|Community 49]]
+- [[_COMMUNITY_SDImage Frame Pool|SDImage Frame Pool]]
+- [[_COMMUNITY_SD Graphics Renderer|SD Graphics Renderer]]
+- [[_COMMUNITY_SD HEIC Coder|SD HEIC Coder]]
+- [[_COMMUNITY_SD ImageIO Coder|SD ImageIO Coder]]
+- [[_COMMUNITY_DKPhoto Transition Animation|DKPhoto Transition Animation]]
 - [[_COMMUNITY_Community 50|Community 50]]
-- [[_COMMUNITY_Community 51|Community 51]]
-- [[_COMMUNITY_Community 52|Community 52]]
-- [[_COMMUNITY_Community 53|Community 53]]
+- [[_COMMUNITY_SD AWebP Coder|SD AWebP Coder]]
+- [[_COMMUNITY_UIImage SD Effects|UIImage SD Effects]]
+- [[_COMMUNITY_Linux Runner Plugin Bootstrap|Linux Runner Plugin Bootstrap]]
 - [[_COMMUNITY_Community 54|Community 54]]
-- [[_COMMUNITY_Community 55|Community 55]]
-- [[_COMMUNITY_Community 56|Community 56]]
+- [[_COMMUNITY_SD Coders Manager|SD Coders Manager]]
+- [[_COMMUNITY_UIImageView SDWebImage Category|UIImageView SDWebImage Category]]
 - [[_COMMUNITY_App Bootstrap & Test|App Bootstrap & Test]]
-- [[_COMMUNITY_Community 58|Community 58]]
-- [[_COMMUNITY_Community 59|Community 59]]
+- [[_COMMUNITY_SD Image Loaders Manager|SD Image Loaders Manager]]
+- [[_COMMUNITY_SD Memory Cache|SD Memory Cache]]
 - [[_COMMUNITY_Community 60|Community 60]]
-- [[_COMMUNITY_Community 61|Community 61]]
-- [[_COMMUNITY_Community 62|Community 62]]
-- [[_COMMUNITY_Community 63|Community 63]]
-- [[_COMMUNITY_Community 64|Community 64]]
-- [[_COMMUNITY_Community 65|Community 65]]
-- [[_COMMUNITY_Community 66|Community 66]]
-- [[_COMMUNITY_Community 67|Community 67]]
-- [[_COMMUNITY_Community 68|Community 68]]
-- [[_COMMUNITY_Community 69|Community 69]]
-- [[_COMMUNITY_Community 70|Community 70]]
-- [[_COMMUNITY_Community 71|Community 71]]
-- [[_COMMUNITY_Community 72|Community 72]]
-- [[_COMMUNITY_Community 73|Community 73]]
+- [[_COMMUNITY_SD Display Link|SD Display Link]]
+- [[_COMMUNITY_SD Cache Operation State|SD Cache Operation State]]
+- [[_COMMUNITY_SDAnimatedImageView Web Category|SDAnimatedImageView Web Category]]
+- [[_COMMUNITY_UIImageView Highlighted Web Category|UIImageView Highlighted Web Category]]
+- [[_COMMUNITY_DKImage Extension Gallery Bridge|DKImage Extension Gallery Bridge]]
+- [[_COMMUNITY_Animated Image View Registry|Animated Image View Registry]]
+- [[_COMMUNITY_SD APNG Coder|SD APNG Coder]]
+- [[_COMMUNITY_SD GIF Coder|SD GIF Coder]]
+- [[_COMMUNITY_SD Async Block Operation|SD Async Block Operation]]
+- [[_COMMUNITY_SD Downloader Request Modifier|SD Downloader Request Modifier]]
+- [[_COMMUNITY_SD Downloader Response Modifier|SD Downloader Response Modifier]]
+- [[_COMMUNITY_UIImage SD Data Encoding|UIImage SD Data Encoding]]
+- [[_COMMUNITY_DK Media Preview Views|DK Media Preview Views]]
 - [[_COMMUNITY_Community 74|Community 74]]
-- [[_COMMUNITY_Community 75|Community 75]]
-- [[_COMMUNITY_Community 76|Community 76]]
-- [[_COMMUNITY_Community 77|Community 77]]
-- [[_COMMUNITY_Community 78|Community 78]]
+- [[_COMMUNITY_SD Image Asset Manager|SD Image Asset Manager]]
+- [[_COMMUNITY_macOS Flutter App Delegate|macOS Flutter App Delegate]]
+- [[_COMMUNITY_NSImage Compatibility Category|NSImage Compatibility Category]]
+- [[_COMMUNITY_SD Callback Queue|SD Callback Queue]]
 - [[_COMMUNITY_Community 79|Community 79]]
 - [[_COMMUNITY_Community 80|Community 80]]
-- [[_COMMUNITY_Community 82|Community 82]]
-- [[_COMMUNITY_Community 83|Community 83]]
-- [[_COMMUNITY_Community 84|Community 84]]
-- [[_COMMUNITY_Community 85|Community 85]]
-- [[_COMMUNITY_Community 86|Community 86]]
-- [[_COMMUNITY_Community 87|Community 87]]
-- [[_COMMUNITY_Community 88|Community 88]]
-- [[_COMMUNITY_Community 89|Community 89]]
-- [[_COMMUNITY_Community 90|Community 90]]
+- [[_COMMUNITY_DK Asset Group Cell Protocol|DK Asset Group Cell Protocol]]
+- [[_COMMUNITY_SD Animated Image Rep|SD Animated Image Rep]]
+- [[_COMMUNITY_SDWebImage Options Processor|SDWebImage Options Processor]]
+- [[_COMMUNITY_UIImage Decode Flags|UIImage Decode Flags]]
+- [[_COMMUNITY_UIView Image Load Operations|UIView Image Load Operations]]
+- [[_COMMUNITY_UIView Image Load State|UIView Image Load State]]
+- [[_COMMUNITY_CSV Import Preview Dialog|CSV Import Preview Dialog]]
+- [[_COMMUNITY_SD Device Helper|SD Device Helper]]
+- [[_COMMUNITY_SD File Attribute Helper|SD File Attribute Helper]]
 - [[_COMMUNITY_Community 91|Community 91]]
-- [[_COMMUNITY_Community 92|Community 92]]
-- [[_COMMUNITY_Community 93|Community 93]]
+- [[_COMMUNITY_SD Downloader Config|SD Downloader Config]]
+- [[_COMMUNITY_SD Downloader Decryptor|SD Downloader Decryptor]]
 - [[_COMMUNITY_Community 94|Community 94]]
-- [[_COMMUNITY_Community 95|Community 95]]
-- [[_COMMUNITY_Community 96|Community 96]]
-- [[_COMMUNITY_Community 97|Community 97]]
-- [[_COMMUNITY_Community 98|Community 98]]
-- [[_COMMUNITY_Community 99|Community 99]]
-- [[_COMMUNITY_Community 100|Community 100]]
-- [[_COMMUNITY_Community 101|Community 101]]
+- [[_COMMUNITY_macOS Runner Plugin Registration|macOS Runner Plugin Registration]]
+- [[_COMMUNITY_Windows Runner Entry Point|Windows Runner Entry Point]]
+- [[_COMMUNITY_Customer Domain Type Parsers|Customer Domain Type Parsers]]
+- [[_COMMUNITY_NSData Image Format Detection|NSData Image Format Detection]]
+- [[_COMMUNITY_SD Image Cache Config|SD Image Cache Config]]
+- [[_COMMUNITY_SD Cache Key Filter|SD Cache Key Filter]]
+- [[_COMMUNITY_SD Cache Serializer|SD Cache Serializer]]
 - [[_COMMUNITY_Community 102|Community 102]]
 - [[_COMMUNITY_Community 103|Community 103]]
-- [[_COMMUNITY_Community 104|Community 104]]
-- [[_COMMUNITY_Community 105|Community 105]]
-- [[_COMMUNITY_Community 106|Community 106]]
-- [[_COMMUNITY_Community 107|Community 107]]
+- [[_COMMUNITY_SD Image Cache Token|SD Image Cache Token]]
+- [[_COMMUNITY_SD Image Frame Model|SD Image Frame Model]]
+- [[_COMMUNITY_UIImage Extended Object|UIImage Extended Object]]
+- [[_COMMUNITY_UIImage Memory Cost|UIImage Memory Cost]]
 - [[_COMMUNITY_Community 108|Community 108]]
 - [[_COMMUNITY_Community 109|Community 109]]
 - [[_COMMUNITY_Community 110|Community 110]]
@@ -213,43 +215,43 @@ Nodes (7): DKPhotoBasePreviewDataSource, DKPhotoBasePreviewVC, DKPhotoPreviewTyp
 Cohesion: 0.05
 Nodes (38): SDAnimatedImage, -animatedImageData, -animatedImageDurationAtIndex, -animatedImageFormat, -animatedImageFrameAtIndex, -animatedImageFrameCount, -animatedImageLoopCount, -encodeWithCoder (+30 more)
 
-### Community 14 - "Animated Image Codec"
+### Community 14 - "Animated Image IO Codec"
 Cohesion: 0.06
 Nodes (34): SDImageIOAnimatedCoder, -animatedImageData, -animatedImageDurationAtIndex, -animatedImageFrameAtIndex, -animatedImageFrameCount, -animatedImageLoopCount, -animatedImageUTType, -canDecodeFromData (+26 more)
 
-### Community 15 - "Community 15"
+### Community 15 - "SDWebImage Manager Operations"
 Cohesion: 0.06
 Nodes (32): SDWebImageCombinedOperation, -cancel, -isCancelled, SDWebImageManager, -cacheKeyForURL, -cacheKeyForURLcontext, -callCacheProcessForOperationurloptionscontextprogresscompleted, -callCompletionBlockForOperationcompletionerrorqueueurl (+24 more)
 
-### Community 16 - "Community 16"
+### Community 16 - "DKImage Picker Asset Types"
 Cohesion: 0.07
 Nodes (27): DKImageAssetExporterError, cancelled, exportFailed, DKImagePickerControllerAssetType, allAssets, allPhotos, allVideos, DKImagePickerControllerAware (+19 more)
 
-### Community 17 - "Community 17"
+### Community 17 - "DKPhoto Preview Variants"
 Cohesion: 0.08
 Nodes (7): DKPhotoBaseImagePreviewVC, DKPhotoImageView, DKPhotoQRCodeResultVC, DKPhotoWebVC, UIImageView, UIViewController, WKNavigationDelegate
 
-### Community 18 - "Community 18"
+### Community 18 - "Windows Runner Bootstrap"
 Cohesion: 0.11
 Nodes (19): RegisterPlugins(), FlutterWindow(), OnCreate(), Create(), Destroy(), EnableFullDpiSupportIfAvailable(), GetClientArea(), GetThisFromHandle() (+11 more)
 
-### Community 21 - "Community 21"
+### Community 21 - "SDImage Decode Helpers"
 Cohesion: 0.07
 Nodes (27): SDAnimatedImageRep, SDImageCoderHelper, -animatedImageWithFrames, -CGImageContainsAlpha, -CGImageCreateDecoded, -CGImageCreateDecodedorientation, -CGImageCreateScaledsize, -CGImageIsHardwareSupported (+19 more)
 
-### Community 22 - "Community 22"
+### Community 22 - "DKPhoto Content Controller"
 Cohesion: 0.13
 Nodes (6): class, DKPhotoGalleryContentDataSource, DKPhotoGalleryContentDelegate, DKPhotoGalleryContentFooterViewContainer, DKPhotoGalleryContentVC, UIScrollViewDelegate
 
-### Community 23 - "Community 23"
+### Community 23 - "UIButton SDWebImage Category"
 Cohesion: 0.07
 Nodes (27): UIButton, -sd_backgroundImageOperationKeyForState, -sd_backgroundImageURLForState, -sd_cancelBackgroundImageLoadForState, -sd_cancelImageLoadForState, -sd_currentBackgroundImageURL, -sd_currentImageURL, -sd_imageOperationKeyForState (+19 more)
 
-### Community 24 - "Community 24"
+### Community 24 - "DKImage Extension Framework"
 Cohesion: 0.1
 Nodes (10): DKImageBaseExtension, DKImageExtensionContext, DKImageExtensionController, DKImageExtensionNone, DKImageExtensionProtocol, DKImageExtensionType, camera, gallery (+2 more)
 
-### Community 25 - "Community 25"
+### Community 25 - "SDWebImage Downloader Operation"
 Cohesion: 0.07
 Nodes (27): SDWebImageDownloaderOperation, -addHandlersForProgresscompleted, -addHandlersForProgresscompleteddecodeOptions, -callCompletionBlocksWithError, -callCompletionBlocksWithImageimageDataerrorfinished, -callCompletionBlockWithTokenimageimageDataerrorfinished, -cancel, -cancelInternal (+19 more)
 
@@ -257,31 +259,31 @@ Nodes (27): SDWebImageDownloaderOperation, -addHandlersForProgresscompleted, -ad
 Cohesion: 0.07
 Nodes (26): dart:convert, package:flutter/services.dart, package:http/http.dart, build, _buildAddressFields, _buildCountryDropdown, _buildCustomer, Column (+18 more)
 
-### Community 27 - "Community 27"
+### Community 27 - "SDWebImage Prefetch Queue"
 Cohesion: 0.08
 Nodes (25): SDCallbackQueue, SDWebImagePrefetcher, -addRunningToken, -callCompletionBlockForToken, -callProgressBlockForTokenimageURL, -cancelPrefetching, -countOfRunningTokens, -delegateQueue (+17 more)
 
-### Community 28 - "Community 28"
+### Community 28 - "DKImage Data Manager Bridge"
 Cohesion: 0.14
 Nodes (4): DKImageDataManager, getImageDataManager(), DKAsset, FetchKeys
 
-### Community 29 - "Community 29"
+### Community 29 - "SD Image Cache Manager"
 Cohesion: 0.08
 Nodes (24): SDImageCachesManager, -addCache, -caches, -clearWithCacheTypecompletion, -concurrentClearWithCacheTypecompletionenumeratoroperation, -concurrentContainsImageForKeycacheTypecompletionenumeratoroperation, -concurrentQueryImageForKeyoptionscontextcacheTypecompletionenumeratoroperation, -concurrentRemoveImageForKeycacheTypecompletionenumeratoroperation (+16 more)
 
-### Community 30 - "Community 30"
+### Community 30 - "DKPhoto Incremental Indicators"
 Cohesion: 0.12
 Nodes (6): DKPhotoIncrementalIndicator, DKPhotoIncrementalIndicatorDirection, left, right, DKPhotoIncrementalLeftIndicator, DKPhotoIncrementalRightIndicator
 
-### Community 31 - "Community 31"
+### Community 31 - "NSButton SDWebImage Category"
 Cohesion: 0.08
 Nodes (23): NSButton, -sd_cancelCurrentAlternateImageLoad, -sd_cancelCurrentImageLoad, -sd_currentAlternateImageURL, -sd_currentImageURL, -sd_setAlternateImageWithURL, -sd_setAlternateImageWithURLcompleted, -sd_setAlternateImageWithURLplaceholderImage (+15 more)
 
-### Community 33 - "Community 33"
+### Community 33 - "SD Animated Image Player"
 Cohesion: 0.09
 Nodes (21): SDAnimatedImagePlayer, -calculateMaxBufferCountWithFrame, -clearFrameBuffer, -dealloc, -defaultRunLoopMode, -displayDidRefresh, -displayLink, -handleFrameChange (+13 more)
 
-### Community 34 - "Community 34"
+### Community 34 - "SDWebImage Activity Indicator"
 Cohesion: 0.1
 Nodes (19): SDWebImageActivityIndicator, -commonInit, -grayIndicator, -grayLargeIndicator, -init, -largeIndicator, -mediumIndicator, -startAnimatingIndicator (+11 more)
 
@@ -289,27 +291,27 @@ Nodes (19): SDWebImageActivityIndicator, -commonInit, -grayIndicator, -grayLarge
 Cohesion: 0.11
 Nodes (16): dart:io, database_migration.dart, database_path_config.dart, package:path/path.dart, package:sqflite/sqflite.dart, AppDatabase, country_tld, customer (+8 more)
 
-### Community 36 - "Community 36"
+### Community 36 - "SD Disk Cache Core"
 Cohesion: 0.11
 Nodes (18): SDDiskCache, -cachePathForKey, -cachePathForKeyinPath, -commonInit, -containsDataForKey, -createDirectory, -dataForKey, -extendedDataForKey (+10 more)
 
-### Community 37 - "Community 37"
+### Community 37 - "UIView SDWebImage Category"
 Cohesion: 0.11
 Nodes (18): UIView, -sd_cancelCurrentImageLoad, -sd_cancelLatestImageLoad, -sd_imageIndicator, -sd_imageProgress, -sd_imageTransition, -sd_imageURL, -sd_internalSetImageWithURLplaceholderImageoptionscontextsetImageBlockprogresscompleted (+10 more)
 
-### Community 38 - "Community 38"
+### Community 38 - "Cocoa Pods Dummy Targets"
 Cohesion: 0.11
 Nodes (9): PodsDummy_DKImagePickerController, PodsDummy_DKPhotoGallery, NSObject, PodsDummy_Pods_RunnerTests, PodsDummy_SDWebImage, PodsDummy_sqflite_darwin, PodsDummy_SwiftyGif, PodsDummy_url_launcher_ios (+1 more)
 
-### Community 40 - "Community 40"
+### Community 40 - "SDWeakProxy Runtime Bridge"
 Cohesion: 0.11
 Nodes (17): SDWeakProxy, -class, -conformsToProtocol, -debugDescription, -description, -forwardingTargetForSelector, -forwardInvocation, -hash (+9 more)
 
-### Community 41 - "Community 41"
+### Community 41 - "SDWebImage View Transitions"
 Cohesion: 0.12
 Nodes (16): SDWebImageTransition, -curlDownTransition, -curlDownTransitionWithDuration, -curlUpTransition, -curlUpTransitionWithDuration, -fadeTransition, -fadeTransitionWithDuration, -flipFromBottomTransition (+8 more)
 
-### Community 42 - "Community 42"
+### Community 42 - "UIImage SD Metadata Category"
 Cohesion: 0.12
 Nodes (16): UIImage, -sd_decodeOptions, -sd_imageFormat, -sd_imageFrameCount, -sd_imageLoopCount, -sd_isAnimated, -sd_isHighDynamicRange, -sd_isIncremental (+8 more)
 
@@ -321,43 +323,43 @@ Nodes (13): ../../domain/country_tld.dart, ../../domain/customer.dart, package:c
 Cohesion: 0.12
 Nodes (15): build, _buildCheckboxField, _buildCityLine, _buildField, _buildSection, _buildStreetLine, Column, CustomerDetailDialog (+7 more)
 
-### Community 45 - "Community 45"
+### Community 45 - "SDImage Frame Pool"
 Cohesion: 0.12
 Nodes (15): SDImageFramePool, -currentFrameCount, -dealloc, -didReceiveMemoryWarning, -frameAtIndex, -init, -initialize, -prefetchFrameAtIndex (+7 more)
 
-### Community 46 - "Community 46"
+### Community 46 - "SD Graphics Renderer"
 Cohesion: 0.13
 Nodes (14): SDGraphicsImageRenderer, -imageWithActions, -initWithSize, -initWithSizeformat, SDGraphicsImageRendererFormat, -init, -initForMainScreen, -opaque (+6 more)
 
-### Community 47 - "Community 47"
+### Community 47 - "SD HEIC Coder"
 Cohesion: 0.13
 Nodes (14): SDImageHEICCoder, -animatedImageUTType, -canDecodeFromData, -canEncodeToFormat, -canIncrementalDecodeFromData, -defaultLoopCount, -delayTimeProperty, -dictionaryProperty (+6 more)
 
-### Community 48 - "Community 48"
+### Community 48 - "SD ImageIO Coder"
 Cohesion: 0.13
 Nodes (14): SDImageIOCoder, -canDecodeFromData, -canEncodeToFormat, -canIncrementalDecodeFromData, -createBitmapPDFWithDatapageNumbertargetSizepreserveAspectRatio, -dealloc, -decodedImageWithDataoptions, -didReceiveMemoryWarning (+6 more)
 
-### Community 49 - "Community 49"
+### Community 49 - "DKPhoto Transition Animation"
 Cohesion: 0.18
 Nodes (4): DKPhotoContentAnimationView, DKPhotoGalleryTransitionDismiss, DKPhotoGalleryTransitionPresent, UIViewControllerAnimatedTransitioning
 
-### Community 51 - "Community 51"
+### Community 51 - "SD AWebP Coder"
 Cohesion: 0.14
 Nodes (13): SDImageAWebPCoder, -canDecodeFromData, -canEncodeToFormat, -canIncrementalDecodeFromData, -defaultLoopCount, -delayTimeProperty, -dictionaryProperty, -imageFormat (+5 more)
 
-### Community 52 - "Community 52"
+### Community 52 - "UIImage SD Effects"
 Cohesion: 0.14
 Nodes (13): UIImage, -sd_blurredImageWithRadius, -sd_colorAtPoint, -sd_colorsWithRect, -sd_croppedImageWithRect, -sd_drawInRectcontextscaleModeclipsToBounds, -sd_filteredImageWithFilter, -sd_flippedImageWithHorizontalvertical (+5 more)
 
-### Community 53 - "Community 53"
+### Community 53 - "Linux Runner Plugin Bootstrap"
 Cohesion: 0.14
 Nodes (4): fl_register_plugins(), main(), my_application_activate(), my_application_new()
 
-### Community 55 - "Community 55"
+### Community 55 - "SD Coders Manager"
 Cohesion: 0.15
 Nodes (12): SDImageCodersManager, -addCoder, -canDecodeFromData, -canEncodeToFormat, -coders, -decodedImageWithDataoptions, -encodedDataWithFramesloopCountformatoptions, -encodedDataWithImageformatoptions (+4 more)
 
-### Community 56 - "Community 56"
+### Community 56 - "UIImageView SDWebImage Category"
 Cohesion: 0.15
 Nodes (12): UIImageView, -sd_cancelCurrentImageLoad, -sd_currentImageURL, -sd_setImageWithURL, -sd_setImageWithURLcompleted, -sd_setImageWithURLplaceholderImage, -sd_setImageWithURLplaceholderImagecompleted, -sd_setImageWithURLplaceholderImageoptions (+4 more)
 
@@ -365,167 +367,167 @@ Nodes (12): UIImageView, -sd_cancelCurrentImageLoad, -sd_currentImageURL, -sd_se
 Cohesion: 0.15
 Nodes (10): app/app.dart, ../../../../core/database/app_database.dart, ../features/customer/presentation/customer_page.dart, package:flutter/material.dart, package:flutter_test/flutter_test.dart, ArrowOpsApp, build, MaterialApp (+2 more)
 
-### Community 58 - "Community 58"
+### Community 58 - "SD Image Loaders Manager"
 Cohesion: 0.17
 Nodes (11): SDImageLoadersManager, -addLoader, -canRequestImageForURL, -canRequestImageForURLoptionscontext, -init, -loaders, -removeLoader, -requestImageWithURLoptionscontextprogresscompleted (+3 more)
 
-### Community 59 - "Community 59"
+### Community 59 - "SD Memory Cache"
 Cohesion: 0.17
 Nodes (11): SDMemoryCache, -commonInit, -dealloc, -didReceiveMemoryWarning, -init, -initWithConfig, -objectForKey, -observeValueForKeyPathofObjectchangecontext (+3 more)
 
-### Community 61 - "Community 61"
+### Community 61 - "SD Display Link"
 Cohesion: 0.17
 Nodes (11): SDDisplayLink, -addToRunLoopforMode, -dealloc, -displayLinkDidRefresh, -displayLinkWithTargetselector, -duration, -initWithTargetselector, -isRunning (+3 more)
 
-### Community 62 - "Community 62"
+### Community 62 - "SD Cache Operation State"
 Cohesion: 0.17
 Nodes (11): SDImageCachesManagerOperation, -beginWithTotalCount, -cancel, -completeOne, -done, -init, -pendingCount, -reset (+3 more)
 
-### Community 63 - "Community 63"
+### Community 63 - "SDAnimatedImageView Web Category"
 Cohesion: 0.18
 Nodes (10): SDAnimatedImageView, -sd_setImageWithURL, -sd_setImageWithURLcompleted, -sd_setImageWithURLplaceholderImage, -sd_setImageWithURLplaceholderImagecompleted, -sd_setImageWithURLplaceholderImageoptions, -sd_setImageWithURLplaceholderImageoptionscompleted, -sd_setImageWithURLplaceholderImageoptionscontext (+2 more)
 
-### Community 64 - "Community 64"
+### Community 64 - "UIImageView Highlighted Web Category"
 Cohesion: 0.18
 Nodes (10): UIImageView, -sd_cancelCurrentHighlightedImageLoad, -sd_currentHighlightedImageURL, -sd_setHighlightedImageWithURL, -sd_setHighlightedImageWithURLcompleted, -sd_setHighlightedImageWithURLoptions, -sd_setHighlightedImageWithURLoptionscompleted, -sd_setHighlightedImageWithURLoptionscontext (+2 more)
 
-### Community 65 - "Community 65"
+### Community 65 - "DKImage Extension Gallery Bridge"
 Cohesion: 0.25
 Nodes (3): DKImageBaseExtension, DKPhotoGalleryDelegate, DKImageExtensionGallery
 
-### Community 66 - "Community 66"
+### Community 66 - "Animated Image View Registry"
 Cohesion: 0.31
 Nodes (8): addImageView(), clear(), containsImageView(), deleteImageView(), startTimerIfNeeded(), stopTimer(), updateCacheSize(), updateImageView()
 
-### Community 67 - "Community 67"
+### Community 67 - "SD APNG Coder"
 Cohesion: 0.2
 Nodes (9): SDImageAPNGCoder, -defaultLoopCount, -delayTimeProperty, -dictionaryProperty, -imageFormat, -imageUTType, -loopCountProperty, -sharedCoder (+1 more)
 
-### Community 68 - "Community 68"
+### Community 68 - "SD GIF Coder"
 Cohesion: 0.2
 Nodes (9): SDImageGIFCoder, -defaultLoopCount, -delayTimeProperty, -dictionaryProperty, -imageFormat, -imageUTType, -loopCountProperty, -sharedCoder (+1 more)
 
-### Community 69 - "Community 69"
+### Community 69 - "SD Async Block Operation"
 Cohesion: 0.2
 Nodes (9): SDAsyncBlockOperation, -blockOperationWithBlock, -cancel, -complete, -initWithBlock, -isAsynchronous, -setExecuting, -setFinished (+1 more)
 
-### Community 70 - "Community 70"
+### Community 70 - "SD Downloader Request Modifier"
 Cohesion: 0.22
 Nodes (8): SDWebImageDownloaderRequestModifier, -initWithBlock, -initWithBody, -initWithHeaders, -initWithMethod, -initWithMethodheadersbody, -modifiedRequestWithRequest, -requestModifierWithBlock
 
-### Community 71 - "Community 71"
+### Community 71 - "SD Downloader Response Modifier"
 Cohesion: 0.22
 Nodes (8): SDWebImageDownloaderResponseModifier, -initWithBlock, -initWithHeaders, -initWithStatusCode, -initWithStatusCodeversionheaders, -initWithVersion, -modifiedResponseWithResponse, -responseModifierWithBlock
 
-### Community 72 - "Community 72"
+### Community 72 - "UIImage SD Data Encoding"
 Cohesion: 0.22
 Nodes (8): UIImage, -sd_imageData, -sd_imageDataAsFormat, -sd_imageDataAsFormatcompressionQuality, -sd_imageDataAsFormatcompressionQualityfirstFrameOnly, -sd_imageWithData, -sd_imageWithDatascale, -sd_imageWithDatascalefirstFrameOnly
 
-### Community 73 - "Community 73"
+### Community 73 - "DK Media Preview Views"
 Cohesion: 0.25
 Nodes (3): DKPDFView, DKPlayerControlView, UIView
 
-### Community 75 - "Community 75"
+### Community 75 - "SD Image Asset Manager"
 Cohesion: 0.22
 Nodes (8): SDImageAssetManager, -dealloc, -didReceiveMemoryWarning, -getPathForNamebundlepreferredScale, -imageForName, -init, -sharedAssetManager, -storeImageforName
 
-### Community 76 - "Community 76"
+### Community 76 - "macOS Flutter App Delegate"
 Cohesion: 0.22
 Nodes (3): FlutterAppDelegate, FlutterImplicitEngineDelegate, AppDelegate
 
-### Community 77 - "Community 77"
+### Community 77 - "NSImage Compatibility Category"
 Cohesion: 0.25
 Nodes (7): NSImage, -CGImage, -CIImage, -initWithCGImagescaleorientation, -initWithCIImagescaleorientation, -initWithDatascale, -scale
 
-### Community 78 - "Community 78"
+### Community 78 - "SD Callback Queue"
 Cohesion: 0.25
 Nodes (7): SDCallbackQueue, -async, -currentQueue, -globalQueue, -initWithDispatchQueue, -mainQueue, -sync
 
-### Community 82 - "Community 82"
+### Community 82 - "DK Asset Group Cell Protocol"
 Cohesion: 0.33
 Nodes (3): DKAssetGroupDetailBaseCell, DKAssetGroupCellItemProtocol, UICollectionViewCell
 
-### Community 83 - "Community 83"
+### Community 83 - "SD Animated Image Rep"
 Cohesion: 0.29
 Nodes (6): SDAnimatedImageRep, -copyWithZone, -dealloc, -imageRepWithData, -initWithData, -setPropertywithValue
 
-### Community 84 - "Community 84"
+### Community 84 - "SDWebImage Options Processor"
 Cohesion: 0.29
 Nodes (6): SDWebImageOptionsProcessor, -initWithBlock, -optionsProcessorWithBlock, -processedResultForURLoptionscontext, SDWebImageOptionsResult, -initWithOptionscontext
 
-### Community 85 - "Community 85"
+### Community 85 - "UIImage Decode Flags"
 Cohesion: 0.29
 Nodes (6): UIImage, -sd_decodedAndScaledDownImageWithImage, -sd_decodedAndScaledDownImageWithImagelimitBytes, -sd_decodedImageWithImage, -sd_isDecoded, -setSd_isDecoded
 
-### Community 86 - "Community 86"
+### Community 86 - "UIView Image Load Operations"
 Cohesion: 0.29
 Nodes (6): UIView, -sd_cancelImageLoadOperationWithKey, -sd_imageLoadOperationForKey, -sd_operationDictionary, -sd_removeImageLoadOperationWithKey, -sd_setImageLoadOperationforKey
 
-### Community 87 - "Community 87"
+### Community 87 - "UIView Image Load State"
 Cohesion: 0.29
 Nodes (6): SDWebImageLoadState, UIView, -sd_imageLoadStateDictionary, -sd_imageLoadStateForKey, -sd_removeImageLoadStateForKey, -sd_setImageLoadStateforKey
 
-### Community 88 - "Community 88"
+### Community 88 - "CSV Import Preview Dialog"
 Cohesion: 0.29
 Nodes (6): build, CsvImportPreviewDialog, DataRow, Dialog, onConfirm, SizedBox
 
-### Community 89 - "Community 89"
+### Community 89 - "SD Device Helper"
 Cohesion: 0.29
 Nodes (6): SDDeviceHelper, -freeMemory, -screenEDR, -screenMaxEDR, -screenScale, -totalMemory
 
-### Community 90 - "Community 90"
+### Community 90 - "SD File Attribute Helper"
 Cohesion: 0.29
 Nodes (6): SDFileAttributeHelper, -extendedAttributeatPathtraverseLinkerror, -extendedAttributeNamesAtPathtraverseLinkerror, -hasExtendedAttributeatPathtraverseLinkerror, -removeExtendedAttributeatPathtraverseLinkerror, -setExtendedAttributevalueatPathtraverseLinkoverwriteerror
 
-### Community 92 - "Community 92"
+### Community 92 - "SD Downloader Config"
 Cohesion: 0.33
 Nodes (5): SDWebImageDownloaderConfig, -copyWithZone, -defaultDownloaderConfig, -init, -setOperationClass
 
-### Community 93 - "Community 93"
+### Community 93 - "SD Downloader Decryptor"
 Cohesion: 0.33
 Nodes (5): SDWebImageDownloaderDecryptor, -base64Decryptor, -decryptedDataWithDataresponse, -decryptorWithBlock, -initWithBlock
 
-### Community 95 - "Community 95"
+### Community 95 - "macOS Runner Plugin Registration"
 Cohesion: 0.33
 Nodes (3): RegisterGeneratedPlugins(), NSWindow, MainFlutterWindow
 
-### Community 96 - "Community 96"
+### Community 96 - "Windows Runner Entry Point"
 Cohesion: 0.47
 Nodes (4): wWinMain(), CreateAndAttachConsole(), GetCommandLineArguments(), Utf8FromUtf16()
 
-### Community 97 - "Community 97"
+### Community 97 - "Customer Domain Type Parsers"
 Cohesion: 0.33
 Nodes (5): _bool, Customer, _double, _int, _str
 
-### Community 98 - "Community 98"
+### Community 98 - "NSData Image Format Detection"
 Cohesion: 0.4
 Nodes (4): NSData, -sd_imageFormatForImageData, -sd_imageFormatFromUTType, -sd_UTTypeFromImageFormat
 
-### Community 99 - "Community 99"
+### Community 99 - "SD Image Cache Config"
 Cohesion: 0.4
 Nodes (4): SDImageCacheConfig, -copyWithZone, -defaultCacheConfig, -init
 
-### Community 100 - "Community 100"
+### Community 100 - "SD Cache Key Filter"
 Cohesion: 0.4
 Nodes (4): SDWebImageCacheKeyFilter, -cacheKeyFilterWithBlock, -cacheKeyForURL, -initWithBlock
 
-### Community 101 - "Community 101"
+### Community 101 - "SD Cache Serializer"
 Cohesion: 0.4
 Nodes (4): SDWebImageCacheSerializer, -cacheDataWithImageoriginalDataimageURL, -cacheSerializerWithBlock, -initWithBlock
 
-### Community 104 - "Community 104"
+### Community 104 - "SD Image Cache Token"
 Cohesion: 0.5
 Nodes (3): SDImageCacheToken, -cancel, -initWithDoneBlock
 
-### Community 105 - "Community 105"
+### Community 105 - "SD Image Frame Model"
 Cohesion: 0.5
 Nodes (3): SDImageFrame, -frameWithImageduration, -initWithImageduration
 
-### Community 106 - "Community 106"
+### Community 106 - "UIImage Extended Object"
 Cohesion: 0.5
 Nodes (3): UIImage, -sd_extendedObject, -setSd_extendedObject
 
-### Community 107 - "Community 107"
+### Community 107 - "UIImage Memory Cost"
 Cohesion: 0.5
 Nodes (3): UIImage, -sd_memoryCost, -setSd_memoryCost
 
