@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -46,8 +47,33 @@ class _CustomerPageState extends State<CustomerPage> {
   String _databasePath = 'wird geladen...';
   int _sortColumnIndex = 0;
   bool _sortAscending = true;
+  int _rowsPerPage = 25;
+  String _lastFilterQuery = '';
+  List<int> _lastFilteredIndices = const [];
+  int _perfOpCounter = 0;
 
   static final RegExp _validCountryCodePattern = RegExp(r'^[a-z]{2,}$');
+
+  bool get _perfLoggingEnabled => kDebugMode && Platform.isMacOS;
+
+  String _nextPerfTraceTag(String scope) {
+    _perfOpCounter += 1;
+    return '$scope#$_perfOpCounter';
+  }
+
+  void _logPerf(
+    String operation,
+    Stopwatch stopwatch, {
+    String? details,
+    String? traceTag,
+  }) {
+    if (!_perfLoggingEnabled) {
+      return;
+    }
+    final tag = traceTag == null || traceTag.isEmpty ? '' : '[$traceTag]';
+    final suffix = details == null || details.isEmpty ? '' : ' | $details';
+    debugPrint('⏱️ [perf]$tag $operation: ${stopwatch.elapsedMilliseconds} ms$suffix');
+  }
 
   Future<bool> _openUrlWithPlatformCommand(Uri uri) async {
     final url = uri.toString();
@@ -155,14 +181,22 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<void> _loadCustomers() async {
+    final traceTag = _nextPerfTraceTag('load');
+    final totalStopwatch = Stopwatch()..start();
     setState(() => _loading = true);
     try {
+      final fetchStopwatch = Stopwatch()..start();
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
+      fetchStopwatch.stop();
+
+      final indexStopwatch = Stopwatch()..start();
       final countryNameByCode = <String, String>{
         for (final country in countries) country.coTld.toLowerCase(): country.coName,
       };
       final customerSearchIndex = customers.map(_buildSearchIndex).toList(growable: false);
+      indexStopwatch.stop();
+
       if (!mounted) {
         return;
       }
@@ -170,9 +204,26 @@ class _CustomerPageState extends State<CustomerPage> {
         _customers = customers;
         _customerSearchIndex = customerSearchIndex;
         _countryNameByCode = countryNameByCode;
+        _lastFilterQuery = '';
+        _lastFilteredIndices = List<int>.generate(customers.length, (index) => index);
       });
-      _filterCustomers();
+      _filterCustomers(traceTag: traceTag);
+
+      _logPerf(
+        'load/fetch',
+        fetchStopwatch,
+        details: 'customers=${customers.length}, countries=${countries.length}',
+        traceTag: traceTag,
+      );
+      _logPerf(
+        'load/index',
+        indexStopwatch,
+        details: 'searchEntries=${customerSearchIndex.length}',
+        traceTag: traceTag,
+      );
     } finally {
+      totalStopwatch.stop();
+      _logPerf('load/total', totalStopwatch, traceTag: traceTag);
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -181,7 +232,11 @@ class _CustomerPageState extends State<CustomerPage> {
 
   void _onSearchChanged() {
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 180), _filterCustomers);
+    final traceTag = _nextPerfTraceTag('search');
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 260),
+      () => _filterCustomers(traceTag: traceTag),
+    );
   }
 
   String _buildSearchIndex(Customer c) {
@@ -203,29 +258,103 @@ class _CustomerPageState extends State<CustomerPage> {
     ].join('|').toLowerCase();
   }
 
-  void _filterCustomers() {
+  void _filterCustomers({String? traceTag}) {
+    final stopwatch = Stopwatch()..start();
     final query = _searchController.text.toLowerCase().trim();
 
-    List<Customer> filtered;
-    if (query.isEmpty) {
-      filtered = List<Customer>.from(_customers);
+    final maxLength = _customers.length < _customerSearchIndex.length
+        ? _customers.length
+        : _customerSearchIndex.length;
+
+    List<int> candidateIndices;
+    if (query.isNotEmpty && _lastFilterQuery.isNotEmpty && query.startsWith(_lastFilterQuery)) {
+      candidateIndices = _lastFilteredIndices;
     } else {
-      final results = <Customer>[];
-      final limit = _customers.length < _customerSearchIndex.length
-          ? _customers.length
-          : _customerSearchIndex.length;
-      for (var i = 0; i < limit; i++) {
-        if (_customerSearchIndex[i].contains(query)) {
-          results.add(_customers[i]);
+      candidateIndices = List<int>.generate(maxLength, (index) => index);
+    }
+
+    List<int> filteredIndices;
+    if (query.isEmpty) {
+      filteredIndices = List<int>.generate(maxLength, (index) => index);
+    } else {
+      final results = <int>[];
+      for (final index in candidateIndices) {
+        if (index < maxLength && _customerSearchIndex[index].contains(query)) {
+          results.add(index);
         }
       }
-      filtered = results;
+      filteredIndices = results;
     }
+
+    final filtered = filteredIndices.map((index) => _customers[index]).toList(growable: false);
 
     _applyCurrentSort(filtered);
 
     if (!mounted) return;
-    setState(() => _filteredCustomers = filtered);
+    setState(() {
+      _filteredCustomers = filtered;
+      _lastFilterQuery = query;
+      _lastFilteredIndices = filteredIndices;
+    });
+
+    stopwatch.stop();
+    _logPerf(
+      'search/filter',
+      stopwatch,
+      details:
+          'queryLen=${query.length}, candidates=${candidateIndices.length}, matches=${filtered.length}',
+      traceTag: traceTag,
+    );
+  }
+
+  void _applyLocalCustomerChange(
+    Customer customer, {
+    required bool remove,
+    String? traceTag,
+  }) {
+    final stopwatch = Stopwatch()..start();
+    final updatedCustomers = List<Customer>.from(_customers);
+    if (remove) {
+      updatedCustomers.removeWhere((item) => item.cId == customer.cId);
+    } else {
+      final existingIndex = updatedCustomers.indexWhere((item) => item.cId == customer.cId);
+      if (existingIndex >= 0) {
+        updatedCustomers[existingIndex] = customer;
+      } else {
+        updatedCustomers.add(customer);
+      }
+    }
+
+    final updatedCountryMap = Map<String, String>.from(_countryNameByCode);
+    void ensureCountry(String? code) {
+      final normalized = code?.trim().toLowerCase();
+      if (normalized == null || normalized.isEmpty || normalized == '-') {
+        return;
+      }
+      updatedCountryMap.putIfAbsent(normalized, () => normalized.toUpperCase());
+    }
+
+    if (!remove) {
+      ensureCountry(customer.cCountryBId);
+      ensureCountry(customer.cCountryDId);
+    }
+
+    setState(() {
+      _customers = updatedCustomers;
+      _countryNameByCode = updatedCountryMap;
+      _customerSearchIndex = updatedCustomers.map(_buildSearchIndex).toList(growable: false);
+      _lastFilterQuery = '';
+      _lastFilteredIndices = List<int>.generate(updatedCustomers.length, (index) => index);
+    });
+
+    _filterCustomers(traceTag: traceTag);
+    stopwatch.stop();
+    _logPerf(
+      'local/update',
+      stopwatch,
+      details: 'remove=$remove, total=${updatedCustomers.length}, id=${customer.cId}',
+      traceTag: traceTag,
+    );
   }
 
   void _sortFilteredCustomers(
@@ -1119,12 +1248,18 @@ class _CustomerPageState extends State<CustomerPage> {
     }
 
     setState(() => _loading = true);
+    final traceTag = _nextPerfTraceTag('save/create');
+    final totalStopwatch = Stopwatch()..start();
     try {
       debugPrint('➕ Erstelle neuen Kundendatensatz: ${result.cId}');
+
+      final dbStopwatch = Stopwatch()..start();
       await _repository.upsert(result);
+      dbStopwatch.stop();
+
       debugPrint('✅ Kunde erstellt: ${result.cLastName}, ${result.cFirstName}');
-      
-      await _loadCustomers();
+      _applyLocalCustomerChange(result, remove: false, traceTag: traceTag);
+      _logPerf('save/create-db', dbStopwatch, details: 'id=${result.cId}', traceTag: traceTag);
 
       if (!mounted) {
         return;
@@ -1141,6 +1276,13 @@ class _CustomerPageState extends State<CustomerPage> {
         SnackBar(content: Text('Fehler beim Erstellen: $error')),
       );
     } finally {
+      totalStopwatch.stop();
+      _logPerf(
+        'save/create-total',
+        totalStopwatch,
+        details: 'id=${result.cId}',
+        traceTag: traceTag,
+      );
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -1210,12 +1352,18 @@ class _CustomerPageState extends State<CustomerPage> {
     }
 
     setState(() => _loading = true);
+    final traceTag = _nextPerfTraceTag('save/edit');
+    final totalStopwatch = Stopwatch()..start();
     try {
       debugPrint('✏️ Aktualisiere Kundendatensatz: ${result.cId}');
+
+      final dbStopwatch = Stopwatch()..start();
       await _repository.update(result);
+      dbStopwatch.stop();
+
       debugPrint('✅ Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}');
-      
-      await _loadCustomers();
+      _applyLocalCustomerChange(result, remove: false, traceTag: traceTag);
+      _logPerf('save/edit-db', dbStopwatch, details: 'id=${result.cId}', traceTag: traceTag);
 
       if (!mounted) {
         return;
@@ -1232,6 +1380,8 @@ class _CustomerPageState extends State<CustomerPage> {
         SnackBar(content: Text('Fehler beim Aktualisieren: $error')),
       );
     } finally {
+      totalStopwatch.stop();
+      _logPerf('save/edit-total', totalStopwatch, details: 'id=${result.cId}', traceTag: traceTag);
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -1240,12 +1390,18 @@ class _CustomerPageState extends State<CustomerPage> {
 
   Future<void> _deleteCustomer(Customer customer) async {
     setState(() => _loading = true);
+    final traceTag = _nextPerfTraceTag('save/delete');
+    final totalStopwatch = Stopwatch()..start();
     try {
       debugPrint('🗑️ Lösche Kundendatensatz: ${customer.cId}');
+
+      final dbStopwatch = Stopwatch()..start();
       await _repository.delete(customer.cId);
+      dbStopwatch.stop();
+
       debugPrint('✅ Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}');
-      
-      await _loadCustomers();
+      _applyLocalCustomerChange(customer, remove: true, traceTag: traceTag);
+      _logPerf('save/delete-db', dbStopwatch, details: 'id=${customer.cId}', traceTag: traceTag);
 
       if (!mounted) {
         return;
@@ -1262,6 +1418,13 @@ class _CustomerPageState extends State<CustomerPage> {
         SnackBar(content: Text('Fehler beim Löschen: $error')),
       );
     } finally {
+      totalStopwatch.stop();
+      _logPerf(
+        'save/delete-total',
+        totalStopwatch,
+        details: 'id=${customer.cId}',
+        traceTag: traceTag,
+      );
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -1372,115 +1535,100 @@ class _CustomerPageState extends State<CustomerPage> {
                                 if (constraints.maxWidth < 600) {
                                   return _buildMobileCustomerList();
                                 }
-                                return DataTable2(
+                                return PaginatedDataTable2(
                                   sortColumnIndex: _sortColumnIndex,
                                   sortAscending: _sortAscending,
+                                  rowsPerPage: _rowsPerPage,
+                                  availableRowsPerPage: const [10, 25, 50],
+                                  onRowsPerPageChanged: (value) {
+                                    if (value == null) {
+                                      return;
+                                    }
+                                    setState(() => _rowsPerPage = value);
+                                  },
+                                  showFirstLastButtons: true,
+                                  showCheckboxColumn: false,
                                   minWidth: 1200,
-                                  fixedLeftColumns: 0,
-                              columns: [
-                                  DataColumn(
-                                    label: const Text('ID'),
-                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                      columnIndex,
-                                      ascending,
-                                      (c) => c.cId.toLowerCase(),
-                                    ),
-                                  ),
-                                  DataColumn2(
-                                    fixedWidth: 190,
-                                    label: const Text('Nachname'),
-                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                      columnIndex,
-                                      ascending,
-                                      (c) => c.cLastName.toLowerCase(),
-                                    ),
-                                  ),
-                                  DataColumn(
-                                    label: const Text('Vorname'),
-                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                      columnIndex,
-                                      ascending,
-                                      (c) => c.cFirstName.toLowerCase(),
-                                    ),
-                                  ),
-                                  DataColumn(
-                                    label: const Text('Firma'),
-                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                      columnIndex,
-                                      ascending,
-                                      (c) => c.cCompany.toLowerCase(),
-                                    ),
-                                  ),
-                                  DataColumn(
-                                    label: const Text('Stadt'),
-                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                      columnIndex,
-                                      ascending,
-                                      (c) => c.cCityB.toLowerCase(),
-                                    ),
-                                  ),
-                                  DataColumn(
-                                    label: const Text('Land'),
-                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                      columnIndex,
-                                      ascending,
-                                      (c) => (_countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ?? c.cCountryDId ?? '').toLowerCase(),
-                                    ),
-                                  ),
-                                  DataColumn(
-                                    label: const Text('E-Mail'),
-                                    onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                      columnIndex,
-                                      ascending,
-                                      (c) => c.cMail.toLowerCase(),
-                                    ),
-                                  ),
-                                  const DataColumn(
-                                    label: Text('Maps'),
-                                  ),
-                                ],
-                                rows: _filteredCustomers.map((c) {
-                                  return DataRow(
-                                    onSelectChanged: _loading
-                                        ? null
-                                        : (_) {
-                                            showDialog(
-                                              context: context,
-                                              builder: (context) => CustomerDetailDialog(
-                                                customer: c,
-                                                countryNameByCode: _countryNameByCode,
-                                                onEdit: () => _editCustomer(c),
-                                                onDelete: () => _deleteCustomer(c),
-                                              ),
-                                            );
-                                          },
-                                    cells: [
-                                      DataCell(Text(c.cId, softWrap: false, overflow: TextOverflow.ellipsis)),
-                                      DataCell(Text(c.cLastName, softWrap: false, overflow: TextOverflow.ellipsis)),
-                                      DataCell(Text(c.cFirstName, softWrap: false, overflow: TextOverflow.ellipsis)),
-                                      DataCell(Text(c.cCompany, softWrap: false, overflow: TextOverflow.ellipsis)),
-                                      DataCell(Text(c.cCityB, softWrap: false, overflow: TextOverflow.ellipsis)),
-                                      DataCell(Text(
-                                        _countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ??
-                                            c.cCountryDId ??
-                                            '-',
-                                        softWrap: false,
-                                        overflow: TextOverflow.ellipsis,
-                                      )),
-                                      DataCell(Text(c.cMail, softWrap: false, overflow: TextOverflow.ellipsis)),
-                                      DataCell(
-                                        Tooltip(
-                                          message: 'Location aus Koordinaten anzeigen',
-                                          child: IconButton(
-                                            icon: const Icon(Icons.map_outlined),
-                                            onPressed: () => _showMapDialog(c),
-                                          ),
-                                        ),
+                                  columns: [
+                                    DataColumn(
+                                      label: const Text('ID'),
+                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                        columnIndex,
+                                        ascending,
+                                        (c) => c.cId.toLowerCase(),
                                       ),
-                                    ],
-                                  );
-                                }).toList(),
-                            );
+                                    ),
+                                    DataColumn2(
+                                      fixedWidth: 190,
+                                      label: const Text('Nachname'),
+                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                        columnIndex,
+                                        ascending,
+                                        (c) => c.cLastName.toLowerCase(),
+                                      ),
+                                    ),
+                                    DataColumn(
+                                      label: const Text('Vorname'),
+                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                        columnIndex,
+                                        ascending,
+                                        (c) => c.cFirstName.toLowerCase(),
+                                      ),
+                                    ),
+                                    DataColumn(
+                                      label: const Text('Firma'),
+                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                        columnIndex,
+                                        ascending,
+                                        (c) => c.cCompany.toLowerCase(),
+                                      ),
+                                    ),
+                                    DataColumn(
+                                      label: const Text('Stadt'),
+                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                        columnIndex,
+                                        ascending,
+                                        (c) => c.cCityB.toLowerCase(),
+                                      ),
+                                    ),
+                                    DataColumn(
+                                      label: const Text('Land'),
+                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                        columnIndex,
+                                        ascending,
+                                        (c) => (_countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ?? c.cCountryDId ?? '').toLowerCase(),
+                                      ),
+                                    ),
+                                    DataColumn(
+                                      label: const Text('E-Mail'),
+                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
+                                        columnIndex,
+                                        ascending,
+                                        (c) => c.cMail.toLowerCase(),
+                                      ),
+                                    ),
+                                    const DataColumn(
+                                      label: Text('Maps'),
+                                    ),
+                                  ],
+                                  source: _CustomerDataTableSource(
+                                    customers: _filteredCustomers,
+                                    countryNameByCode: _countryNameByCode,
+                                    loading: _loading,
+                                    onOpenDetails: (customer) {
+                                      showDialog(
+                                        context: context,
+                                        builder: (context) => CustomerDetailDialog(
+                                          customer: customer,
+                                          countryNameByCode: _countryNameByCode,
+                                          onEdit: () => _editCustomer(customer),
+                                          onDelete: () => _deleteCustomer(customer),
+                                        ),
+                                      );
+                                    },
+                                    onOpenMap: _showMapDialog,
+                                  ),
+                                );
                               },
                             ),
             ),
@@ -1489,4 +1637,63 @@ class _CustomerPageState extends State<CustomerPage> {
       ),
     );
   }
+}
+
+class _CustomerDataTableSource extends DataTableSource {
+  _CustomerDataTableSource({
+    required this.customers,
+    required this.countryNameByCode,
+    required this.loading,
+    required this.onOpenDetails,
+    required this.onOpenMap,
+  });
+
+  final List<Customer> customers;
+  final Map<String, String> countryNameByCode;
+  final bool loading;
+  final ValueChanged<Customer> onOpenDetails;
+  final ValueChanged<Customer> onOpenMap;
+
+  @override
+  DataRow? getRow(int index) {
+    if (index < 0 || index >= customers.length) {
+      return null;
+    }
+
+    final customer = customers[index];
+    final countryName =
+        countryNameByCode[customer.cCountryDId?.toLowerCase() ?? ''] ?? customer.cCountryDId ?? '-';
+
+    return DataRow.byIndex(
+      index: index,
+      onSelectChanged: loading ? null : (_) => onOpenDetails(customer),
+      cells: [
+        DataCell(Text(customer.cId, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(Text(customer.cLastName, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(Text(customer.cFirstName, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(Text(customer.cCompany, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(Text(customer.cCityB, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(Text(countryName, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(Text(customer.cMail, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(
+          Tooltip(
+            message: 'Location aus Koordinaten anzeigen',
+            child: IconButton(
+              icon: const Icon(Icons.map_outlined),
+              onPressed: loading ? null : () => onOpenMap(customer),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  int get rowCount => customers.length;
+
+  @override
+  bool get isRowCountApproximate => false;
+
+  @override
+  int get selectedRowCount => 0;
 }
