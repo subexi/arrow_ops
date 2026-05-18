@@ -21,6 +21,7 @@ import '../data/customer_csv_service.dart';
 import '../data/customer_repository.dart';
 import '../domain/country_tld.dart';
 import '../domain/customer.dart';
+import 'customer_country_display.dart';
 import 'widgets/csv_import_preview_dialog.dart';
 import 'widgets/customer_detail_dialog.dart';
 import 'widgets/customer_form_dialog.dart';
@@ -467,8 +468,14 @@ class _CustomerPageState extends State<CustomerPage> {
         break;
       case 5:
         customers.sort((a, b) {
-          final aVal = (_countryNameByCode[a.cCountryDId?.toLowerCase() ?? ''] ?? a.cCountryDId ?? '').toLowerCase();
-          final bVal = (_countryNameByCode[b.cCountryDId?.toLowerCase() ?? ''] ?? b.cCountryDId ?? '').toLowerCase();
+          final aVal = resolveDisplayCountry(
+            customer: a,
+            countryNameByCode: _countryNameByCode,
+          ).toLowerCase();
+          final bVal = resolveDisplayCountry(
+            customer: b,
+            countryNameByCode: _countryNameByCode,
+          ).toLowerCase();
           return _sortAscending ? aVal.compareTo(bVal) : bVal.compareTo(aVal);
         });
         break;
@@ -488,10 +495,10 @@ class _CustomerPageState extends State<CustomerPage> {
       separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final c = _filteredCustomers[index];
-        final countryName =
-            _countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ??
-            c.cCountryDId ??
-            '';
+        final countryName = resolveDisplayCountry(
+          customer: c,
+          countryNameByCode: _countryNameByCode,
+        );
         final subtitle = [
           if (c.cCompany.isNotEmpty && c.cCompany != '-') c.cCompany,
           if (c.cCityB.isNotEmpty) c.cCityB,
@@ -1755,7 +1762,11 @@ class _CustomerPageState extends State<CustomerPage> {
                                       onSort: (columnIndex, ascending) => _sortFilteredCustomers(
                                         columnIndex,
                                         ascending,
-                                        (c) => (_countryNameByCode[c.cCountryDId?.toLowerCase() ?? ''] ?? c.cCountryDId ?? '').toLowerCase(),
+                                        (c) =>
+                                            resolveDisplayCountry(
+                                              customer: c,
+                                              countryNameByCode: _countryNameByCode,
+                                            ).toLowerCase(),
                                       ),
                                     ),
                                     DataColumn(
@@ -1770,7 +1781,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                       label: Text('Maps'),
                                     ),
                                   ],
-                                  source: _CustomerDataTableSource(
+                                  source: CustomerDataTableSource(
                                     customers: _filteredCustomers,
                                     countryNameByCode: _countryNameByCode,
                                     loading: _loading,
@@ -1798,8 +1809,8 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 }
 
-class _CustomerDataTableSource extends DataTableSource {
-  _CustomerDataTableSource({
+class CustomerDataTableSource extends DataTableSource {
+  CustomerDataTableSource({
     required this.customers,
     required this.countryNameByCode,
     required this.loading,
@@ -1820,8 +1831,11 @@ class _CustomerDataTableSource extends DataTableSource {
     }
 
     final customer = customers[index];
-    final countryName =
-        countryNameByCode[customer.cCountryDId?.toLowerCase() ?? ''] ?? customer.cCountryDId ?? '-';
+    final countryName = resolveDisplayCountry(
+      customer: customer,
+      countryNameByCode: countryNameByCode,
+      fallbackWhenMissing: '-',
+    );
 
     return DataRow.byIndex(
       index: index,
