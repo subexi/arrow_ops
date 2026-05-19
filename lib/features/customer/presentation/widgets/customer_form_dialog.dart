@@ -1275,9 +1275,11 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     int maxLines = 1,
     bool alignLabelWithHint = false,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     final titleStyle = CupertinoTheme.of(context).textTheme.textStyle.copyWith(
           fontWeight: FontWeight.w600,
           fontSize: 13,
+          color: colorScheme.onSurface,
         );
     final fillColor = enabled
         ? CupertinoColors.secondarySystemGroupedBackground.resolveFrom(context)
