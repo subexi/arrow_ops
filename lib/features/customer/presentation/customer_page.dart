@@ -249,6 +249,7 @@ class _CustomerPageState extends State<CustomerPage> {
     setState(() => _loading = true);
     try {
       final fetchStopwatch = Stopwatch()..start();
+      final normalizedItalianStates = await _repository.normalizeItalianAdministrativeUnits();
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
       fetchStopwatch.stop();
@@ -275,7 +276,8 @@ class _CustomerPageState extends State<CustomerPage> {
       _logPerf(
         'load/fetch',
         fetchStopwatch,
-        details: 'customers=${customers.length}, countries=${countries.length}',
+        details:
+            'customers=${customers.length}, countries=${countries.length}, italyNormalized=$normalizedItalianStates',
         traceTag: traceTag,
       );
       _logPerf(

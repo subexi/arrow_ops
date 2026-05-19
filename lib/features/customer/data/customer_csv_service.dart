@@ -1,6 +1,7 @@
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart';
 
+import 'italian_billing_province_resolver.dart';
 import '../domain/customer.dart';
 
 class CustomerCsvService {
@@ -84,6 +85,26 @@ class CustomerCsvService {
           final value = i < row.length ? row[i] : '';
           data[key] = value.toString();
         }
+
+        data['c_state_b'] = resolveItalianBillingProvince(
+          countryCode: data['c_country_b_id'],
+          currentState: data['c_state_b'],
+          city: data['c_city_b'],
+        );
+        data['c_city_b'] = appendItalianProvinceAbbreviationToCity(
+          city: data['c_city_b'],
+          administrativeUnit: data['c_state_b'],
+        );
+
+        data['c_state_d'] = resolveItalianBillingProvince(
+          countryCode: data['c_country_d_id'],
+          currentState: data['c_state_d'],
+          city: data['c_city_d'],
+        );
+        data['c_city_d'] = appendItalianProvinceAbbreviationToCity(
+          city: data['c_city_d'],
+          administrativeUnit: data['c_state_d'],
+        );
 
         final customer = Customer.fromCsvRow(data);
         customers.add(customer);

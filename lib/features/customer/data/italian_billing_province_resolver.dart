@@ -1,0 +1,306 @@
+String resolveItalianBillingProvince({
+  required String? countryCode,
+  required String? currentState,
+  required String? city,
+}) {
+  final normalizedState = currentState?.trim();
+
+  final normalizedCountry = countryCode?.trim().toLowerCase();
+  final isItaly =
+      normalizedCountry == 'it' ||
+      normalizedCountry == 'italy' ||
+      normalizedCountry == 'italien';
+  if (!isItaly) {
+    return normalizedState == null || normalizedState.isEmpty ? '-' : normalizedState;
+  }
+
+  if (normalizedState != null && normalizedState.isNotEmpty && normalizedState != '-') {
+    final canonicalFromState = _canonicalProvinceFromText(normalizedState);
+    if (canonicalFromState != null) {
+      return canonicalFromState;
+    }
+    return normalizedState;
+  }
+
+  final canonicalFromCityText = _canonicalProvinceFromText(city);
+  if (canonicalFromCityText != null) {
+    return canonicalFromCityText;
+  }
+
+  final cityCandidates = _normalizeCityCandidates(city);
+  if (cityCandidates.isEmpty) {
+    return '-';
+  }
+
+  for (final candidate in cityCandidates) {
+    final province = _provinceByCity[candidate];
+    if (province != null) {
+      return province;
+    }
+
+    final provinceByName = _provinceFromName(candidate);
+    if (provinceByName != null) {
+      return provinceByName;
+    }
+  }
+
+  return '-';
+}
+
+String appendItalianProvinceAbbreviationToCity({
+  required String? city,
+  required String? administrativeUnit,
+}) {
+  final trimmedCity = city?.trim() ?? '';
+  if (trimmedCity.isEmpty || trimmedCity == '-') {
+    return trimmedCity;
+  }
+
+  final provinceCode = _provinceCodeFromAdministrativeUnit(administrativeUnit);
+  if (provinceCode == null) {
+    return trimmedCity;
+  }
+
+  final cleanedCity = trimmedCity.replaceFirst(RegExp(r'\s*\([A-Za-z]{2}\)\s*$'), '').trim();
+  if (cleanedCity.isEmpty) {
+    return trimmedCity;
+  }
+
+  return '$cleanedCity ($provinceCode)';
+}
+
+String? _provinceCodeFromAdministrativeUnit(String? administrativeUnit) {
+  final trimmed = administrativeUnit?.trim() ?? '';
+  if (trimmed.isEmpty || trimmed == '-') {
+    return null;
+  }
+
+  final match = RegExp(r'^([A-Za-z]{2})\b').firstMatch(trimmed);
+  return match?.group(1)?.toUpperCase();
+}
+
+String? _canonicalProvinceFromText(String? text) {
+  final normalized = _normalizeCityToken(text ?? '');
+  if (normalized == null) {
+    return null;
+  }
+
+  final directCode = normalized.toUpperCase();
+  final directName = _provinceNameByCode[directCode];
+  if (directName != null) {
+    return '$directCode-$directName';
+  }
+
+  final matches = RegExp(r'\b([a-z]{2})\b').allMatches(normalized);
+  for (final match in matches) {
+    final code = match.group(1)?.toUpperCase();
+    if (code == null) {
+      continue;
+    }
+    final name = _provinceNameByCode[code];
+    if (name != null) {
+      return '$code-$name';
+    }
+  }
+
+  return null;
+}
+
+List<String> _normalizeCityCandidates(String? city) {
+  final raw = city?.trim().toLowerCase();
+  if (raw == null || raw.isEmpty || raw == '-') {
+    return const [];
+  }
+
+  final withoutParentheses = raw.replaceAll(RegExp(r'\([^)]*\)'), ' ');
+  final segments = withoutParentheses.split('/');
+
+  final candidates = <String>{};
+
+  void addCandidate(String value) {
+    final normalized = _normalizeCityToken(value);
+    if (normalized != null) {
+      candidates.add(normalized);
+    }
+  }
+
+  addCandidate(withoutParentheses);
+  for (final segment in segments) {
+    addCandidate(segment);
+  }
+
+  return candidates.toList(growable: false);
+}
+
+String? _normalizeCityToken(String value) {
+  final trimmed = value.trim().toLowerCase();
+  if (trimmed.isEmpty || trimmed == '-') {
+    return null;
+  }
+
+  final normalized = trimmed
+      .replaceAll('à', 'a')
+      .replaceAll('á', 'a')
+      .replaceAll('è', 'e')
+      .replaceAll('é', 'e')
+      .replaceAll('ì', 'i')
+      .replaceAll('í', 'i')
+      .replaceAll('ò', 'o')
+      .replaceAll('ó', 'o')
+      .replaceAll('ù', 'u')
+      .replaceAll('ú', 'u')
+      .replaceAll('ä', 'a')
+      .replaceAll('ö', 'o')
+      .replaceAll('ü', 'u')
+      .replaceAll(RegExp(r'[^a-z0-9 ]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  if (normalized.isEmpty || normalized == '-') {
+    return null;
+  }
+
+  return normalized;
+}
+
+const Map<String, String> _provinceByCity = {
+  'merano': 'BZ-Bolzano',
+  'meran': 'BZ-Bolzano',
+  'bolzano': 'BZ-Bolzano',
+  'bozen': 'BZ-Bolzano',
+  'milano': 'MI-Milano',
+  'milan': 'MI-Milano',
+  'alessandria': 'AL-Alessandria',
+  'allessandra': 'AL-Alessandria',
+  'cassine': 'AL-Alessandria',
+  'piacenza': 'PC-Piacenza',
+  'oberbozen': 'BZ-Bolzano',
+  'ritten': 'BZ-Bolzano',
+  'castiglione della pescaia': 'GR-Grosseto',
+  'castiglione bella pescaia': 'GR-Grosseto',
+  'gardone val trompia': 'BS-Brescia',
+  'san giuseppe di cassola': 'VI-Vicenza',
+  'cassola': 'VI-Vicenza',
+};
+
+const Map<String, String> _provinceNameByCode = {
+  'AG': 'Agrigento',
+  'AL': 'Alessandria',
+  'AN': 'Ancona',
+  'AO': 'Aosta',
+  'AP': 'Ascoli Piceno',
+  'AQ': "L'Aquila",
+  'AR': 'Arezzo',
+  'AT': 'Asti',
+  'AV': 'Avellino',
+  'BA': 'Bari',
+  'BG': 'Bergamo',
+  'BI': 'Biella',
+  'BZ': 'Bolzano',
+  'BL': 'Belluno',
+  'BN': 'Benevento',
+  'BO': 'Bologna',
+  'BR': 'Brindisi',
+  'BS': 'Brescia',
+  'BT': 'Barletta-Andria-Trani',
+  'CA': 'Cagliari',
+  'CB': 'Campobasso',
+  'CE': 'Caserta',
+  'CH': 'Chieti',
+  'CL': 'Caltanissetta',
+  'CN': 'Cuneo',
+  'CO': 'Como',
+  'CR': 'Cremona',
+  'CS': 'Cosenza',
+  'CT': 'Catania',
+  'CZ': 'Catanzaro',
+  'EN': 'Enna',
+  'FC': 'Forli-Cesena',
+  'FE': 'Ferrara',
+  'FG': 'Foggia',
+  'FI': 'Firenze',
+  'FM': 'Fermo',
+  'FR': 'Frosinone',
+  'GE': 'Genova',
+  'GO': 'Gorizia',
+  'GR': 'Grosseto',
+  'IM': 'Imperia',
+  'IS': 'Isernia',
+  'KR': 'Crotone',
+  'LC': 'Lecco',
+  'LE': 'Lecce',
+  'LI': 'Livorno',
+  'LO': 'Lodi',
+  'LT': 'Latina',
+  'LU': 'Lucca',
+  'MB': 'Monza e Brianza',
+  'MC': 'Macerata',
+  'ME': 'Messina',
+  'MI': 'Milano',
+  'MN': 'Mantova',
+  'MO': 'Modena',
+  'MS': 'Massa-Carrara',
+  'MT': 'Matera',
+  'NA': 'Napoli',
+  'NO': 'Novara',
+  'NU': 'Nuoro',
+  'OR': 'Oristano',
+  'PA': 'Palermo',
+  'PD': 'Padova',
+  'PE': 'Pescara',
+  'PG': 'Perugia',
+  'PI': 'Pisa',
+  'PN': 'Pordenone',
+  'PC': 'Piacenza',
+  'PO': 'Prato',
+  'PR': 'Parma',
+  'PT': 'Pistoia',
+  'PU': 'Pesaro e Urbino',
+  'PV': 'Pavia',
+  'PZ': 'Potenza',
+  'RA': 'Ravenna',
+  'RC': 'Reggio Calabria',
+  'RE': 'Reggio Emilia',
+  'RG': 'Ragusa',
+  'RI': 'Rieti',
+  'RM': 'Roma',
+  'RN': 'Rimini',
+  'RO': 'Rovigo',
+  'SA': 'Salerno',
+  'SI': 'Siena',
+  'SO': 'Sondrio',
+  'SP': 'La Spezia',
+  'SR': 'Siracusa',
+  'SS': 'Sassari',
+  'SU': 'Sud Sardegna',
+  'SV': 'Savona',
+  'TA': 'Taranto',
+  'TE': 'Teramo',
+  'TN': 'Trento',
+  'TO': 'Torino',
+  'TP': 'Trapani',
+  'TR': 'Terni',
+  'TS': 'Trieste',
+  'TV': 'Treviso',
+  'UD': 'Udine',
+  'VA': 'Varese',
+  'VB': 'Verbano-Cusio-Ossola',
+  'VC': 'Vercelli',
+  'VE': 'Venezia',
+  'VI': 'Vicenza',
+  'VR': 'Verona',
+  'VS': 'Medio Campidano',
+  'VT': 'Viterbo',
+  'VV': 'Vibo Valentia',
+};
+
+String? _provinceFromName(String normalizedName) {
+  for (final entry in _provinceNameByCode.entries) {
+    final code = entry.key;
+    final normalizedProvinceName = _normalizeCityToken(entry.value) ?? '';
+    if (normalizedProvinceName == normalizedName) {
+      return '$code-${entry.value}';
+    }
+  }
+  return null;
+}

@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:sqflite/sqflite.dart';
 
 import '../../../core/database/app_database.dart';
+import 'italian_billing_province_resolver.dart';
 import '../domain/country_tld.dart';
 import '../domain/customer.dart';
 
@@ -151,6 +155,244 @@ class CustomerRepository {
     return rows
         .map((r) => CountryTld(coTld: r['co_tld'] as String, coName: r['co_name'] as String))
         .toList();
+  }
+
+  Future<int> normalizeItalianAdministrativeUnits() async {
+    final db = await AppDatabase.instance.database;
+
+    final rows = await db.query(
+      'customer',
+      columns: [
+        'c_id',
+        'c_city_b',
+        'c_postal_code_b',
+        'c_state_b',
+        'c_country_b_id',
+        'c_city_d',
+        'c_postal_code_d',
+        'c_state_d',
+        'c_country_d_id',
+      ],
+        where:
+          'LOWER(TRIM(COALESCE(c_country_b_id,\'\'))) IN (\'it\', \'italy\', \'italien\') '
+          'OR LOWER(TRIM(COALESCE(c_country_d_id,\'\'))) IN (\'it\', \'italy\', \'italien\')',
+    );
+
+    if (rows.isEmpty) {
+      return 0;
+    }
+
+    final lookupCache = <String, String?>{};
+    final updates = <Map<String, String>>[];
+
+    for (final row in rows) {
+      final id = row['c_id']?.toString();
+      if (id == null || id.isEmpty) {
+        continue;
+      }
+
+      final countryB = row['c_country_b_id']?.toString();
+      final stateB = row['c_state_b']?.toString();
+      final cityB = row['c_city_b']?.toString() ?? '';
+      final postalB = row['c_postal_code_b']?.toString() ?? '';
+      final resolvedB = await _resolveItalianAdministrativeUnit(
+        countryCode: countryB,
+        currentState: stateB,
+        city: cityB,
+        postalCode: postalB,
+        lookupCache: lookupCache,
+      );
+
+      final countryD = row['c_country_d_id']?.toString();
+      final stateD = row['c_state_d']?.toString();
+      final cityD = row['c_city_d']?.toString() ?? '';
+      final postalD = row['c_postal_code_d']?.toString() ?? '';
+      final resolvedD = await _resolveItalianAdministrativeUnit(
+        countryCode: countryD,
+        currentState: stateD,
+        city: cityD,
+        postalCode: postalD,
+        lookupCache: lookupCache,
+      );
+
+      final nextB = resolvedB.trim();
+      final nextD = resolvedD.trim();
+      final currentB = (stateB ?? '').trim();
+      final currentD = (stateD ?? '').trim();
+      final normalizedCountryB = countryB?.trim().toLowerCase();
+      final normalizedCountryD = countryD?.trim().toLowerCase();
+      final isItalyB =
+          normalizedCountryB == 'it' ||
+          normalizedCountryB == 'italy' ||
+          normalizedCountryB == 'italien';
+      final isItalyD =
+          normalizedCountryD == 'it' ||
+          normalizedCountryD == 'italy' ||
+          normalizedCountryD == 'italien';
+
+      final nextCityB = isItalyB
+          ? appendItalianProvinceAbbreviationToCity(
+              city: cityB,
+              administrativeUnit: nextB,
+            )
+          : cityB;
+      final nextCityD = isItalyD
+          ? appendItalianProvinceAbbreviationToCity(
+              city: cityD,
+              administrativeUnit: nextD,
+            )
+          : cityD;
+      final currentCityB = cityB.trim();
+      final currentCityD = cityD.trim();
+
+      if (currentB == nextB && currentD == nextD && currentCityB == nextCityB.trim() && currentCityD == nextCityD.trim()) {
+        continue;
+      }
+
+      updates.add({
+        'c_id': id,
+        'c_state_b': nextB.isEmpty ? '-' : nextB,
+        'c_state_d': nextD.isEmpty ? '-' : nextD,
+        'c_city_b': nextCityB,
+        'c_city_d': nextCityD,
+      });
+    }
+
+    if (updates.isEmpty) {
+      return 0;
+    }
+
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final update in updates) {
+        batch.update(
+          'customer',
+          {
+            'c_state_b': update['c_state_b']!,
+            'c_state_d': update['c_state_d']!,
+            'c_city_b': update['c_city_b']!,
+            'c_city_d': update['c_city_d']!,
+          },
+          where: 'c_id = ?',
+          whereArgs: [update['c_id']],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+
+    return updates.length;
+  }
+
+  Future<String> _resolveItalianAdministrativeUnit({
+    required String? countryCode,
+    required String? currentState,
+    required String city,
+    required String postalCode,
+    required Map<String, String?> lookupCache,
+  }) async {
+    var resolved = resolveItalianBillingProvince(
+      countryCode: countryCode,
+      currentState: currentState,
+      city: city,
+    );
+
+    if (resolved != '-') {
+      return resolved;
+    }
+
+    final normalizedCountry = countryCode?.trim().toLowerCase();
+    final isItaly =
+        normalizedCountry == 'it' ||
+        normalizedCountry == 'italy' ||
+        normalizedCountry == 'italien';
+    if (!isItaly) {
+      return resolved;
+    }
+
+    final cacheKey = '${postalCode.trim().toLowerCase()}|${city.trim().toLowerCase()}';
+    if (lookupCache.containsKey(cacheKey)) {
+      return lookupCache[cacheKey] ?? resolved;
+    }
+
+    final fetched = await _resolveItalianFromNominatim(
+      postalCode: postalCode,
+      city: city,
+    );
+    lookupCache[cacheKey] = fetched;
+
+    return fetched ?? resolved;
+  }
+
+  Future<String?> _resolveItalianFromNominatim({
+    required String postalCode,
+    required String city,
+  }) async {
+    final normalizedPostal = postalCode.trim();
+    final normalizedCity = city.trim();
+    if (normalizedPostal.isEmpty && normalizedCity.isEmpty) {
+      return null;
+    }
+
+    final params = <String, String>{
+      'format': 'json',
+      'limit': '1',
+      'addressdetails': '1',
+      'countrycodes': 'it',
+    };
+    if (normalizedPostal.isNotEmpty) {
+      params['postalcode'] = normalizedPostal;
+    }
+    if (normalizedCity.isNotEmpty) {
+      params['city'] = normalizedCity;
+    }
+
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', params);
+      final response = await http.get(
+        uri,
+        headers: {'User-Agent': 'arrow_ops/1.0'},
+      );
+      if (response.statusCode != 200) {
+        return null;
+      }
+      final parsed = jsonDecode(response.body);
+      if (parsed is! List || parsed.isEmpty) {
+        return null;
+      }
+      final first = parsed.first;
+      if (first is! Map<String, dynamic>) {
+        return null;
+      }
+      final address = first['address'];
+      if (address is! Map<String, dynamic>) {
+        return null;
+      }
+
+      final isoRaw =
+          address['ISO3166-2-lvl6']?.toString().trim() ??
+          address['ISO3166-2-lvl4']?.toString().trim() ??
+          '';
+      final isoShort = isoRaw.contains('-') ? isoRaw.split('-').last.trim() : isoRaw;
+      final county = address['county']?.toString().trim() ?? '';
+
+      var resolved = resolveItalianBillingProvince(
+        countryCode: 'it',
+        currentState: isoShort,
+        city: normalizedCity.isEmpty ? county : normalizedCity,
+      );
+
+      if (resolved == '-') {
+        resolved = resolveItalianBillingProvince(
+          countryCode: 'it',
+          currentState: county,
+          city: normalizedCity,
+        );
+      }
+
+      return resolved == '-' ? null : resolved;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<int> deleteCountriesByCodes(List<String> rawCodes) async {
