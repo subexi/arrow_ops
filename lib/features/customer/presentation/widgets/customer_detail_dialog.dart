@@ -17,10 +17,23 @@ class CustomerDetailDialog extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
-  bool _isUsaAddress(String? countryCode) {
+  bool _usesLeadingHouseNumber(String? countryCode) {
     final normalized = countryCode?.trim().toLowerCase();
-    return normalized == 'us' || normalized == 'usa';
+    return normalized == 'us' ||
+        normalized == 'usa' ||
+        normalized == 'uk' ||
+        normalized == 'gb' ||
+        normalized == 'united kingdom';
   }
+
+        bool _usesCityBeforePostalCode(String? countryCode) {
+          final normalized = countryCode?.trim().toLowerCase();
+          return normalized == 'us' ||
+          normalized == 'usa' ||
+          normalized == 'uk' ||
+          normalized == 'gb' ||
+          normalized == 'united kingdom';
+        }
 
   String _buildStreetLine({
     required String street,
@@ -55,8 +68,10 @@ class CustomerDetailDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lastNameUpper = customer.cLastName.toUpperCase();
-    final isUsaBilling = _isUsaAddress(customer.cCountryBId);
-    final isUsaDelivery = _isUsaAddress(customer.cCountryDId);
+    final cityBeforePostalBilling = _usesCityBeforePostalCode(customer.cCountryBId);
+    final cityBeforePostalDelivery = _usesCityBeforePostalCode(customer.cCountryDId);
+    final leadingHouseNumberBilling = _usesLeadingHouseNumber(customer.cCountryBId);
+    final leadingHouseNumberDelivery = _usesLeadingHouseNumber(customer.cCountryDId);
     final screenSize = MediaQuery.of(context).size;
     final isWide = screenSize.width >= 700;
 
@@ -67,7 +82,7 @@ class CustomerDetailDialog extends StatelessWidget {
         _buildStreetLine(
           street: customer.cStreetB,
           houseNumber: customer.cHouseNumberB,
-          isUsa: isUsaBilling,
+          isUsa: leadingHouseNumberBilling,
         ),
       ),
       _buildField(
@@ -75,7 +90,7 @@ class CustomerDetailDialog extends StatelessWidget {
         _buildCityLine(
           postalCode: customer.cPostalCodeB,
           city: customer.cCityB,
-          isUsa: isUsaBilling,
+          isUsa: cityBeforePostalBilling,
         ),
       ),
       _buildField('Verwaltungseinheit', customer.cStateB),
@@ -89,7 +104,7 @@ class CustomerDetailDialog extends StatelessWidget {
         _buildStreetLine(
           street: customer.cStreetD,
           houseNumber: customer.cHouseNumberD,
-          isUsa: isUsaDelivery,
+          isUsa: leadingHouseNumberDelivery,
         ),
       ),
       _buildField(
@@ -97,7 +112,7 @@ class CustomerDetailDialog extends StatelessWidget {
         _buildCityLine(
           postalCode: customer.cPostalCodeD,
           city: customer.cCityD,
-          isUsa: isUsaDelivery,
+          isUsa: cityBeforePostalDelivery,
         ),
       ),
       _buildField('Verwaltungseinheit', customer.cStateD),
