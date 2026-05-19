@@ -34,6 +34,9 @@ void main() {
   Future<Customer?> openAndSubmitDialog(
     WidgetTester tester, {
     required Customer customer,
+    List<CountryTld> countries = const [
+      CountryTld(coTld: 'it', coName: 'Italy'),
+    ],
   }) async {
     Customer? dialogResult;
 
@@ -47,9 +50,7 @@ void main() {
                   context: context,
                   builder: (_) => CustomerFormDialog(
                     customer: customer,
-                    countries: const [
-                      CountryTld(coTld: 'it', coName: 'Italy'),
-                    ],
+                    countries: countries,
                   ),
                 );
               },
@@ -340,5 +341,39 @@ void main() {
     expect(result, isNotNull);
     expect(result!.cStateB, 'RM-Roma');
     expect(result.cStateD, 'RM-Roma');
+  });
+
+  testWidgets('kanonisiert US-Verwaltungseinheit und Stadt-Suffix beim Speichern', (
+    tester,
+  ) async {
+    final result = await openAndSubmitDialog(
+      tester,
+      customer: Customer(
+        cId: '2605191234',
+        cLastName: 'MUSTER',
+        cFirstName: 'Max',
+        cStreetB: 'Main St',
+        cHouseNumberB: '10',
+        cPostalCodeB: '44691',
+        cCityB: 'Wooster',
+        cStateB: 'Ohio',
+        cCountryBId: 'usa',
+        cStreetD: 'Main St',
+        cHouseNumberD: '10',
+        cPostalCodeD: '44691',
+        cCityD: 'Wooster',
+        cStateD: 'OH',
+        cCountryDId: 'us',
+      ),
+      countries: const [
+        CountryTld(coTld: 'us', coName: 'United States'),
+      ],
+    );
+
+    expect(result, isNotNull);
+    expect(result!.cStateB, 'OH-Ohio');
+    expect(result.cCityB, 'Wooster, OH');
+    expect(result.cStateD, 'OH-Ohio');
+    expect(result.cCityD, 'Wooster, OH');
   });
 }

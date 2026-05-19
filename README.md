@@ -28,3 +28,16 @@ Ausfuehrung:
 ```bash
 sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_italian_city_suffixes.sql
 ```
+
+## Datenmigration USA Verwaltungseinheit und Stadt-Suffixe
+
+Fuer bestehende US-Daten kann das Skript
+`scripts/sql/normalize_us_state_city_suffixes.sql`
+die Verwaltungseinheit auf `ST-StateName` und die Stadt auf `City, ST`
+normalisieren.
+
+Ausfuehrung:
+
+```bash
+sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_us_state_city_suffixes.sql
+```

@@ -175,4 +175,49 @@ void main() {
     expect(customers, hasLength(1));
     expect(customers.single.cStateB, '-');
   });
+
+  test('kanonisiert US-Staat Ohio zu OH - Ohio und Stadtformat mit Komma', () {
+    final csv = [
+      csvHeader,
+      '1,-,0,0,-,Doe,Jane,-,Main St,10,44691,Wooster,Ohio,us,-,Main St,10,44691,Wooster,OH,us,-,-,-,-,0,0,-,0,0,0',
+    ].join('\n');
+
+    final customers = service.importCustomers(csv);
+
+    expect(customers, hasLength(1));
+    expect(customers.single.cStateB, 'OH-Ohio');
+    expect(customers.single.cCityB, 'Wooster, OH');
+    expect(customers.single.cStateD, 'OH-Ohio');
+    expect(customers.single.cCityD, 'Wooster, OH');
+  });
+
+  test('behaelt US-Stadtnamen mit vorhandenem Suffix ohne Duplikat bei', () {
+    final csv = [
+      csvHeader,
+      '1,-,0,0,-,Doe,Jane,-,Main St,10,95014,"Cupertino, CA",CA - California,usa,-,Main St,10,95014,"Cupertino, CA",CA,usa,-,-,-,-,0,0,-,0,0,0',
+    ].join('\n');
+
+    final customers = service.importCustomers(csv);
+
+    expect(customers, hasLength(1));
+    expect(customers.single.cStateB, 'CA-California');
+    expect(customers.single.cCityB, 'Cupertino, CA');
+    expect(customers.single.cStateD, 'CA-California');
+    expect(customers.single.cCityD, 'Cupertino, CA');
+  });
+
+  test('entfernt mehrfaches US-Suffix im Ortsfeld auf genau ein Suffix', () {
+    final csv = [
+      csvHeader,
+      '1,-,0,0,-,Doe,Jane,-,Main St,10,44691,"Wooster, OH, OH",OH-Ohio,us,-,Main St,10,44691,"Wooster, OH, OH",OH,us,-,-,-,-,0,0,-,0,0,0',
+    ].join('\n');
+
+    final customers = service.importCustomers(csv);
+
+    expect(customers, hasLength(1));
+    expect(customers.single.cStateB, 'OH-Ohio');
+    expect(customers.single.cCityB, 'Wooster, OH');
+    expect(customers.single.cStateD, 'OH-Ohio');
+    expect(customers.single.cCityD, 'Wooster, OH');
+  });
 }

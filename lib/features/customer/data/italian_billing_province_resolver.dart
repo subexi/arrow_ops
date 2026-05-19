@@ -5,11 +5,7 @@ String resolveItalianBillingProvince({
 }) {
   final normalizedState = currentState?.trim();
 
-  final normalizedCountry = countryCode?.trim().toLowerCase();
-  final isItaly =
-      normalizedCountry == 'it' ||
-      normalizedCountry == 'italy' ||
-      normalizedCountry == 'italien';
+  final isItaly = isItalyCountry(countryCode);
   if (!isItaly) {
     return normalizedState == null || normalizedState.isEmpty ? '-' : normalizedState;
   }
@@ -56,17 +52,115 @@ String appendItalianProvinceAbbreviationToCity({
     return trimmedCity;
   }
 
-  final provinceCode = _provinceCodeFromAdministrativeUnit(administrativeUnit);
+  final provinceCode = _italianProvinceCodeFromAdministrativeUnit(administrativeUnit);
   if (provinceCode == null) {
     return trimmedCity;
   }
 
-  final cleanedCity = trimmedCity.replaceFirst(RegExp(r'\s*\([A-Za-z]{2}\)\s*$'), '').trim();
+  final cleanedCity = _stripTrailingAdministrativeSuffixes(
+    trimmedCity,
+    patterns: [RegExp(r'\s*\([A-Za-z]{2}\)\s*$')],
+  );
   if (cleanedCity.isEmpty) {
     return trimmedCity;
   }
 
   return '$cleanedCity ($provinceCode)';
+}
+
+String? _italianProvinceCodeFromAdministrativeUnit(String? administrativeUnit) {
+  final trimmed = administrativeUnit?.trim() ?? '';
+  if (trimmed.isEmpty || trimmed == '-') {
+    return null;
+  }
+
+  final match = RegExp(r'^([A-Za-z]{2})-').firstMatch(trimmed);
+  return match?.group(1)?.toUpperCase();
+}
+
+String resolveUSStateAdministrativeUnit({
+  required String? countryCode,
+  required String? currentState,
+  String? city,
+}) {
+  final normalizedState = currentState?.trim();
+  final isUs = isUsCountry(countryCode);
+  if (!isUs) {
+    return normalizedState == null || normalizedState.isEmpty ? '-' : normalizedState;
+  }
+
+  if (normalizedState != null && normalizedState.isNotEmpty && normalizedState != '-') {
+    final canonical = _canonicalUSStateFromText(normalizedState);
+    return canonical ?? normalizedState;
+  }
+
+  final canonicalFromCity = _canonicalUSStateFromText(city ?? '');
+  return canonicalFromCity ?? '-';
+}
+
+String appendUSStateAbbreviationToCity({
+  required String? city,
+  required String? administrativeUnit,
+}) {
+  final trimmedCity = city?.trim() ?? '';
+  if (trimmedCity.isEmpty || trimmedCity == '-') {
+    return trimmedCity;
+  }
+
+  final stateCode = _provinceCodeFromAdministrativeUnit(administrativeUnit);
+  if (stateCode == null || !_usStateNameByCode.containsKey(stateCode)) {
+    return trimmedCity;
+  }
+
+  final cleanedCity = _stripTrailingAdministrativeSuffixes(
+    trimmedCity,
+    patterns: [
+      RegExp(r'\s*\([A-Za-z]{2}\)\s*$'),
+      RegExp(r'\s*,\s*[A-Za-z]{2}\s*$'),
+    ],
+  );
+  if (cleanedCity.isEmpty) {
+    return trimmedCity;
+  }
+
+  return '$cleanedCity, $stateCode';
+}
+
+String _stripTrailingAdministrativeSuffixes(
+  String value, {
+  required List<RegExp> patterns,
+}) {
+  var current = value.trim();
+  var changed = true;
+
+  while (changed && current.isNotEmpty) {
+    changed = false;
+    for (final pattern in patterns) {
+      final next = current.replaceFirst(pattern, '').trim();
+      if (next != current) {
+        current = next;
+        changed = true;
+      }
+    }
+  }
+
+  return current;
+}
+
+bool isItalyCountry(String? countryCode) {
+  final normalizedCountry = countryCode?.trim().toLowerCase();
+  return normalizedCountry == 'it' ||
+      normalizedCountry == 'italy' ||
+      normalizedCountry == 'italien';
+}
+
+bool isUsCountry(String? countryCode) {
+  final normalizedCountry = countryCode?.trim().toLowerCase();
+  return normalizedCountry == 'us' ||
+      normalizedCountry == 'usa' ||
+      normalizedCountry == 'united states' ||
+      normalizedCountry == 'united states of america' ||
+      normalizedCountry == 'vereinigte staaten';
 }
 
 String? _provinceCodeFromAdministrativeUnit(String? administrativeUnit) {
@@ -77,6 +171,40 @@ String? _provinceCodeFromAdministrativeUnit(String? administrativeUnit) {
 
   final match = RegExp(r'^([A-Za-z]{2})\b').firstMatch(trimmed);
   return match?.group(1)?.toUpperCase();
+}
+
+String? _canonicalUSStateFromText(String text) {
+  final normalized = _normalizeCityToken(text);
+  if (normalized == null) {
+    return null;
+  }
+
+  final directCode = normalized.toUpperCase();
+  final directName = _usStateNameByCode[directCode];
+  if (directName != null) {
+    return '$directCode-$directName';
+  }
+
+  final matches = RegExp(r'\b([a-z]{2})\b').allMatches(normalized);
+  for (final match in matches) {
+    final code = match.group(1)?.toUpperCase();
+    if (code == null) {
+      continue;
+    }
+    final name = _usStateNameByCode[code];
+    if (name != null) {
+      return '$code-$name';
+    }
+  }
+
+  for (final entry in _usStateNameByCode.entries) {
+    final normalizedStateName = _normalizeCityToken(entry.value) ?? '';
+    if (normalizedStateName == normalized) {
+      return '${entry.key}-${entry.value}';
+    }
+  }
+
+  return null;
 }
 
 String? _canonicalProvinceFromText(String? text) {
@@ -292,6 +420,60 @@ const Map<String, String> _provinceNameByCode = {
   'VS': 'Medio Campidano',
   'VT': 'Viterbo',
   'VV': 'Vibo Valentia',
+};
+
+const Map<String, String> _usStateNameByCode = {
+  'AL': 'Alabama',
+  'AK': 'Alaska',
+  'AZ': 'Arizona',
+  'AR': 'Arkansas',
+  'CA': 'California',
+  'CO': 'Colorado',
+  'CT': 'Connecticut',
+  'DE': 'Delaware',
+  'FL': 'Florida',
+  'GA': 'Georgia',
+  'HI': 'Hawaii',
+  'ID': 'Idaho',
+  'IL': 'Illinois',
+  'IN': 'Indiana',
+  'IA': 'Iowa',
+  'KS': 'Kansas',
+  'KY': 'Kentucky',
+  'LA': 'Louisiana',
+  'ME': 'Maine',
+  'MD': 'Maryland',
+  'MA': 'Massachusetts',
+  'MI': 'Michigan',
+  'MN': 'Minnesota',
+  'MS': 'Mississippi',
+  'MO': 'Missouri',
+  'MT': 'Montana',
+  'NE': 'Nebraska',
+  'NV': 'Nevada',
+  'NH': 'New Hampshire',
+  'NJ': 'New Jersey',
+  'NM': 'New Mexico',
+  'NY': 'New York',
+  'NC': 'North Carolina',
+  'ND': 'North Dakota',
+  'OH': 'Ohio',
+  'OK': 'Oklahoma',
+  'OR': 'Oregon',
+  'PA': 'Pennsylvania',
+  'RI': 'Rhode Island',
+  'SC': 'South Carolina',
+  'SD': 'South Dakota',
+  'TN': 'Tennessee',
+  'TX': 'Texas',
+  'UT': 'Utah',
+  'VT': 'Vermont',
+  'VA': 'Virginia',
+  'WA': 'Washington',
+  'WV': 'West Virginia',
+  'WI': 'Wisconsin',
+  'WY': 'Wyoming',
+  'DC': 'District of Columbia',
 };
 
 String? _provinceFromName(String normalizedName) {

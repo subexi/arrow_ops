@@ -91,7 +91,16 @@ class CustomerCsvService {
           currentState: data['c_state_b'],
           city: data['c_city_b'],
         );
+        data['c_state_b'] = resolveUSStateAdministrativeUnit(
+          countryCode: data['c_country_b_id'],
+          currentState: data['c_state_b'],
+          city: data['c_city_b'],
+        );
         data['c_city_b'] = appendItalianProvinceAbbreviationToCity(
+          city: data['c_city_b'],
+          administrativeUnit: data['c_state_b'],
+        );
+        data['c_city_b'] = appendUSStateAbbreviationToCity(
           city: data['c_city_b'],
           administrativeUnit: data['c_state_b'],
         );
@@ -101,7 +110,16 @@ class CustomerCsvService {
           currentState: data['c_state_d'],
           city: data['c_city_d'],
         );
+        data['c_state_d'] = resolveUSStateAdministrativeUnit(
+          countryCode: data['c_country_d_id'],
+          currentState: data['c_state_d'],
+          city: data['c_city_d'],
+        );
         data['c_city_d'] = appendItalianProvinceAbbreviationToCity(
+          city: data['c_city_d'],
+          administrativeUnit: data['c_state_d'],
+        );
+        data['c_city_d'] = appendUSStateAbbreviationToCity(
           city: data['c_city_d'],
           administrativeUnit: data['c_state_d'],
         );

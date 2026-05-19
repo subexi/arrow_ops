@@ -174,8 +174,8 @@ class CustomerRepository {
         'c_country_d_id',
       ],
         where:
-          'LOWER(TRIM(COALESCE(c_country_b_id,\'\'))) IN (\'it\', \'italy\', \'italien\') '
-          'OR LOWER(TRIM(COALESCE(c_country_d_id,\'\'))) IN (\'it\', \'italy\', \'italien\')',
+          'LOWER(TRIM(COALESCE(c_country_b_id,\'\'))) IN (\'it\', \'italy\', \'italien\', \'us\', \'usa\', \'united states\', \'united states of america\', \'vereinigte staaten\') '
+          'OR LOWER(TRIM(COALESCE(c_country_d_id,\'\'))) IN (\'it\', \'italy\', \'italien\', \'us\', \'usa\', \'united states\', \'united states of america\', \'vereinigte staaten\')',
     );
 
     if (rows.isEmpty) {
@@ -195,7 +195,7 @@ class CustomerRepository {
       final stateB = row['c_state_b']?.toString();
       final cityB = row['c_city_b']?.toString() ?? '';
       final postalB = row['c_postal_code_b']?.toString() ?? '';
-      final resolvedB = await _resolveItalianAdministrativeUnit(
+      final resolvedB = await _resolveAdministrativeUnit(
         countryCode: countryB,
         currentState: stateB,
         city: cityB,
@@ -207,7 +207,7 @@ class CustomerRepository {
       final stateD = row['c_state_d']?.toString();
       final cityD = row['c_city_d']?.toString() ?? '';
       final postalD = row['c_postal_code_d']?.toString() ?? '';
-      final resolvedD = await _resolveItalianAdministrativeUnit(
+      final resolvedD = await _resolveAdministrativeUnit(
         countryCode: countryD,
         currentState: stateD,
         city: cityD,
@@ -219,29 +219,33 @@ class CustomerRepository {
       final nextD = resolvedD.trim();
       final currentB = (stateB ?? '').trim();
       final currentD = (stateD ?? '').trim();
-      final normalizedCountryB = countryB?.trim().toLowerCase();
-      final normalizedCountryD = countryD?.trim().toLowerCase();
-      final isItalyB =
-          normalizedCountryB == 'it' ||
-          normalizedCountryB == 'italy' ||
-          normalizedCountryB == 'italien';
-      final isItalyD =
-          normalizedCountryD == 'it' ||
-          normalizedCountryD == 'italy' ||
-          normalizedCountryD == 'italien';
+      final isItalyB = isItalyCountry(countryB);
+      final isItalyD = isItalyCountry(countryD);
+      final isUsB = isUsCountry(countryB);
+      final isUsD = isUsCountry(countryD);
 
       final nextCityB = isItalyB
           ? appendItalianProvinceAbbreviationToCity(
               city: cityB,
               administrativeUnit: nextB,
             )
-          : cityB;
+          : (isUsB
+                ? appendUSStateAbbreviationToCity(
+                    city: cityB,
+                    administrativeUnit: nextB,
+                  )
+                : cityB);
       final nextCityD = isItalyD
           ? appendItalianProvinceAbbreviationToCity(
               city: cityD,
               administrativeUnit: nextD,
             )
-          : cityD;
+          : (isUsD
+                ? appendUSStateAbbreviationToCity(
+                    city: cityD,
+                    administrativeUnit: nextD,
+                  )
+                : cityD);
       final currentCityB = cityB.trim();
       final currentCityD = cityD.trim();
 
@@ -283,44 +287,129 @@ class CustomerRepository {
     return updates.length;
   }
 
-  Future<String> _resolveItalianAdministrativeUnit({
+  Future<String> _resolveAdministrativeUnit({
     required String? countryCode,
     required String? currentState,
     required String city,
     required String postalCode,
     required Map<String, String?> lookupCache,
   }) async {
-    var resolved = resolveItalianBillingProvince(
-      countryCode: countryCode,
-      currentState: currentState,
-      city: city,
-    );
+    if (isItalyCountry(countryCode)) {
+      var resolved = resolveItalianBillingProvince(
+        countryCode: countryCode,
+        currentState: currentState,
+        city: city,
+      );
 
-    if (resolved != '-') {
-      return resolved;
+      if (resolved != '-') {
+        return resolved;
+      }
+
+      final cacheKey = 'it|${postalCode.trim().toLowerCase()}|${city.trim().toLowerCase()}';
+      if (lookupCache.containsKey(cacheKey)) {
+        return lookupCache[cacheKey] ?? resolved;
+      }
+
+      final fetched = await _resolveItalianFromNominatim(
+        postalCode: postalCode,
+        city: city,
+      );
+      lookupCache[cacheKey] = fetched;
+
+      return fetched ?? resolved;
     }
 
-    final normalizedCountry = countryCode?.trim().toLowerCase();
-    final isItaly =
-        normalizedCountry == 'it' ||
-        normalizedCountry == 'italy' ||
-        normalizedCountry == 'italien';
-    if (!isItaly) {
-      return resolved;
+    if (isUsCountry(countryCode)) {
+      var resolved = resolveUSStateAdministrativeUnit(
+        countryCode: countryCode,
+        currentState: currentState,
+        city: city,
+      );
+
+      if (resolved != '-') {
+        return resolved;
+      }
+
+      final cacheKey = 'us|${postalCode.trim().toLowerCase()}|${city.trim().toLowerCase()}';
+      if (lookupCache.containsKey(cacheKey)) {
+        return lookupCache[cacheKey] ?? resolved;
+      }
+
+      final fetched = await _resolveUSFromNominatim(
+        postalCode: postalCode,
+        city: city,
+      );
+      lookupCache[cacheKey] = fetched;
+
+      return fetched ?? resolved;
     }
 
-    final cacheKey = '${postalCode.trim().toLowerCase()}|${city.trim().toLowerCase()}';
-    if (lookupCache.containsKey(cacheKey)) {
-      return lookupCache[cacheKey] ?? resolved;
+    final fallbackState = currentState?.trim();
+    return fallbackState == null || fallbackState.isEmpty ? '-' : fallbackState;
+  }
+
+  Future<String?> _resolveUSFromNominatim({
+    required String postalCode,
+    required String city,
+  }) async {
+    final normalizedPostal = postalCode.trim();
+    final normalizedCity = city.trim();
+    if (normalizedPostal.isEmpty && normalizedCity.isEmpty) {
+      return null;
     }
 
-    final fetched = await _resolveItalianFromNominatim(
-      postalCode: postalCode,
-      city: city,
-    );
-    lookupCache[cacheKey] = fetched;
+    final params = <String, String>{
+      'format': 'json',
+      'limit': '1',
+      'addressdetails': '1',
+      'countrycodes': 'us',
+    };
+    if (normalizedPostal.isNotEmpty) {
+      params['postalcode'] = normalizedPostal.split('-').first.trim();
+    }
+    if (normalizedCity.isNotEmpty) {
+      params['city'] = normalizedCity;
+    }
 
-    return fetched ?? resolved;
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', params);
+      final response = await http.get(
+        uri,
+        headers: {'User-Agent': 'arrow_ops/1.0'},
+      );
+      if (response.statusCode != 200) {
+        return null;
+      }
+      final parsed = jsonDecode(response.body);
+      if (parsed is! List || parsed.isEmpty) {
+        return null;
+      }
+      final first = parsed.first;
+      if (first is! Map<String, dynamic>) {
+        return null;
+      }
+      final address = first['address'];
+      if (address is! Map<String, dynamic>) {
+        return null;
+      }
+
+      final stateFull = address['state']?.toString().trim() ?? '';
+      final isoRaw = address['ISO3166-2-lvl4']?.toString().trim() ?? '';
+      final stateShort = isoRaw.contains('-') ? isoRaw.split('-').last.trim() : isoRaw;
+      final mergedState =
+          stateShort.isEmpty
+              ? stateFull
+              : (stateFull.isEmpty ? stateShort : '$stateShort - $stateFull');
+
+      final resolved = resolveUSStateAdministrativeUnit(
+        countryCode: 'us',
+        currentState: mergedState,
+        city: normalizedCity,
+      );
+      return resolved == '-' ? null : resolved;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> _resolveItalianFromNominatim({

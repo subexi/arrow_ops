@@ -367,10 +367,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     // Ensure Italian administrative units are visible immediately in the form.
     _resolveItalianStateInControllers(billing: true);
     _resolveItalianStateInControllers(billing: false);
-    if (_isItaly(_countryBId)) {
+    _resolveUSStateInControllers(billing: true);
+    _resolveUSStateInControllers(billing: false);
+    if (_isItaly(_countryBId) || _isUSA(_countryBId)) {
       _updateStateFromCountryAndPostalCode(billing: true);
     }
-    if (_isItaly(_countryDId)) {
+    if (_isItaly(_countryDId) || _isUSA(_countryDId)) {
       _updateStateFromCountryAndPostalCode(billing: false);
     }
 
@@ -471,12 +473,11 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   }
 
   bool _isUSA(String? countryId) {
-    return countryId?.trim().toLowerCase() == 'us';
+    return isUsCountry(countryId);
   }
 
   bool _isItaly(String? countryId) {
-    final normalized = countryId?.trim().toLowerCase();
-    return normalized == 'it' || normalized == 'italy' || normalized == 'italien';
+    return isItalyCountry(countryId);
   }
 
   void _resolveItalianStateInControllers({required bool billing}) {
@@ -494,6 +495,25 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       city: cityText,
     );
     cityControl.text = appendItalianProvinceAbbreviationToCity(
+      city: cityControl.text,
+      administrativeUnit: stateControl.text,
+    );
+  }
+
+  void _resolveUSStateInControllers({required bool billing}) {
+    final countryId = billing ? _countryBId : _countryDId;
+    if (!_isUSA(countryId)) {
+      return;
+    }
+
+    final cityControl = billing ? _cityBControl : _cityDControl;
+    final stateControl = billing ? _stateBControl : _stateDControl;
+    stateControl.text = resolveUSStateAdministrativeUnit(
+      countryCode: countryId,
+      currentState: stateControl.text,
+      city: cityControl.text,
+    );
+    cityControl.text = appendUSStateAbbreviationToCity(
       city: cityControl.text,
       administrativeUnit: stateControl.text,
     );
@@ -559,13 +579,16 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     if (stateFull.isEmpty && stateShort.isEmpty) {
       return null;
     }
-    if (stateShort.isEmpty) {
-      return stateFull;
-    }
-    if (stateFull.isEmpty) {
-      return stateShort;
-    }
-    return '$stateShort - $stateFull';
+    final mergedState =
+        stateShort.isEmpty
+            ? stateFull
+            : (stateFull.isEmpty ? stateShort : '$stateShort - $stateFull');
+    final canonical = resolveUSStateAdministrativeUnit(
+      countryCode: 'us',
+      currentState: mergedState,
+      city: '',
+    );
+    return canonical == '-' ? null : canonical;
   }
 
   /// Wandelt Länder-TLDs in ISO-3166-Alpha-2-Codes um (für Nominatim countrycodes).
@@ -759,16 +782,30 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     setState(() {
       if (billing) {
         _stateBControl.text = resolvedState!;
-        _cityBControl.text = appendItalianProvinceAbbreviationToCity(
-          city: _cityBControl.text,
-          administrativeUnit: _stateBControl.text,
-        );
+        if (_isItaly(_countryBId)) {
+          _cityBControl.text = appendItalianProvinceAbbreviationToCity(
+            city: _cityBControl.text,
+            administrativeUnit: _stateBControl.text,
+          );
+        } else if (_isUSA(_countryBId)) {
+          _cityBControl.text = appendUSStateAbbreviationToCity(
+            city: _cityBControl.text,
+            administrativeUnit: _stateBControl.text,
+          );
+        }
       } else {
         _stateDControl.text = resolvedState!;
-        _cityDControl.text = appendItalianProvinceAbbreviationToCity(
-          city: _cityDControl.text,
-          administrativeUnit: _stateDControl.text,
-        );
+        if (_isItaly(_countryDId)) {
+          _cityDControl.text = appendItalianProvinceAbbreviationToCity(
+            city: _cityDControl.text,
+            administrativeUnit: _stateDControl.text,
+          );
+        } else if (_isUSA(_countryDId)) {
+          _cityDControl.text = appendUSStateAbbreviationToCity(
+            city: _cityDControl.text,
+            administrativeUnit: _stateDControl.text,
+          );
+        }
       }
     });
   }
@@ -907,10 +944,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
     {
       final city = _cityBControl.text.trim();
-      final stripped = city.replaceAll(RegExp(r'[\s\-/()]'), '');
+      final stripped = city.replaceAll(RegExp(r'[\s\-/(),]'), '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
         _showDialogSnackBar(
-          'Stadt (Rechnungsadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Bindestrich, Schraegstrich und Klammern enthalten.',
+          'Stadt (Rechnungsadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Bindestrich, Schraegstrich, Komma und Klammern enthalten.',
           type: _DialogSnackBarType.validation,
         );
         return false;
@@ -940,6 +977,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       }
       if (billingState != null && billingState.isNotEmpty) {
         _stateBControl.text = billingState;
+        _cityBControl.text = appendUSStateAbbreviationToCity(
+          city: _cityBControl.text,
+          administrativeUnit: _stateBControl.text,
+        );
       }
     } else if (_isItaly(_countryBId)) {
       _stateBControl.text = resolveItalianBillingProvince(
@@ -966,10 +1007,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
     {
       final city = _cityDControl.text.trim();
-      final stripped = city.replaceAll(RegExp(r'[\s\-/()]'), '');
+      final stripped = city.replaceAll(RegExp(r'[\s\-/(),]'), '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
         _showDialogSnackBar(
-          'Stadt (Lieferadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Bindestrich, Schraegstrich und Klammern enthalten.',
+          'Stadt (Lieferadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Bindestrich, Schraegstrich, Komma und Klammern enthalten.',
           type: _DialogSnackBarType.validation,
         );
         return false;
@@ -999,6 +1040,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       }
       if (deliveryState != null && deliveryState.isNotEmpty) {
         _stateDControl.text = deliveryState;
+        _cityDControl.text = appendUSStateAbbreviationToCity(
+          city: _cityDControl.text,
+          administrativeUnit: _stateDControl.text,
+        );
       }
     } else if (_isItaly(_countryDId)) {
       _stateDControl.text = resolveItalianBillingProvince(
@@ -1200,6 +1245,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     _countryDControl.text = _countryNameForId(v);
                     _resolveItalianStateInControllers(billing: true);
                     _resolveItalianStateInControllers(billing: false);
+                    _resolveUSStateInControllers(billing: true);
+                    _resolveUSStateInControllers(billing: false);
                   });
                   _updateStateFromCountryAndPostalCode(billing: true);
                   _updateStateFromCountryAndPostalCode(billing: false);
@@ -1208,6 +1255,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                   setState(() {
                     _countryDId = v;
                     _resolveItalianStateInControllers(billing: false);
+                    _resolveUSStateInControllers(billing: false);
                   });
                   _updateStateFromCountryAndPostalCode(billing: false);
                 },
