@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/ui/transient_feedback.dart';
 import '../../data/italian_billing_province_resolver.dart';
 import '../../domain/country_tld.dart';
 import '../../domain/customer.dart';
@@ -27,13 +28,10 @@ class CustomerFormDialog extends StatefulWidget {
 }
 
 class _CustomerFormDialogState extends State<CustomerFormDialog> {
-  final GlobalKey<ScaffoldMessengerState> _dialogMessengerKey = GlobalKey<ScaffoldMessengerState>();
-
   void _showDialogSnackBar(
     String message, {
     _DialogSnackBarType type = _DialogSnackBarType.info,
   }) {
-    final messenger = _dialogMessengerKey.currentState ?? ScaffoldMessenger.of(context);
     final colorScheme = Theme.of(context).colorScheme;
 
     final duration = switch (type) {
@@ -64,26 +62,14 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       _DialogSnackBarType.error => colorScheme.onErrorContainer,
     };
 
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          backgroundColor: backgroundColor,
-          content: Row(
-            children: [
-              Icon(iconData, color: foregroundColor, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  message,
-                  style: TextStyle(color: foregroundColor),
-                ),
-              ),
-            ],
-          ),
-          duration: duration,
-        ),
-      );
+    TransientFeedback.show(
+      context,
+      message: message,
+      duration: duration,
+      iconData: iconData,
+      backgroundColor: backgroundColor,
+      foregroundColor: foregroundColor,
+    );
   }
 
   late final TextEditingController _idControl;
@@ -1356,9 +1342,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         horizontal: isWide ? 40 : 12,
         vertical: 16,
       ),
-      child: ScaffoldMessenger(
-        key: _dialogMessengerKey,
-        child: Theme(
+      child: Theme(
           data: Theme.of(context).copyWith(
             snackBarTheme: SnackBarThemeData(
               behavior: SnackBarBehavior.floating,
@@ -1606,9 +1590,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             ],
           ),
         ),
-      ),
-    ),
-  ),
+          ),
+        ),
     );
   }
 }

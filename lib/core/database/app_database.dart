@@ -11,13 +11,15 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 2;
+  static const int _currentVersion = 4;
 
   Database? _database;
 
   final List<DatabaseMigration> _migrations = [
     DatabaseMigration(version: 1, run: _migrationV1),
     DatabaseMigration(version: 2, run: _migrationV2),
+    DatabaseMigration(version: 3, run: _migrationV3),
+    DatabaseMigration(version: 4, run: _migrationV4),
   ];
 
   Future<Database> get database async {
@@ -168,6 +170,72 @@ class AppDatabase {
 
     if (hasCLong && !hasCLon) {
       await db.execute('ALTER TABLE customer RENAME COLUMN c_long TO c_lon');
+    }
+  }
+
+  static Future<void> _migrationV3(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS item_catalogue (
+        ic_id INTEGER NOT NULL,
+        ic_idi TEXT,
+        ic_ide TEXT,
+        ic_idv TEXT,
+        ic_description_de_long TEXT,
+        ic_description_en_long TEXT,
+        ic_color_code TEXT,
+        ic_price_net REAL,
+        ic_price_wholesale_net REAL,
+        ic_purchase_price_net REAL,
+        ic_weight REAL,
+        ic_source_of_supply TEXT,
+        ic_hts TEXT,
+        ic_image_path TEXT,
+        ic_note TEXT,
+        ic_stock INTEGER,
+        ic_ic INTEGER
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS item_bom (
+        ib_id INTEGER,
+        ib_item_id INTEGER NOT NULL,
+        ib_parent_id INTEGER,
+        ib_order INTEGER DEFAULT 0 NOT NULL,
+        ib_quantity INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _migrationV4(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(item_bom)');
+    final hasIbOrder = columns.any((column) => column['name'] == 'ib_order');
+
+    if (!hasIbOrder) {
+      await db.execute('ALTER TABLE item_bom ADD COLUMN ib_order INTEGER DEFAULT 0 NOT NULL');
+    }
+
+    final rows = await db.query('item_bom', orderBy: 'COALESCE(ib_parent_id, -1) ASC, ib_id ASC');
+    final byParent = <int?, List<Map<String, Object?>>>{};
+    for (final row in rows) {
+      final parentId = row['ib_parent_id'] as int?;
+      byParent.putIfAbsent(parentId, () => []).add(row);
+    }
+
+    for (final entry in byParent.entries) {
+      final siblings = entry.value;
+      for (var i = 0; i < siblings.length; i++) {
+        final id = siblings[i]['ib_id'] as int?;
+        if (id == null) {
+          continue;
+        }
+        await db.update(
+          'item_bom',
+          {'ib_order': i + 1},
+          where: 'ib_id = ?',
+          whereArgs: [id],
+        );
+      }
     }
   }
 }

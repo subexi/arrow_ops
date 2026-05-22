@@ -16,11 +16,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_path_config.dart';
+import '../../../core/ui/transient_feedback.dart';
 import '../data/country_csv_service.dart';
 import '../data/customer_csv_service.dart';
 import '../data/customer_repository.dart';
 import '../domain/country_tld.dart';
 import '../domain/customer.dart';
+import '../../item/presentation/item_catalogue_page.dart';
 import 'customer_country_display.dart';
 import 'widgets/csv_import_preview_dialog.dart';
 import 'widgets/customer_detail_dialog.dart';
@@ -75,6 +77,13 @@ class _CustomerPageState extends State<CustomerPage> {
     final tag = traceTag == null || traceTag.isEmpty ? '' : '[$traceTag]';
     final suffix = details == null || details.isEmpty ? '' : ' | $details';
     debugPrint('⏱️ [perf]$tag $operation: ${stopwatch.elapsedMilliseconds} ms$suffix');
+  }
+
+  void _showFeedback(String message) {
+    if (!mounted) {
+      return;
+    }
+    TransientFeedback.show(context, message: message);
   }
 
   Future<bool> _openUrlWithPlatformCommand(Uri uri) async {
@@ -151,13 +160,10 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<bool> _openMapInBrowser(String mapUrl) async {
-    final messenger = ScaffoldMessenger.of(context);
     final uri = Uri.tryParse(mapUrl);
 
     if (uri == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Kartenlink ist ungueltig.')),
-      );
+      _showFeedback('Kartenlink ist ungueltig.');
       return false;
     }
 
@@ -181,11 +187,7 @@ class _CustomerPageState extends State<CustomerPage> {
     }
 
     if (!opened && mounted) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Kartenlink konnte nicht im Browser geoeffnet werden.'),
-        ),
-      );
+      _showFeedback('Kartenlink konnte nicht im Browser geoeffnet werden.');
       return false;
     }
 
@@ -193,19 +195,14 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<bool> _copyMapLink(String mapUrl) async {
-    final messenger = ScaffoldMessenger.of(context);
     final copied = await _copyTextWithPlatformFallback(mapUrl);
     if (!mounted) {
       return copied;
     }
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          copied
-              ? 'Kartenlink wurde in die Zwischenablage kopiert.'
-              : 'Kartenlink konnte nicht kopiert werden.',
-        ),
-      ),
+    _showFeedback(
+      copied
+          ? 'Kartenlink wurde in die Zwischenablage kopiert.'
+          : 'Kartenlink konnte nicht kopiert werden.',
     );
     return copied;
   }
@@ -656,9 +653,7 @@ class _CustomerPageState extends State<CustomerPage> {
         .toList();
 
     if (validCustomers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Keine gueltigen Koordinaten in der aktuellen Liste vorhanden.')),
-      );
+      _showFeedback('Keine gueltigen Koordinaten in der aktuellen Liste vorhanden.');
       return;
     }
 
@@ -810,9 +805,7 @@ class _CustomerPageState extends State<CustomerPage> {
     final lon = customer.cLon;
 
     if ((lat == 0 && lon == 0) || lat.isNaN || lon.isNaN) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Keine gueltigen Koordinaten vorhanden.')),
-      );
+      _showFeedback('Keine gueltigen Koordinaten vorhanden.');
       return;
     }
 
@@ -1003,9 +996,7 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Dateiauswahl fehlgeschlagen: $error')),
-      );
+      _showFeedback('Dateiauswahl fehlgeschlagen: $error');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1053,9 +1044,7 @@ class _CustomerPageState extends State<CustomerPage> {
     }
 
     if (customers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Keine gültigen Kundendaten in der Datei gefunden.')),
-      );
+      _showFeedback('Keine gültigen Kundendaten in der Datei gefunden.');
       return;
     }
 
@@ -1080,9 +1069,7 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Keine gültigen Kundendaten nach Validierung gefunden.')),
-      );
+      _showFeedback('Keine gültigen Kundendaten nach Validierung gefunden.');
       return;
     }
 
@@ -1124,14 +1111,10 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            replaceExisting
-                ? '$inserted Kundendatensätze importiert, $deleted alte Datensätze gelöscht.'
-                : '$inserted Kundendatensätze importiert.',
-          ),
-        ),
+      _showFeedback(
+        replaceExisting
+            ? '$inserted Kundendatensätze importiert, $deleted alte Datensätze gelöscht.'
+            : '$inserted Kundendatensätze importiert.',
       );
     } catch (error, stackTrace) {
       debugPrint('⚠️ Import-Fehler: $error');
@@ -1140,9 +1123,7 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import fehlgeschlagen: $error')),
-      );
+      _showFeedback('Import fehlgeschlagen: $error');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1179,16 +1160,12 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV exportiert nach: $targetPath')),
-      );
+      _showFeedback('CSV exportiert nach: $targetPath');
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export fehlgeschlagen: $error')),
-      );
+      _showFeedback('Export fehlgeschlagen: $error');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1263,16 +1240,12 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Locations-CSV exportiert nach: $targetPath')),
-      );
+      _showFeedback('Locations-CSV exportiert nach: $targetPath');
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Locations-Export fehlgeschlagen: $error')),
-      );
+      _showFeedback('Locations-Export fehlgeschlagen: $error');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1319,16 +1292,12 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Länder-CSV exportiert nach: $targetPath')),
-      );
+      _showFeedback('Länder-CSV exportiert nach: $targetPath');
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Länder-Export fehlgeschlagen: $error')),
-      );
+      _showFeedback('Länder-Export fehlgeschlagen: $error');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1361,9 +1330,7 @@ class _CustomerPageState extends State<CustomerPage> {
       }
 
       if (invalidCountries.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Keine ungültigen Länder-Codes gefunden.')),
-        );
+        _showFeedback('Keine ungültigen Länder-Codes gefunden.');
         return;
       }
 
@@ -1451,20 +1418,14 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '$deleted ungültige Länder gelöscht. ${blocked.length} waren referenziert und wurden übersprungen.',
-          ),
-        ),
+      _showFeedback(
+        '$deleted ungültige Länder gelöscht. ${blocked.length} waren referenziert und wurden übersprungen.',
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Bereinigung fehlgeschlagen: $error')),
-      );
+      _showFeedback('Bereinigung fehlgeschlagen: $error');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1500,9 +1461,7 @@ class _CustomerPageState extends State<CustomerPage> {
         if (!mounted) {
           return;
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Keine gültigen Länder in country_tld.csv gefunden.')),
-        );
+        _showFeedback('Keine gültigen Länder in country_tld.csv gefunden.');
         return;
       }
 
@@ -1511,16 +1470,12 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$inserted Länder importiert.')),
-      );
+      _showFeedback('$inserted Länder importiert.');
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('country_tld Import fehlgeschlagen: $error')),
-      );
+      _showFeedback('country_tld Import fehlgeschlagen: $error');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1558,17 +1513,13 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Kunde erstellt: ${result.cLastName}, ${result.cFirstName}')),
-      );
+      _showFeedback('Kunde erstellt: ${result.cLastName}, ${result.cFirstName}');
     } catch (error) {
       debugPrint('❌ Fehler beim Erstellen: $error');
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fehler beim Erstellen: $error')),
-      );
+      _showFeedback('Fehler beim Erstellen: $error');
     } finally {
       totalStopwatch.stop();
       _logPerf(
@@ -1613,17 +1564,13 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}')),
-      );
+      _showFeedback('Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}');
     } catch (error) {
       debugPrint('❌ Fehler beim Aktualisieren: $error');
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fehler beim Aktualisieren: $error')),
-      );
+      _showFeedback('Fehler beim Aktualisieren: $error');
     } finally {
       totalStopwatch.stop();
       _logPerf('save/edit-total', totalStopwatch, details: 'id=${result.cId}', traceTag: traceTag);
@@ -1651,17 +1598,13 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}')),
-      );
+      _showFeedback('Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}');
     } catch (error) {
       debugPrint('❌ Fehler beim Löschen: $error');
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fehler beim Löschen: $error')),
-      );
+      _showFeedback('Fehler beim Löschen: $error');
     } finally {
       totalStopwatch.stop();
       _logPerf(
@@ -1683,6 +1626,25 @@ class _CustomerPageState extends State<CustomerPage> {
         title: const Text('Arrow Ops'),
         centerTitle: false,
         actions: [
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            onPressed: _loading
+                ? null
+                : () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ItemCataloguePage(),
+                      ),
+                    );
+                  },
+            child: const Row(
+              children: [
+                Icon(CupertinoIcons.cube_box, size: 20),
+                SizedBox(width: 6),
+                Text('Artikel'),
+              ],
+            ),
+          ),
           CupertinoButton(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             onPressed: _showDataActionsSheet,
