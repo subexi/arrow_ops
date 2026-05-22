@@ -239,7 +239,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _webControl = TextEditingController(text: c?.cWeb ?? '-');
     _socialMediaControl = TextEditingController(text: c?.cSocialMedia ?? '-');
     _latControl = TextEditingController(text: c != null ? c.cLat.toString() : '0');
-    _longControl = TextEditingController(text: c != null ? c.cLong.toString() : '0');
+    _longControl = TextEditingController(text: c != null ? c.cLon.toString() : '0');
     _noteControl = TextEditingController(text: c?.cNote ?? '-');
     _dealer = c?.cDealer ?? false;
     _vat = c?.cVat ?? false;
@@ -1097,7 +1097,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       cWeb: _webControl.text.trim().isEmpty ? '-' : _webControl.text.trim(),
       cSocialMedia: _socialMediaControl.text.trim().isEmpty ? '-' : _socialMediaControl.text.trim(),
       cLat: double.tryParse(_latControl.text.trim()) ?? 0,
-      cLong: double.tryParse(_longControl.text.trim()) ?? 0,
+      cLon: double.tryParse(_longControl.text.trim()) ?? 0,
       cNote: _noteControl.text.trim().isEmpty ? '-' : _noteControl.text.trim(),
       cLastModified: now,
     );

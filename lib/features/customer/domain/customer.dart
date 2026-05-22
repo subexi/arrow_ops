@@ -26,7 +26,7 @@ class Customer {
     this.cWeb = '-',
     this.cSocialMedia = '-',
     this.cLat = 0,
-    this.cLong = 0,
+    this.cLon = 0,
     this.cNote = '-',
     this.cTotalValueEur = 0,
     this.cTotalValueUsd = 0,
@@ -59,7 +59,7 @@ class Customer {
   final String cWeb;
   final String cSocialMedia;
   final double cLat;
-  final double cLong;
+  final double cLon;
   final String cNote;
   final double cTotalValueEur;
   final double cTotalValueUsd;
@@ -93,7 +93,7 @@ class Customer {
       cWeb: _str(map['c_web'], fallback: '-'),
       cSocialMedia: _str(map['c_social_media'], fallback: '-'),
       cLat: _double(map['c_lat']),
-      cLong: _double(map['c_long']),
+      cLon: _double(map['c_lon'] ?? map['c_long']),
       cNote: _str(map['c_note'], fallback: '-'),
       cTotalValueEur: _double(map['c_total_value_eur']),
       cTotalValueUsd: _double(map['c_total_value_usd']),
@@ -129,7 +129,7 @@ class Customer {
       cWeb: _str(row['c_web'], fallback: '-'),
       cSocialMedia: _str(row['c_social_media'], fallback: '-'),
       cLat: _double(row['c_lat']),
-      cLong: _double(row['c_long']),
+      cLon: _double(row['c_lon'] ?? row['c_long']),
       cNote: _str(row['c_note'], fallback: '-'),
       cTotalValueEur: _double(row['c_total_value_eur']),
       cTotalValueUsd: _double(row['c_total_value_usd']),
@@ -165,7 +165,7 @@ class Customer {
       'c_web': cWeb,
       'c_social_media': cSocialMedia,
       'c_lat': cLat,
-      'c_long': cLong,
+      'c_lon': cLon,
       'c_note': cNote,
       'c_total_value_eur': cTotalValueEur,
       'c_total_value_usd': cTotalValueUsd,

@@ -11,12 +11,13 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 1;
+  static const int _currentVersion = 2;
 
   Database? _database;
 
   final List<DatabaseMigration> _migrations = [
     DatabaseMigration(version: 1, run: _migrationV1),
+    DatabaseMigration(version: 2, run: _migrationV2),
   ];
 
   Future<Database> get database async {
@@ -149,7 +150,7 @@ class AppDatabase {
         c_web TEXT DEFAULT '-' NOT NULL,
         c_social_media TEXT DEFAULT '-' NOT NULL,
         c_lat REAL DEFAULT 0 NOT NULL,
-        c_long REAL DEFAULT 0 NOT NULL,
+        c_lon REAL DEFAULT 0 NOT NULL,
         c_note TEXT DEFAULT '-' NOT NULL,
         c_total_value_eur REAL DEFAULT 0 NOT NULL,
         c_total_value_usd REAL DEFAULT 0 NOT NULL,
@@ -158,5 +159,15 @@ class AppDatabase {
         FOREIGN KEY (c_country_d_id) REFERENCES country_tld(co_tld)
       )
     ''');
+  }
+
+  static Future<void> _migrationV2(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(customer)');
+    final hasCLong = columns.any((column) => column['name'] == 'c_long');
+    final hasCLon = columns.any((column) => column['name'] == 'c_lon');
+
+    if (hasCLong && !hasCLon) {
+      await db.execute('ALTER TABLE customer RENAME COLUMN c_long TO c_lon');
+    }
   }
 }

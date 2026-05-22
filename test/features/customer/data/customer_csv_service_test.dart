@@ -2,7 +2,7 @@ import 'package:arrow_ops/features/customer/data/customer_csv_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  const csvHeader = 'c_id,c_company,c_dealer,c_vat,c_vat_id,c_last_name,c_first_name,c_careof_b,c_street_b,c_house_number_b,c_postal_code_b,c_city_b,c_state_b,c_country_b_id,c_careof_d,c_street_d,c_house_number_d,c_postal_code_d,c_city_d,c_state_d,c_country_d_id,c_mail,c_phone,c_web,c_social_media,c_lat,c_long,c_note,c_total_value_eur,c_total_value_usd,c_last_modified';
+  const csvHeader = 'c_id,c_company,c_dealer,c_vat,c_vat_id,c_last_name,c_first_name,c_careof_b,c_street_b,c_house_number_b,c_postal_code_b,c_city_b,c_state_b,c_country_b_id,c_careof_d,c_street_d,c_house_number_d,c_postal_code_d,c_city_d,c_state_d,c_country_d_id,c_mail,c_phone,c_web,c_social_media,c_lat,c_lon,c_note,c_total_value_eur,c_total_value_usd,c_last_modified';
 
   final service = CustomerCsvService();
 

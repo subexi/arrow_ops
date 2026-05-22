@@ -9,6 +9,9 @@ Future<void> main() async {
   try {
     final db = await AppDatabase.instance.database;
     debugPrint('🗄️ SQLite-Pfad: ${db.path}');
+    final customerColumns = await db.rawQuery('PRAGMA table_info(customer)');
+    final hasCLon = customerColumns.any((column) => column['name'] == 'c_lon');
+    debugPrint('📋 customer-Spalten: ${customerColumns.length} Felder, c_lon vorhanden: $hasCLon');
   } catch (error) {
     debugPrint('⚠️ Datenbank konnte beim Start nicht initialisiert werden: $error');
   }

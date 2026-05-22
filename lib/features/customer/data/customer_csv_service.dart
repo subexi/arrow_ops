@@ -32,7 +32,7 @@ class CustomerCsvService {
     'c_web',
     'c_social_media',
     'c_lat',
-    'c_long',
+    'c_lon',
     'c_note',
     'c_total_value_eur',
     'c_total_value_usd',
@@ -42,11 +42,11 @@ class CustomerCsvService {
   static const Map<String, String> _headerAliases = {
     'latitude': 'c_lat',
     'lat': 'c_lat',
-    'longitude': 'c_long',
-    'long': 'c_long',
-    'lon': 'c_long',
-    'lng': 'c_long',
-    'c_lon': 'c_long',
+    'longitude': 'c_lon',
+    'long': 'c_lon',
+    'lon': 'c_lon',
+    'lng': 'c_lon',
+    'c_long': 'c_lon',
   };
 
   String _normalizeHeader(String header) {
@@ -166,7 +166,7 @@ class CustomerCsvService {
         c.cWeb,
         c.cSocialMedia,
         c.cLat,
-        c.cLong,
+        c.cLon,
         c.cNote,
         c.cTotalValueEur,
         c.cTotalValueUsd,

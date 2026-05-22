@@ -585,6 +585,16 @@ class _CustomerPageState extends State<CustomerPage> {
                 return;
               }
               Navigator.of(sheetContext).pop();
+              _exportLocationsCsv();
+            },
+            child: const Text('Customers locations exportieren'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              if (_loading) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
               _importCsv();
             },
             child: const Text('Customers als CSV importieren'),
@@ -642,7 +652,7 @@ class _CustomerPageState extends State<CustomerPage> {
 
   void _showAllLocationsDialog() {
     final validCustomers = _filteredCustomers
-        .where((c) => !((c.cLat == 0 && c.cLong == 0) || c.cLat.isNaN || c.cLong.isNaN))
+        .where((c) => !((c.cLat == 0 && c.cLon == 0) || c.cLat.isNaN || c.cLon.isNaN))
         .toList();
 
     if (validCustomers.isEmpty) {
@@ -656,7 +666,7 @@ class _CustomerPageState extends State<CustomerPage> {
         .map((c) => Marker(
               width: 36,
               height: 36,
-              point: LatLng(c.cLat, c.cLong),
+              point: LatLng(c.cLat, c.cLon),
               child: Tooltip(
                 message: '${c.cLastName}, ${c.cFirstName}',
                 child: const Icon(Icons.location_pin, color: Colors.red, size: 34),
@@ -665,7 +675,7 @@ class _CustomerPageState extends State<CustomerPage> {
         .toList();
 
     final lats = validCustomers.map((c) => c.cLat);
-    final lons = validCustomers.map((c) => c.cLong);
+    final lons = validCustomers.map((c) => c.cLon);
     final minLat = lats.reduce((a, b) => a < b ? a : b);
     final maxLat = lats.reduce((a, b) => a > b ? a : b);
     final minLon = lons.reduce((a, b) => a < b ? a : b);
@@ -673,7 +683,7 @@ class _CustomerPageState extends State<CustomerPage> {
     final center = LatLng((minLat + maxLat) / 2, (minLon + maxLon) / 2);
     final geojsonFeatures = validCustomers.map((c) {
       final name = '${c.cLastName}, ${c.cFirstName}'.replaceAll('"', '\\"');
-      return '{"type":"Feature","geometry":{"type":"Point","coordinates":[${c.cLong},${c.cLat}]},"properties":{"name":"$name"}}';
+      return '{"type":"Feature","geometry":{"type":"Point","coordinates":[${c.cLon},${c.cLat}]},"properties":{"name":"$name"}}';
     }).join(',');
     final geojson = '{"type":"FeatureCollection","features":[$geojsonFeatures]}';
     final mapUrl =
@@ -797,7 +807,7 @@ class _CustomerPageState extends State<CustomerPage> {
 
   void _showMapDialog(Customer customer) {
     final lat = customer.cLat;
-    final lon = customer.cLong;
+    final lon = customer.cLon;
 
     if ((lat == 0 && lon == 0) || lat.isNaN || lon.isNaN) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1189,6 +1199,85 @@ class _CustomerPageState extends State<CustomerPage> {
   String _csvEscape(String value) {
     final escaped = value.replaceAll('"', '""');
     return '"$escaped"';
+  }
+
+  String _countryNameFromDeliveryCode(String? countryCode, Map<String, String> countryNameByCode) {
+    final normalized = countryCode?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty || normalized == '-') {
+      return '';
+    }
+    return countryNameByCode[normalized] ?? normalized.toUpperCase();
+  }
+
+  String _buildFileTimestamp(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    final year = value.year.toString().padLeft(4, '0');
+    final month = twoDigits(value.month);
+    final day = twoDigits(value.day);
+    final hour = twoDigits(value.hour);
+    final minute = twoDigits(value.minute);
+    final second = twoDigits(value.second);
+    return '$year$month${day}_$hour$minute$second';
+  }
+
+  Future<void> _exportLocationsCsv() async {
+    setState(() => _loading = true);
+    try {
+      final customers = await _repository.getAll();
+      final countries = await _repository.getAllCountries();
+      final countryNameByCode = <String, String>{
+        for (final country in countries) country.coTld.toLowerCase(): country.coName,
+      };
+
+      final buffer = StringBuffer('street,zip,city,country,lat,lon\n');
+      for (final customer in customers) {
+        final street = customer.cStreetD.trim();
+        final zip = customer.cPostalCodeD.trim();
+        final city = customer.cCityD.trim();
+        final country = _countryNameFromDeliveryCode(customer.cCountryDId, countryNameByCode);
+        final lat = customer.cLat.toString();
+        final lon = customer.cLon.toString();
+
+        buffer.writeln(
+          '${_csvEscape(street)},${_csvEscape(zip)},${_csvEscape(city)},${_csvEscape(country)},${_csvEscape(lat)},${_csvEscape(lon)}',
+        );
+      }
+
+      final initialDirectory = await _defaultPickerDirectory();
+      final fileName = 'af_locations_${_buildFileTimestamp(DateTime.now())}.csv';
+
+      String? targetPath;
+      if (Platform.isMacOS) {
+        targetPath = await FilePicker.saveFile(
+          dialogTitle: 'Customers locations als CSV exportieren',
+          fileName: fileName,
+          initialDirectory: initialDirectory,
+          type: FileType.custom,
+          allowedExtensions: const ['csv'],
+        );
+      }
+
+      targetPath ??= p.join((await getApplicationDocumentsDirectory()).path, fileName);
+      await File(targetPath).writeAsString(buffer.toString());
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Locations-CSV exportiert nach: $targetPath')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Locations-Export fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   Future<void> _exportCountryCsv() async {
