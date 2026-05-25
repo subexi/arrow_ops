@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -12,10 +13,12 @@ class ItemCatalogueFormDialog extends StatefulWidget {
     super.key,
     required this.nextId,
     this.initialValue,
+    this.readOnly = false,
   });
 
   final int nextId;
   final ItemCatalogueRow? initialValue;
+  final bool readOnly;
 
   @override
   State<ItemCatalogueFormDialog> createState() => _ItemCatalogueFormDialogState();
@@ -23,6 +26,7 @@ class ItemCatalogueFormDialog extends StatefulWidget {
 
 class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
   bool get _isWide => MediaQuery.of(context).size.width >= 760;
 
   late final TextEditingController _idController;
@@ -41,7 +45,9 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   late final TextEditingController _imagePathController;
   late final TextEditingController _noteController;
   late final TextEditingController _stockController;
-  late final TextEditingController _icIcController;
+  late bool _isIcComponent;
+  bool _expandDescriptionDe = false;
+  bool _expandDescriptionEn = false;
 
   @override
   void initState() {
@@ -54,16 +60,16 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     _descriptionDeController = TextEditingController(text: initialValue?.icDescriptionDeLong ?? '');
     _descriptionEnController = TextEditingController(text: initialValue?.icDescriptionEnLong ?? '');
     _colorCodeController = TextEditingController(text: initialValue?.icColorCode ?? '');
-    _priceNetController = TextEditingController(text: _doubleText(initialValue?.icPriceNet));
-    _priceWholesaleNetController = TextEditingController(text: _doubleText(initialValue?.icPriceWholesaleNet));
-    _purchasePriceNetController = TextEditingController(text: _doubleText(initialValue?.icPurchasePriceNet));
-    _weightController = TextEditingController(text: _doubleText(initialValue?.icWeight));
+    _priceNetController = TextEditingController(text: _decimalText(initialValue?.icPriceNet, 2));
+    _priceWholesaleNetController = TextEditingController(text: _decimalText(initialValue?.icPriceWholesaleNet, 2));
+    _purchasePriceNetController = TextEditingController(text: _decimalText(initialValue?.icPurchasePriceNet, 2));
+    _weightController = TextEditingController(text: _decimalText(initialValue?.icWeight, 1));
     _sourceOfSupplyController = TextEditingController(text: initialValue?.icSourceOfSupply ?? '');
     _htsController = TextEditingController(text: initialValue?.icHts ?? '');
     _imagePathController = TextEditingController(text: initialValue?.icImagePath ?? '');
     _noteController = TextEditingController(text: initialValue?.icNote ?? '');
     _stockController = TextEditingController(text: (initialValue?.icStock ?? 0).toString());
-    _icIcController = TextEditingController(text: (initialValue?.icIc ?? 0).toString());
+    _isIcComponent = (initialValue?.icIc ?? 0) != 0;
   }
 
   @override
@@ -84,11 +90,15 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     _imagePathController.dispose();
     _noteController.dispose();
     _stockController.dispose();
-    _icIcController.dispose();
     super.dispose();
   }
 
-  static String _doubleText(double? value) => value == null ? '' : value.toString();
+  static String _decimalText(double? value, int fractionDigits) {
+    if (value == null) {
+      return '';
+    }
+    return value.toStringAsFixed(fractionDigits).replaceAll('.', ',');
+  }
 
   String _text(TextEditingController controller) => controller.text.trim();
 
@@ -100,24 +110,29 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   Widget _field(
     TextEditingController controller,
     String label, {
-    int maxLines = 1,
+    int? maxLines = 1,
     TextInputType? keyboardType,
     bool enabled = true,
+    bool readOnly = false,
+    VoidCallback? onTap,
   }) {
     return TextFormField(
       controller: controller,
-      enabled: enabled,
+      enabled: enabled || readOnly,
+      readOnly: readOnly,
+      enableInteractiveSelection: true,
       maxLines: maxLines,
+      onTap: onTap,
       keyboardType: keyboardType,
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),
       ),
       validator: (value) {
-        if (label == 'IC ID' && (value == null || value.trim().isEmpty)) {
+        if (label == 'Artikel-ID' && (value == null || value.trim().isEmpty)) {
           return 'Bitte eine ID angeben.';
         }
-        if (label == 'IC ID' && int.tryParse(value!.trim()) == null) {
+        if (label == 'Artikel-ID' && int.tryParse(value!.trim()) == null) {
           return 'Bitte eine gueltige Zahl angeben.';
         }
         return null;
@@ -172,6 +187,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   }
 
   Widget _imagePathField() {
+    final readOnly = widget.readOnly;
     final imagePath = _imagePathController.text.trim();
 
     return Column(
@@ -179,29 +195,35 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
       children: [
         TextFormField(
           controller: _imagePathController,
+          enabled: true,
+          readOnly: readOnly,
+          enableInteractiveSelection: true,
           decoration: InputDecoration(
-            labelText: 'ic_image_path',
+            labelText: 'Bild',
             border: const OutlineInputBorder(),
             helperText: 'Beim Speichern wird der Pfad app-intern normalisiert.',
-            suffixIcon: IconButton(
-              tooltip: 'Datei waehlen',
-              onPressed: _pickImagePath,
-              icon: const Icon(Icons.folder_open),
-            ),
+            suffixIcon: readOnly
+                ? null
+                : IconButton(
+                    tooltip: 'Datei waehlen',
+                    onPressed: _pickImagePath,
+                    icon: const Icon(Icons.folder_open),
+                  ),
           ),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            TextButton.icon(
-              onPressed: () => setState(() => _imagePathController.clear()),
-              icon: const Icon(Icons.clear),
-              label: const Text('Pfad leeren'),
-            ),
-          ],
-        ),
+        if (!readOnly)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton.icon(
+                onPressed: () => setState(() => _imagePathController.clear()),
+                icon: const Icon(Icons.clear),
+                label: const Text('Pfad leeren'),
+              ),
+            ],
+          ),
         if (imagePath.isNotEmpty) ...[
           const SizedBox(height: 8),
           _imagePreview(imagePath),
@@ -212,9 +234,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
 
   Widget _imagePreview(String imagePath) {
     final file = File(imagePath);
-    final exists = file.existsSync();
-
-    if (!exists) {
+    if (!file.existsSync()) {
       return const SizedBox.shrink();
     }
 
@@ -379,9 +399,11 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.initialValue != null;
+    final readOnly = widget.readOnly;
+    final canEdit = !readOnly;
 
     return AlertDialog(
-      title: Text(isEditing ? 'Katalogeintrag bearbeiten' : 'Katalogeintrag anlegen'),
+      title: Text(readOnly ? 'Katalogeintrag ansehen' : (isEditing ? 'Katalogeintrag bearbeiten' : 'Katalogeintrag anlegen')),
       content: SizedBox(
         width: _isWide ? 760 : 420,
         child: Form(
@@ -391,52 +413,111 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _compactRow([
-                  _field(_idController, 'IC ID', enabled: !isEditing),
-                  _field(_idiController, 'ic_idi'),
+                  _field(_idController, 'Artikel-ID', enabled: !isEditing && canEdit, readOnly: readOnly),
+                  _field(_idiController, 'Bezeichnung', enabled: canEdit, readOnly: readOnly),
                 ]),
                 const SizedBox(height: 12),
                 _compactRow([
-                  _field(_ideController, 'ic_ide'),
-                  _field(_idvController, 'ic_idv'),
+                  _field(_ideController, 'Bezeichnung extern', enabled: canEdit, readOnly: readOnly),
+                  _field(_idvController, 'ID-Version', enabled: canEdit, readOnly: readOnly),
                 ]),
                 const SizedBox(height: 12),
-                _field(_descriptionDeController, 'ic_description_de_long', maxLines: 4),
+                _field(
+                  _descriptionDeController,
+                  'Beschreibung',
+                  maxLines: _expandDescriptionDe ? null : 4,
+                  enabled: canEdit,
+                  readOnly: readOnly,
+                  onTap: () {
+                    if (_expandDescriptionDe) {
+                      return;
+                    }
+                    setState(() => _expandDescriptionDe = true);
+                  },
+                ),
                 const SizedBox(height: 12),
-                _field(_descriptionEnController, 'ic_description_en_long', maxLines: 4),
+                _field(
+                  _descriptionEnController,
+                  'Description',
+                  maxLines: _expandDescriptionEn ? null : 4,
+                  enabled: canEdit,
+                  readOnly: readOnly,
+                  onTap: () {
+                    if (_expandDescriptionEn) {
+                      return;
+                    }
+                    setState(() => _expandDescriptionEn = true);
+                  },
+                ),
                 const SizedBox(height: 12),
                 _compactRow([
-                  _field(_colorCodeController, 'ic_color_code'),
-                  _field(_sourceOfSupplyController, 'ic_source_of_supply'),
+                  _field(_colorCodeController, 'Farbe', enabled: canEdit, readOnly: readOnly),
+                  _field(_sourceOfSupplyController, 'Lieferant', enabled: canEdit, readOnly: readOnly),
                 ]),
                 const SizedBox(height: 12),
                 _compactRow([
-                  _field(_priceNetController, 'ic_price_net', keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+                  _field(
+                    _priceNetController,
+                    'Nettopreis',
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: canEdit,
+                    readOnly: readOnly,
+                  ),
                   _field(
                     _priceWholesaleNetController,
-                    'ic_price_wholesale_net',
+                    'Netto-Haendlerpreis',
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: canEdit,
+                    readOnly: readOnly,
                   ),
                 ]),
                 const SizedBox(height: 12),
                 _compactRow([
                   _field(
                     _purchasePriceNetController,
-                    'ic_purchase_price_net',
+                    'Netto-Einkaufspreis',
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: canEdit,
+                    readOnly: readOnly,
                   ),
-                  _field(_weightController, 'ic_weight', keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+                  _field(
+                    _weightController,
+                    'Gewicht in g',
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: canEdit,
+                    readOnly: readOnly,
+                  ),
                 ]),
                 const SizedBox(height: 12),
                 _compactRow([
-                  _field(_htsController, 'ic_hts'),
+                  _field(_htsController, 'HTS Code', enabled: canEdit, readOnly: readOnly),
                   _imagePathField(),
                 ]),
                 const SizedBox(height: 12),
-                _field(_noteController, 'ic_note', maxLines: 4),
+                _field(_noteController, 'Notiz', maxLines: 4, enabled: canEdit, readOnly: readOnly),
                 const SizedBox(height: 12),
                 _compactRow([
-                  _field(_stockController, 'ic_stock', keyboardType: TextInputType.number),
-                  _field(_icIcController, 'ic_ic', keyboardType: TextInputType.number),
+                  _field(
+                    _stockController,
+                    'Lagerbestand',
+                    keyboardType: TextInputType.number,
+                    enabled: canEdit,
+                    readOnly: readOnly,
+                  ),
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'ZB Komponente',
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Row(
+                      children: [
+                        CupertinoSwitch(
+                          value: _isIcComponent,
+                          onChanged: canEdit ? (value) => setState(() => _isIcComponent = value) : null,
+                        ),
+                      ],
+                    ),
+                  ),
                 ]),
               ],
             ),
@@ -446,37 +527,38 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Abbrechen'),
+          child: Text(readOnly ? 'Schliessen' : 'Abbrechen'),
         ),
-        FilledButton(
-          onPressed: () {
-            if (!_formKey.currentState!.validate()) {
-              return;
-            }
+        if (!readOnly)
+          FilledButton(
+            onPressed: () {
+              if (!_formKey.currentState!.validate()) {
+                return;
+              }
 
-            final result = ItemCatalogueRow(
-              icId: _parseInt(_idController),
-              icIdi: _text(_idiController),
-              icIde: _text(_ideController),
-              icIdv: _text(_idvController),
-              icDescriptionDeLong: _text(_descriptionDeController),
-              icDescriptionEnLong: _text(_descriptionEnController),
-              icColorCode: _text(_colorCodeController),
-              icPriceNet: _parseDouble(_priceNetController),
-              icPriceWholesaleNet: _parseDouble(_priceWholesaleNetController),
-              icPurchasePriceNet: _parseDouble(_purchasePriceNetController),
-              icWeight: _parseDouble(_weightController),
-              icSourceOfSupply: _text(_sourceOfSupplyController),
-              icHts: _text(_htsController),
-              icImagePath: _text(_imagePathController),
-              icNote: _text(_noteController),
-              icStock: _parseInt(_stockController),
-              icIc: _parseInt(_icIcController),
-            );
-            Navigator.of(context).pop(result);
-          },
-          child: const Text('Speichern'),
-        ),
+              final result = ItemCatalogueRow(
+                icId: _parseInt(_idController),
+                icIdi: _text(_idiController),
+                icIde: _text(_ideController),
+                icIdv: _text(_idvController),
+                icDescriptionDeLong: _text(_descriptionDeController),
+                icDescriptionEnLong: _text(_descriptionEnController),
+                icColorCode: _text(_colorCodeController),
+                icPriceNet: _parseDouble(_priceNetController),
+                icPriceWholesaleNet: _parseDouble(_priceWholesaleNetController),
+                icPurchasePriceNet: _parseDouble(_purchasePriceNetController),
+                icWeight: _parseDouble(_weightController),
+                icSourceOfSupply: _text(_sourceOfSupplyController),
+                icHts: _text(_htsController),
+                icImagePath: _text(_imagePathController),
+                icNote: _text(_noteController),
+                icStock: _parseInt(_stockController),
+                icIc: _isIcComponent ? 1 : 0,
+              );
+              Navigator.of(context).pop(result);
+            },
+            child: const Text('Speichern'),
+          ),
       ],
     );
   }

@@ -7,9 +7,21 @@ class MainFlutterWindow: NSWindow {
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
-    let windowFrame = self.frame
     self.contentViewController = flutterViewController
-    self.setFrame(windowFrame, display: true)
+
+    if let screenFrame = self.screen?.visibleFrame {
+      let targetWidth = max(screenFrame.width - 24, 0)
+      let targetHeight = max(screenFrame.height - 24, 0)
+      let targetFrame = NSRect(
+        x: screenFrame.midX - (targetWidth / 2),
+        y: screenFrame.midY - (targetHeight / 2),
+        width: targetWidth,
+        height: targetHeight
+      )
+
+      self.setFrame(targetFrame, display: true)
+      self.minSize = NSSize(width: 760, height: 560)
+    }
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     registerICloudChannel(flutterViewController: flutterViewController)

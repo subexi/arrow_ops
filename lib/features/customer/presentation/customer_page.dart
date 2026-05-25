@@ -50,7 +50,7 @@ class _CustomerPageState extends State<CustomerPage> {
   Map<String, String> _countryNameByCode = const {};
   String _databasePath = 'wird geladen...';
   int _sortColumnIndex = 0;
-  bool _sortAscending = true;
+  bool _sortAscending = false;
   int _rowsPerPage = 25;
   String _lastFilterQuery = '';
   List<int> _lastFilteredIndices = const [];

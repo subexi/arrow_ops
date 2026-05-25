@@ -12,6 +12,16 @@ class ItemRepository {
     return rows.map(ItemCatalogueRow.fromMap).toList();
   }
 
+  Future<int> deleteOrphanBomItems({required Set<int> validCatalogueIds}) async {
+    final db = await AppDatabase.instance.database;
+    return db.transaction((txn) async {
+      return _deleteOrphanBomItemsInTransaction(
+        txn,
+        validCatalogueIds: validCatalogueIds,
+      );
+    });
+  }
+
   Future<List<ItemBomRow>> getBomItems() async {
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {
@@ -75,6 +85,13 @@ class ItemRepository {
       }
 
       await txn.delete('item_catalogue', where: 'ic_id = ?', whereArgs: [id]);
+
+      final remainingCatalogueRows = await txn.query('item_catalogue', columns: ['ic_id']);
+      final validCatalogueIds = remainingCatalogueRows.map((row) => _readInt(row['ic_id'])).where((value) => value > 0).toSet();
+      await _deleteOrphanBomItemsInTransaction(txn, validCatalogueIds: validCatalogueIds);
+
+      final remainingBomRows = await _fetchBomRows(txn);
+      await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(remainingBomRows)));
     });
   }
 
@@ -227,6 +244,43 @@ class ItemRepository {
         whereArgs: [id],
       );
     }
+  }
+
+  Future<int> _deleteOrphanBomItemsInTransaction(
+    Transaction txn, {
+    required Set<int> validCatalogueIds,
+  }) async {
+    await _ensureBomIdsInTransaction(txn);
+    final bomRows = await _fetchBomRows(txn);
+    if (bomRows.isEmpty) {
+      return 0;
+    }
+
+    final existingBomIds = bomRows.map((row) => row.ibId).whereType<int>().toSet();
+    final orphanRootIds = bomRows
+        .where((row) =>
+            !validCatalogueIds.contains(row.ibItemId) ||
+            (row.ibParentId != null && !existingBomIds.contains(row.ibParentId)))
+        .map((row) => row.ibId)
+        .whereType<int>()
+        .toSet();
+
+    if (orphanRootIds.isEmpty) {
+      return 0;
+    }
+
+    final deletedBomIds = _collectBomSubtreeIds(bomRows, orphanRootIds);
+    if (deletedBomIds.isNotEmpty) {
+      await txn.delete(
+        'item_bom',
+        where: _whereInClause('ib_id', deletedBomIds.length),
+        whereArgs: deletedBomIds,
+      );
+    }
+
+    final remaining = await _fetchBomRows(txn);
+    await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(remaining)));
+    return deletedBomIds.length;
   }
 
   int _compareBomRows(ItemBomRow a, ItemBomRow b) {

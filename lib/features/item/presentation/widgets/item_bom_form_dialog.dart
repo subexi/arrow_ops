@@ -11,6 +11,7 @@ class ItemBomFormDialog extends StatefulWidget {
     required this.availableBomItems,
     this.initialValue,
     this.initialParentId,
+    this.initialItemId,
   });
 
   final List<ItemCatalogueRow> catalogueItems;
@@ -18,6 +19,7 @@ class ItemBomFormDialog extends StatefulWidget {
   final int nextId;
   final ItemBomRow? initialValue;
   final int? initialParentId;
+  final int? initialItemId;
 
   @override
   State<ItemBomFormDialog> createState() => _ItemBomFormDialogState();
@@ -27,7 +29,6 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool get _isWide => MediaQuery.of(context).size.width >= 720;
 
-  late final TextEditingController _idController;
   late final TextEditingController _quantityController;
   int? _itemId;
   int? _parentId;
@@ -36,28 +37,15 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
   void initState() {
     super.initState();
     final initialValue = widget.initialValue;
-    _idController = TextEditingController(text: (initialValue?.ibId ?? widget.nextId).toString());
     _quantityController = TextEditingController(text: (initialValue?.ibQuantity ?? 1).toString());
-    _itemId = initialValue?.ibItemId;
+    _itemId = initialValue?.ibItemId ?? widget.initialItemId;
     _parentId = initialValue?.ibParentId ?? widget.initialParentId;
   }
 
   @override
   void dispose() {
-    _idController.dispose();
     _quantityController.dispose();
     super.dispose();
-  }
-
-  String? _validateId(String? value) {
-    final raw = value?.trim();
-    if (raw == null || raw.isEmpty) {
-      return 'Bitte eine ID angeben.';
-    }
-    if (int.tryParse(raw) == null) {
-      return 'Bitte eine gueltige Zahl angeben.';
-    }
-    return null;
   }
 
   String? _validateQuantity(String? value) {
@@ -72,11 +60,16 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
   }
 
   String _catalogueLabel(ItemCatalogueRow item) {
-    final name = [item.icIdi, item.icIde, item.icIdv].where((value) => value.trim().isNotEmpty).join(' | ');
+    final name = item.icIdi.trim();
     return '#${item.icId}${name.isEmpty ? '' : ' • $name'}';
   }
 
-  String _bomLabel(ItemBomRow item) => '#${item.ibId ?? 0} → Item ${item.ibItemId}';
+  String _bomLabel(ItemBomRow item, Map<int, ItemCatalogueRow> catalogueById) {
+    final catalogue = catalogueById[item.ibItemId];
+    final idi = catalogue?.icIdi.trim() ?? '';
+    final display = idi.isEmpty ? 'Item ${item.ibItemId}' : idi;
+    return '#${item.ibId ?? 0} → $display';
+  }
 
   Widget _compactRow(List<Widget> children) {
     if (!_isWide) {
@@ -103,7 +96,46 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.initialValue != null;
-    final hasCatalogueItems = widget.catalogueItems.isNotEmpty;
+    final uniqueCatalogueById = <int, ItemCatalogueRow>{};
+    for (final item in widget.catalogueItems) {
+      uniqueCatalogueById.putIfAbsent(item.icId, () => item);
+    }
+    final uniqueCatalogueItems = uniqueCatalogueById.values.toList()
+      ..sort((a, b) => a.icId.compareTo(b.icId));
+    final catalogueById = {
+      for (final item in uniqueCatalogueItems) item.icId: item,
+    };
+
+    final hasCatalogueItems = uniqueCatalogueItems.isNotEmpty;
+    final validItemIds = uniqueCatalogueById.keys.toSet();
+
+    final currentBomId = widget.initialValue?.ibId;
+    final uniqueParentById = <int, ItemBomRow>{};
+    for (final item in widget.availableBomItems) {
+      final id = item.ibId;
+      if (id == null || id == currentBomId || !validItemIds.contains(item.ibItemId)) {
+        continue;
+      }
+      uniqueParentById.putIfAbsent(id, () => item);
+    }
+    final validParentIds = uniqueParentById.keys.toSet();
+    final effectiveParentId = _parentId == null
+        ? null
+        : (validParentIds.contains(_parentId) ? _parentId : null);
+    final effectiveParentRow = effectiveParentId == null ? null : uniqueParentById[effectiveParentId];
+    final parentArticleId = effectiveParentRow?.ibItemId;
+
+    final selectableChildItems = uniqueCatalogueItems
+        .where((item) => parentArticleId == null || item.icId != parentArticleId)
+        .toList(growable: false);
+    final selectableChildIds = selectableChildItems.map((item) => item.icId).toSet();
+    final hasSelectableChildItems = selectableChildItems.isNotEmpty;
+    final effectiveItemId = _itemId == null
+        ? null
+        : (selectableChildIds.contains(_itemId) ? _itemId : null);
+    final parentDisplayLabel = effectiveParentRow == null
+        ? 'Root / kein Parent'
+        : _bomLabel(effectiveParentRow, catalogueById);
 
     return AlertDialog(
       title: Text(isEditing ? 'BOM-Eintrag bearbeiten' : 'BOM-Eintrag anlegen'),
@@ -117,19 +149,10 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
               children: [
                 _compactRow([
                   TextFormField(
-                    controller: _idController,
-                    enabled: !isEditing,
-                    decoration: const InputDecoration(
-                      labelText: 'ib_id',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _validateId,
-                  ),
-                  TextFormField(
                     controller: _quantityController,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: 'ib_quantity',
+                      labelText: 'Menge',
                       border: OutlineInputBorder(),
                     ),
                     validator: _validateQuantity,
@@ -137,8 +160,8 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
                 ]),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  initialValue: _itemId,
-                  items: widget.catalogueItems
+                  initialValue: effectiveItemId,
+                  items: selectableChildItems
                       .map(
                         (item) => DropdownMenuItem<int>(
                           value: item.icId,
@@ -146,44 +169,34 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
                         ),
                       )
                       .toList(),
-                  onChanged: hasCatalogueItems ? (value) => setState(() => _itemId = value) : null,
+                  onChanged: hasSelectableChildItems ? (value) => setState(() => _itemId = value) : null,
                   decoration: const InputDecoration(
-                    labelText: 'ib_item_id',
+                    labelText: 'Kind Artikel',
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
                     if (value == null) {
-                      return 'Bitte ein Katalog-Item auswaehlen.';
+                      return 'Bitte einen Kind-Artikel auswaehlen.';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<int?>(
-                  initialValue: _parentId,
-                  items: [
-                    const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text('Root / kein Parent'),
-                    ),
-                    ...widget.availableBomItems.map(
-                      (item) => DropdownMenuItem<int?>(
-                        value: item.ibId,
-                        child: Text(_bomLabel(item)),
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) => setState(() => _parentId = value),
+                TextFormField(
+                  initialValue: parentDisplayLabel,
+                  readOnly: true,
                   decoration: const InputDecoration(
-                    labelText: 'ib_parent_id',
+                    labelText: 'Eltern Artikel',
                     border: OutlineInputBorder(),
                   ),
                 ),
-                if (!hasCatalogueItems) ...[
+                if (!hasCatalogueItems || !hasSelectableChildItems) ...[
                   const SizedBox(height: 12),
-                  const Text(
-                    'Noch keine Katalogeintraege vorhanden. Zuerst einen Katalogeintrag anlegen.',
-                    style: TextStyle(color: Colors.redAccent),
+                  Text(
+                    !hasCatalogueItems
+                        ? 'Noch keine Katalogeintraege vorhanden. Zuerst einen Katalogeintrag anlegen.'
+                        : 'Keine gueltigen Kind-Artikel verfuegbar.',
+                    style: const TextStyle(color: Colors.redAccent),
                   ),
                 ],
               ],
@@ -197,7 +210,7 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
           child: const Text('Abbrechen'),
         ),
         FilledButton(
-          onPressed: hasCatalogueItems
+          onPressed: (hasCatalogueItems && hasSelectableChildItems)
               ? () {
                   if (!_formKey.currentState!.validate()) {
                     return;
@@ -206,8 +219,14 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
                     return;
                   }
 
-                  final id = int.tryParse(_idController.text.trim()) ?? 0;
-                  if (_parentId != null && _parentId == id) {
+                  final id = widget.initialValue?.ibId;
+                  final nextId = widget.nextId;
+                  final effectiveId = id ?? nextId;
+                  final normalizedParentId = _parentId == null
+                      ? null
+                      : (validParentIds.contains(_parentId) ? _parentId : null);
+
+                  if (normalizedParentId != null && normalizedParentId == effectiveId) {
                     TransientFeedback.show(
                       context,
                       message: 'Ein Eintrag kann nicht sein eigener Parent sein.',
@@ -216,9 +235,9 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
                   }
 
                   final result = ItemBomRow(
-                    ibId: id,
+                    ibId: effectiveId,
                     ibItemId: _itemId!,
-                    ibParentId: _parentId,
+                    ibParentId: normalizedParentId,
                     ibQuantity: int.tryParse(_quantityController.text.trim()) ?? 1,
                   );
                   Navigator.of(context).pop(result);
