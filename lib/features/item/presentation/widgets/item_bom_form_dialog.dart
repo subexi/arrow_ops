@@ -64,11 +64,14 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
     return '#${item.icId}${name.isEmpty ? '' : ' • $name'}';
   }
 
-  String _bomLabel(ItemBomRow item, Map<int, ItemCatalogueRow> catalogueById) {
-    final catalogue = catalogueById[item.ibItemId];
-    final idi = catalogue?.icIdi.trim() ?? '';
-    final display = idi.isEmpty ? 'Item ${item.ibItemId}' : idi;
-    return '#${item.ibId ?? 0} → $display';
+  String _parentArticleLabel(ItemBomRow? parentRow, Map<int, ItemCatalogueRow> catalogueById) {
+    if (parentRow == null) {
+      return 'Root / kein Parent';
+    }
+
+    final parentItem = catalogueById[parentRow.ibItemId];
+    final name = parentItem?.icIdi.trim() ?? '';
+    return name.isEmpty ? parentRow.ibItemId.toString() : '${parentRow.ibItemId} • $name';
   }
 
   Widget _compactRow(List<Widget> children) {
@@ -133,9 +136,7 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
     final effectiveItemId = _itemId == null
         ? null
         : (selectableChildIds.contains(_itemId) ? _itemId : null);
-    final parentDisplayLabel = effectiveParentRow == null
-        ? 'Root / kein Parent'
-        : _bomLabel(effectiveParentRow, catalogueById);
+    final parentDisplayLabel = _parentArticleLabel(effectiveParentRow, catalogueById);
 
     return AlertDialog(
       title: Text(isEditing ? 'BOM-Eintrag bearbeiten' : 'BOM-Eintrag anlegen'),

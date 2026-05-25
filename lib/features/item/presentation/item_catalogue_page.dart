@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:data_table_2/data_table_2.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -54,7 +55,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     'HTS Code',
     'Bestand',
   ];
-  static const List<String> _bomSortLabels = ['ID', 'Artikel-ID', 'Eltern Artikel-ID', 'Menge', 'Bezeichnung'];
+  static const List<String> _bomSortLabels = ['ID', 'Artikel-ID', 'Eltern Artikel (Katalog)', 'Menge', 'Bezeichnung'];
 
   @override
   void initState() {
@@ -254,6 +255,31 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     }
   }
 
+  int? _parentArticleIdOf(ItemBomRow row) {
+    final parentBomId = row.ibParentId;
+    if (parentBomId == null) {
+      return null;
+    }
+
+    for (final candidate in _bomItems) {
+      if (candidate.ibId == parentBomId) {
+        return candidate.ibItemId;
+      }
+    }
+    return null;
+  }
+
+  String _parentArticleLabelOf(ItemBomRow row) {
+    final parentArticleId = _parentArticleIdOf(row);
+    if (parentArticleId == null) {
+      return 'Root / kein Parent';
+    }
+
+    final parentItem = _catalogueById[parentArticleId];
+    final name = parentItem?.icIdi.trim() ?? '';
+    return name.isEmpty ? parentArticleId.toString() : '$parentArticleId • $name';
+  }
+
   int _compareBomByColumn(ItemBomRow a, ItemBomRow b, int columnIndex) {
     switch (columnIndex) {
       case 0:
@@ -261,7 +287,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case 1:
         return a.ibItemId.compareTo(b.ibItemId);
       case 2:
-        return (a.ibParentId ?? -1).compareTo(b.ibParentId ?? -1);
+        return (_parentArticleIdOf(a) ?? -1).compareTo(_parentArticleIdOf(b) ?? -1);
       case 3:
         return a.ibQuantity.compareTo(b.ibQuantity);
       case 4:
@@ -483,6 +509,62 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
     await _repository.deleteCatalogueItem(item.icId);
     await _loadData();
+  }
+
+  Future<void> _duplicateCatalogue(ItemCatalogueRow item) async {
+    final duplicateMode = await showDialog<_DuplicateMode>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Artikel duplizieren'),
+        content: Text(
+          'Waehle aus, ob nur der Artikel oder auch die BOM-Struktur kopiert werden soll.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Abbrechen'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).pop(_DuplicateMode.articleOnly),
+            child: const Text('Nur Artikel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(_DuplicateMode.articleWithBom),
+            child: const Text('Artikel + BOM'),
+          ),
+        ],
+      ),
+    );
+    if (duplicateMode == null) {
+      return;
+    }
+
+    final duplicateResult = await _repository.duplicateCatalogueItemWithBom(
+      item.icId,
+      includeBom: duplicateMode == _DuplicateMode.articleWithBom,
+    );
+    await _loadData();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedCatalogueId = duplicateResult.newCatalogueId;
+      _selectedBomId = null;
+    });
+
+    final copiedBomRows = duplicateResult.duplicatedBomRows;
+    final copiedAnchors = duplicateResult.duplicatedAnchorRows;
+    final message = duplicateMode == _DuplicateMode.articleOnly
+        ? 'Artikel wurde dupliziert.'
+        : 'Artikel wurde mit BOM dupliziert ($copiedBomRows Zeilen).';
+    final debugSuffix = kDebugMode && duplicateMode == _DuplicateMode.articleWithBom
+        ? ' [Anker: $copiedAnchors, Zeilen: $copiedBomRows]'
+        : '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$message$debugSuffix')),
+    );
   }
 
   Future<void> _showBomForm({ItemBomRow? initialValue}) async {
@@ -722,6 +804,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                   onPressed: _loading || selectedItem == null ? null : () => _showCatalogueForm(initialValue: selectedItem),
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Bearbeiten'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _loading || selectedItem == null ? null : () => _duplicateCatalogue(selectedItem),
+                  icon: const Icon(Icons.copy_outlined),
+                  label: const Text('Duplizieren'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -988,7 +1076,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                               columns: [
                                 DataColumn(label: const Text('ID'), onSort: _onBomSort),
                                 DataColumn(label: const Text('Artikel-ID'), onSort: _onBomSort),
-                                DataColumn(label: const Text('Eltern Artikel-ID'), onSort: _onBomSort),
+                                DataColumn(label: const Text('Eltern Artikel (Katalog)'), onSort: _onBomSort),
                                 DataColumn(label: const Text('Menge'), onSort: _onBomSort),
                                 DataColumn(label: const Text('Bezeichnung'), onSort: _onBomSort),
                                 const DataColumn(label: Text('Bild')),
@@ -1006,7 +1094,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                       cells: [
                                         DataCell(Text('${row.ibId ?? 0}')),
                                         DataCell(Text(row.ibItemId.toString())),
-                                        DataCell(Text(row.ibParentId?.toString() ?? '')),
+                                        DataCell(Text(_parentArticleLabelOf(row))),
                                         DataCell(Text(row.ibQuantity.toString())),
                                         DataCell(Text(item?.icIdi ?? '')),
                                         DataCell(item == null ? _emptyImagePreview() : _buildCatalogueImagePreview(item)),
@@ -1055,4 +1143,9 @@ enum _CatalogueFilter {
   all,
   zbOnly,
   withoutZb,
+}
+
+enum _DuplicateMode {
+  articleOnly,
+  articleWithBom,
 }

@@ -3,6 +3,18 @@ import 'package:sqflite/sqflite.dart';
 import '../../../core/database/app_database.dart';
 import '../domain/item_models.dart';
 
+class DuplicateCatalogueResult {
+  const DuplicateCatalogueResult({
+    required this.newCatalogueId,
+    required this.duplicatedAnchorRows,
+    required this.duplicatedBomRows,
+  });
+
+  final int newCatalogueId;
+  final int duplicatedAnchorRows;
+  final int duplicatedBomRows;
+}
+
 class ItemRepository {
   const ItemRepository();
 
@@ -65,6 +77,134 @@ class ItemRepository {
       if (updated == 0) {
         await txn.insert('item_catalogue', item.toMap());
       }
+    });
+  }
+
+  Future<DuplicateCatalogueResult> duplicateCatalogueItemWithBom(
+    int sourceCatalogueId, {
+    bool includeBom = true,
+  }) async {
+    final db = await AppDatabase.instance.database;
+    return db.transaction((txn) async {
+      final sourceRows = await txn.query(
+        'item_catalogue',
+        where: 'ic_id = ?',
+        whereArgs: [sourceCatalogueId],
+        limit: 1,
+      );
+      if (sourceRows.isEmpty) {
+        throw StateError('Katalogeintrag #$sourceCatalogueId nicht gefunden.');
+      }
+
+      final sourceItem = ItemCatalogueRow.fromMap(sourceRows.first);
+      final maxIdRows = await txn.rawQuery('SELECT COALESCE(MAX(ic_id), 0) AS max_id FROM item_catalogue');
+      final newCatalogueId = _readInt(maxIdRows.first['max_id']) + 1;
+
+      final allNameRows = await txn.query('item_catalogue', columns: ['ic_idi']);
+      final existingNamesLower = allNameRows
+          .map((row) => row['ic_idi']?.toString().trim().toLowerCase() ?? '')
+          .where((value) => value.isNotEmpty)
+          .toSet();
+      final duplicateName = _buildDuplicateCatalogueName(
+        sourceName: sourceItem.icIdi,
+        existingNamesLower: existingNamesLower,
+      );
+
+      final duplicateItem = sourceItem.copyWith(
+        icId: newCatalogueId,
+        icIdi: duplicateName,
+      );
+      await txn.insert('item_catalogue', duplicateItem.toMap());
+
+      if (!includeBom) {
+        return DuplicateCatalogueResult(
+          newCatalogueId: newCatalogueId,
+          duplicatedAnchorRows: 0,
+          duplicatedBomRows: 0,
+        );
+      }
+
+      await _ensureBomIdsInTransaction(txn);
+      final bomRows = await _fetchBomRows(txn);
+
+      final anchorRows = bomRows.where((row) => row.ibItemId == sourceCatalogueId).toList(growable: false);
+      if (anchorRows.isEmpty) {
+        return DuplicateCatalogueResult(
+          newCatalogueId: newCatalogueId,
+          duplicatedAnchorRows: 0,
+          duplicatedBomRows: 0,
+        );
+      }
+
+      final anchorIds = anchorRows.map((row) => row.ibId).whereType<int>();
+      final subtreeIds = _collectBomSubtreeIds(bomRows, anchorIds).toSet();
+      final subtreeRows = bomRows
+          .where((row) {
+            final id = row.ibId;
+            return id != null && subtreeIds.contains(id);
+          })
+          .toList(growable: false)
+        ..sort((a, b) {
+          final parentCompare = (a.ibParentId ?? -1).compareTo(b.ibParentId ?? -1);
+          if (parentCompare != 0) {
+            return parentCompare;
+          }
+          return _compareBomRows(a, b);
+        });
+
+      final maxBomId = bomRows.map((row) => row.ibId ?? 0).fold<int>(0, (maxValue, id) => id > maxValue ? id : maxValue);
+      var nextBomId = maxBomId + 1;
+
+      final nodeIdByParentAndItem = <String, int>{
+        for (final row in bomRows)
+          if (row.ibId != null) _bomLinkKey(row.ibParentId, row.ibItemId): row.ibId!,
+      };
+
+      final idMap = <int, int>{};
+      for (final row in subtreeRows) {
+        final oldId = row.ibId;
+        if (oldId == null) {
+          continue;
+        }
+        idMap[oldId] = nextBomId;
+        nextBomId += 1;
+      }
+
+      var insertedRows = 0;
+      for (final row in subtreeRows) {
+        final oldId = row.ibId;
+        if (oldId == null) {
+          continue;
+        }
+        final oldParentId = row.ibParentId;
+        final mappedParentId = oldParentId == null ? null : (idMap[oldParentId] ?? oldParentId);
+        final mappedItemId = row.ibItemId == sourceCatalogueId ? newCatalogueId : row.ibItemId;
+        final existingId = nodeIdByParentAndItem[_bomLinkKey(mappedParentId, mappedItemId)];
+        if (existingId != null) {
+          idMap[oldId] = existingId;
+          continue;
+        }
+        final mappedId = idMap[oldId];
+        if (mappedId == null) {
+          continue;
+        }
+        final duplicateRow = row.copyWith(
+          ibId: mappedId,
+          ibParentId: mappedParentId,
+          ibItemId: mappedItemId,
+        );
+        await txn.insert('item_bom', duplicateRow.toMap());
+        nodeIdByParentAndItem[_bomLinkKey(mappedParentId, mappedItemId)] = mappedId;
+        insertedRows += 1;
+      }
+
+      final updatedRows = await _fetchBomRows(txn);
+      await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(updatedRows)));
+      return DuplicateCatalogueResult(
+        newCatalogueId: newCatalogueId,
+        duplicatedAnchorRows: anchorRows.length,
+        duplicatedBomRows: insertedRows,
+      );
     });
   }
 
@@ -329,6 +469,28 @@ class ItemRepository {
   String _whereInClause(String column, int count) {
     final placeholders = List<String>.filled(count, '?').join(', ');
     return '$column IN ($placeholders)';
+  }
+
+  String _bomLinkKey(int? parentId, int itemId) => '${parentId ?? 'null'}|$itemId';
+
+  String _buildDuplicateCatalogueName({
+    required String sourceName,
+    required Set<String> existingNamesLower,
+  }) {
+    final baseName = sourceName.trim().isEmpty ? 'Artikel' : sourceName.trim();
+    final copyBase = '$baseName (Kopie)';
+    if (!existingNamesLower.contains(copyBase.toLowerCase())) {
+      return copyBase;
+    }
+
+    var index = 2;
+    while (true) {
+      final candidate = '$copyBase $index';
+      if (!existingNamesLower.contains(candidate.toLowerCase())) {
+        return candidate;
+      }
+      index += 1;
+    }
   }
 
   int _readInt(Object? value) => int.tryParse(value?.toString() ?? '') ?? 0;
