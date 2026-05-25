@@ -1,9 +1,15 @@
 import 'dart:io';
 
 import 'package:data_table_2/data_table_2.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/sync/icloud_sync_service.dart';
 import '../data/item_image_storage_service.dart';
@@ -35,6 +41,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   Map<int, ItemCatalogueRow> _catalogueById = const {};
   String _searchQuery = '';
   bool _loading = true;
+  Set<String> _catalogueExportFieldSelection = const {};
+  List<String> _catalogueExportFieldOrder = const [];
 
   int? _selectedCatalogueId;
   int? _selectedBomId;
@@ -56,6 +64,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     'Bestand',
   ];
   static const List<String> _bomSortLabels = ['ID', 'Artikel-ID', 'Eltern Artikel (Katalog)', 'Menge', 'Bezeichnung'];
+  static const String _catalogueExportFieldPrefsKey = 'item_catalogue_export_fields';
+  static const String _catalogueExportFieldOrderPrefsKey = 'item_catalogue_export_field_order';
 
   @override
   void initState() {
@@ -72,6 +82,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       }
       setState(() => _searchQuery = nextQuery);
     });
+    _loadCatalogueExportPreferences();
     _loadData();
   }
 
@@ -153,6 +164,646 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
   String _formatDecimal(double value, int fractionDigits) {
     return value.toStringAsFixed(fractionDigits).replaceAll('.', ',');
+  }
+
+  String _csvEscape(String value) {
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  String _buildFileTimestamp(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    final year = value.year.toString().padLeft(4, '0');
+    final month = twoDigits(value.month);
+    final day = twoDigits(value.day);
+    final hour = twoDigits(value.hour);
+    final minute = twoDigits(value.minute);
+    final second = twoDigits(value.second);
+    return '$year$month${day}_$hour$minute$second';
+  }
+
+  Set<String> _normalizeCatalogueExportFieldSelection(Iterable<String> selectedKeys) {
+    final availableKeys = _catalogueExportFields().map((field) => field.key).toSet();
+    final normalized = selectedKeys.where(availableKeys.contains).toSet();
+    return normalized.isEmpty ? availableKeys : normalized;
+  }
+
+  List<String> _normalizeCatalogueExportFieldOrder(Iterable<String> orderedKeys) {
+    final availableKeys = _catalogueExportFields().map((field) => field.key).toList(growable: false);
+    final availableSet = availableKeys.toSet();
+
+    final normalized = <String>[];
+    for (final key in orderedKeys) {
+      if (availableSet.contains(key) && !normalized.contains(key)) {
+        normalized.add(key);
+      }
+    }
+
+    for (final key in availableKeys) {
+      if (!normalized.contains(key)) {
+        normalized.add(key);
+      }
+    }
+
+    return normalized;
+  }
+
+  Future<void> _loadCatalogueExportPreferences() async {
+    final preferences = await SharedPreferences.getInstance();
+    final storedSelectedKeys = preferences.getStringList(_catalogueExportFieldPrefsKey) ?? const <String>[];
+    final storedOrderKeys = preferences.getStringList(_catalogueExportFieldOrderPrefsKey) ?? const <String>[];
+    final normalizedSelection = _normalizeCatalogueExportFieldSelection(storedSelectedKeys);
+    final normalizedOrder = _normalizeCatalogueExportFieldOrder(storedOrderKeys);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _catalogueExportFieldSelection = normalizedSelection;
+      _catalogueExportFieldOrder = normalizedOrder;
+    });
+  }
+
+  Future<void> _saveCatalogueExportPreferences({
+    required Set<String> selectedKeys,
+    required List<String> orderedKeys,
+  }) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      _catalogueExportFieldPrefsKey,
+      selectedKeys.toList(growable: false),
+    );
+    await preferences.setStringList(
+      _catalogueExportFieldOrderPrefsKey,
+      orderedKeys,
+    );
+  }
+
+  List<_CatalogueExportField> _catalogueExportFields() {
+    return [
+      _CatalogueExportField(
+        key: 'ic_id',
+        label: 'Artikel-ID',
+        csvHeader: 'ic_id',
+        value: (row) => row.icId.toString(),
+      ),
+      _CatalogueExportField(
+        key: 'ic_idi',
+        label: 'Bezeichnung',
+        csvHeader: 'ic_idi',
+        value: (row) => row.icIdi,
+      ),
+      _CatalogueExportField(
+        key: 'ic_ide',
+        label: 'ic_ide',
+        csvHeader: 'ic_ide',
+        value: (row) => row.icIde,
+      ),
+      _CatalogueExportField(
+        key: 'ic_idv',
+        label: 'ic_idv',
+        csvHeader: 'ic_idv',
+        value: (row) => row.icIdv,
+      ),
+      _CatalogueExportField(
+        key: 'ic_description_de_long',
+        label: 'Beschreibung DE',
+        csvHeader: 'ic_description_de_long',
+        value: (row) => row.icDescriptionDeLong,
+      ),
+      _CatalogueExportField(
+        key: 'ic_description_en_long',
+        label: 'Beschreibung EN',
+        csvHeader: 'ic_description_en_long',
+        value: (row) => row.icDescriptionEnLong,
+      ),
+      _CatalogueExportField(
+        key: 'ic_color_code',
+        label: 'Farbcode',
+        csvHeader: 'ic_color_code',
+        value: (row) => row.icColorCode,
+      ),
+      _CatalogueExportField(
+        key: 'ic_price_net',
+        label: 'Nettopreis',
+        csvHeader: 'ic_price_net',
+        value: (row) => row.icPriceNet.toString(),
+      ),
+      _CatalogueExportField(
+        key: 'ic_price_gross_19',
+        label: 'Bruttopreis inkl. 19%',
+        csvHeader: 'ic_price_gross_19',
+        value: (row) => _grossPrice(row.icPriceNet).toStringAsFixed(2),
+      ),
+      _CatalogueExportField(
+        key: 'ic_price_wholesale_net',
+        label: 'Netto Händlerpreis',
+        csvHeader: 'ic_price_wholesale_net',
+        value: (row) => row.icPriceWholesaleNet.toString(),
+      ),
+      _CatalogueExportField(
+        key: 'ic_purchase_price_net',
+        label: 'Netto Einkaufspreis',
+        csvHeader: 'ic_purchase_price_net',
+        value: (row) => row.icPurchasePriceNet.toString(),
+      ),
+      _CatalogueExportField(
+        key: 'ic_weight',
+        label: 'Gewicht in g',
+        csvHeader: 'ic_weight',
+        value: (row) => row.icWeight.toString(),
+      ),
+      _CatalogueExportField(
+        key: 'ic_source_of_supply',
+        label: 'Lieferquelle',
+        csvHeader: 'ic_source_of_supply',
+        value: (row) => row.icSourceOfSupply,
+      ),
+      _CatalogueExportField(
+        key: 'ic_hts',
+        label: 'HTS Code',
+        csvHeader: 'ic_hts',
+        value: (row) => row.icHts,
+      ),
+      _CatalogueExportField(
+        key: 'ic_image_path',
+        label: 'Bildpfad',
+        csvHeader: 'ic_image_path',
+        value: (row) => row.icImagePath,
+      ),
+      _CatalogueExportField(
+        key: 'ic_note',
+        label: 'Notiz',
+        csvHeader: 'ic_note',
+        value: (row) => row.icNote,
+      ),
+      _CatalogueExportField(
+        key: 'ic_stock',
+        label: 'Bestand',
+        csvHeader: 'ic_stock',
+        value: (row) => row.icStock.toString(),
+      ),
+      _CatalogueExportField(
+        key: 'ic_ic',
+        label: 'ZB Komponenten',
+        csvHeader: 'ic_ic',
+        value: (row) => row.icIc.toString(),
+      ),
+    ];
+  }
+
+  Future<List<_CatalogueExportField>?> _showCatalogueExportFieldDialog() async {
+    final fields = _catalogueExportFields();
+    final fieldsByKey = {
+      for (final field in fields) field.key: field,
+    };
+    final selectedKeys = _normalizeCatalogueExportFieldSelection(_catalogueExportFieldSelection);
+    final orderedFieldKeys = _normalizeCatalogueExportFieldOrder(
+      _catalogueExportFieldOrder.isEmpty
+          ? fields.map((field) => field.key)
+          : _catalogueExportFieldOrder,
+    );
+
+    return showDialog<List<_CatalogueExportField>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Exportfelder auswaehlen'),
+              content: SizedBox(
+                width: 520,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text('Ausgewaehlt: ${selectedKeys.length}/${fields.length}'),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedKeys
+                                ..clear()
+                                ..addAll(orderedFieldKeys);
+                            });
+                          },
+                          child: const Text('Alle'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(selectedKeys.clear);
+                          },
+                          child: const Text('Keine'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 360,
+                      child: ReorderableListView.builder(
+                        buildDefaultDragHandles: false,
+                        itemCount: orderedFieldKeys.length,
+                        onReorderItem: (oldIndex, newIndex) {
+                          setDialogState(() {
+                            final moved = orderedFieldKeys.removeAt(oldIndex);
+                            orderedFieldKeys.insert(newIndex, moved);
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          final key = orderedFieldKeys[index];
+                          final field = fieldsByKey[key];
+                          if (field == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return CheckboxListTile(
+                            key: ValueKey(field.key),
+                            dense: true,
+                            value: selectedKeys.contains(field.key),
+                            title: Text(field.label),
+                            subtitle: Text(field.csvHeader),
+                            secondary: ReorderableDragStartListener(
+                              index: index,
+                              child: const Icon(Icons.drag_handle),
+                            ),
+                            onChanged: (checked) {
+                              setDialogState(() {
+                                if (checked == true) {
+                                  selectedKeys.add(field.key);
+                                } else {
+                                  selectedKeys.remove(field.key);
+                                }
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Abbrechen'),
+                ),
+                FilledButton(
+                  onPressed: selectedKeys.isEmpty
+                      ? null
+                      : () {
+                        final selectedFields = orderedFieldKeys
+                          .map((key) => fieldsByKey[key])
+                          .whereType<_CatalogueExportField>()
+                          .where((field) => selectedKeys.contains(field.key))
+                              .toList(growable: false);
+                          Navigator.of(context).pop(selectedFields);
+                        },
+                  child: const Text('Exportieren'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<List<_CatalogueExportField>?> _promptCatalogueExportFields() async {
+    final selectedFields = await _showCatalogueExportFieldDialog();
+    if (selectedFields == null || selectedFields.isEmpty) {
+      return null;
+    }
+
+    final selectedKeys = selectedFields.map((field) => field.key).toSet();
+    final orderedKeys = selectedFields.map((field) => field.key).toList(growable: false);
+    if (mounted) {
+      setState(() {
+        _catalogueExportFieldSelection = selectedKeys;
+        _catalogueExportFieldOrder = orderedKeys;
+      });
+    }
+    await _saveCatalogueExportPreferences(
+      selectedKeys: selectedKeys,
+      orderedKeys: orderedKeys,
+    );
+    return selectedFields;
+  }
+
+  Future<String?> _pickExportTargetPath({
+    required String dialogTitle,
+    required String fileName,
+    required List<String> allowedExtensions,
+  }) async {
+    final initialDirectory = (await getApplicationDocumentsDirectory()).path;
+    try {
+      return await FilePicker.saveFile(
+        dialogTitle: dialogTitle,
+        fileName: fileName,
+        initialDirectory: initialDirectory,
+        type: FileType.custom,
+        allowedExtensions: allowedExtensions,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _onCatalogueExportSelected(_CatalogueExportFormat format) async {
+    final selectedFields = await _promptCatalogueExportFields();
+    if (selectedFields == null) {
+      return;
+    }
+
+    switch (format) {
+      case _CatalogueExportFormat.csv:
+        await _exportCatalogueCsv(selectedFields);
+      case _CatalogueExportFormat.pdf:
+        final sortSelection = await _showPdfSortDialog(selectedFields);
+        if (sortSelection == null) {
+          return;
+        }
+        await _exportCataloguePdf(selectedFields, sortSelection: sortSelection);
+    }
+  }
+
+  Future<_CataloguePdfSortSelection?> _showPdfSortDialog(
+    List<_CatalogueExportField> selectedFields,
+  ) async {
+    const noneKey = '__none__';
+    var selectedKey = noneKey;
+    var ascending = true;
+
+    return showDialog<_CataloguePdfSortSelection>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('PDF-Sortierung waehlen'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedKey,
+                    decoration: const InputDecoration(
+                      labelText: 'Sortierfeld',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: noneKey,
+                        child: Text('Keine Sortierung'),
+                      ),
+                      ...selectedFields.map(
+                        (field) => DropdownMenuItem<String>(
+                          value: field.key,
+                          child: Text(field.label),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setDialogState(() {
+                        selectedKey = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    value: ascending,
+                    title: const Text('Aufsteigend'),
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: selectedKey == noneKey
+                        ? null
+                        : (value) {
+                            setDialogState(() {
+                              ascending = value;
+                            });
+                          },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Abbrechen'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final fieldKey = selectedKey == noneKey ? null : selectedKey;
+                    Navigator.of(context).pop(
+                      _CataloguePdfSortSelection(
+                        fieldKey: fieldKey,
+                        ascending: ascending,
+                      ),
+                    );
+                  },
+                  child: const Text('Weiter'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  int _compareExportValues(String a, String b) {
+    final normalizedA = a.trim().replaceAll(',', '.');
+    final normalizedB = b.trim().replaceAll(',', '.');
+    final numericA = double.tryParse(normalizedA);
+    final numericB = double.tryParse(normalizedB);
+    if (numericA != null && numericB != null) {
+      return numericA.compareTo(numericB);
+    }
+    return a.toLowerCase().compareTo(b.toLowerCase());
+  }
+
+  String _formatPdfFieldValue(_CatalogueExportField field, ItemCatalogueRow row) {
+    final rawValue = field.value(row);
+
+    String toGermanFixed(String value, int fractionDigits) {
+      final parsed = double.tryParse(value.trim().replaceAll(',', '.'));
+      if (parsed == null) {
+        return value;
+      }
+      return parsed.toStringAsFixed(fractionDigits).replaceAll('.', ',');
+    }
+
+    switch (field.key) {
+      case 'ic_price_net':
+      case 'ic_price_gross_19':
+      case 'ic_price_wholesale_net':
+      case 'ic_purchase_price_net':
+        return toGermanFixed(rawValue, 2);
+      case 'ic_weight':
+        return toGermanFixed(rawValue, 1);
+      default:
+        return rawValue;
+    }
+  }
+
+  Future<void> _exportCatalogueCsv(List<_CatalogueExportField> selectedFields) async {
+
+    setState(() => _loading = true);
+    try {
+      final rows = await _repository.getCatalogueItems();
+      final buffer = StringBuffer();
+      buffer.writeln('sep=;');
+      buffer.writeln(
+        selectedFields.map((field) => _csvEscape(field.csvHeader)).join(';'),
+      );
+
+      for (final row in rows) {
+        final values = selectedFields
+            .map((field) => _csvEscape(field.value(row)))
+            .join(';');
+        buffer.writeln(values);
+      }
+
+      final fileName = 'item_catalogue_export_${_buildFileTimestamp(DateTime.now())}.csv';
+      final targetPath = await _pickExportTargetPath(
+        dialogTitle: 'Artikelkatalog als CSV exportieren',
+        fileName: fileName,
+        allowedExtensions: const ['csv'],
+      );
+      if (targetPath == null || targetPath.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Export abgebrochen: Kein Speicherort ausgewaehlt.')),
+          );
+        }
+        return;
+      }
+      await File(targetPath).writeAsString(buffer.toString());
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Artikelkatalog-CSV exportiert nach: $targetPath')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Artikelkatalog-Export fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _exportCataloguePdf(
+    List<_CatalogueExportField> selectedFields, {
+    required _CataloguePdfSortSelection sortSelection,
+  }) async {
+    setState(() => _loading = true);
+    try {
+      final rows = await _repository.getCatalogueItems();
+      final sortedRows = List<ItemCatalogueRow>.from(rows);
+      final sortFieldKey = sortSelection.fieldKey;
+      if (sortFieldKey != null) {
+        final sortField = selectedFields
+            .where((field) => field.key == sortFieldKey)
+            .cast<_CatalogueExportField?>()
+            .firstWhere((field) => field != null, orElse: () => null);
+        if (sortField != null) {
+          sortedRows.sort((a, b) {
+            final compare = _compareExportValues(
+              sortField.value(a),
+              sortField.value(b),
+            );
+            return sortSelection.ascending ? compare : -compare;
+          });
+        }
+      }
+
+      final document = pw.Document();
+      final pdfBaseFont = await PdfGoogleFonts.notoSansRegular();
+      final pdfBoldFont = await PdfGoogleFonts.notoSansBold();
+
+      final headers = selectedFields.map((field) => field.label).toList(growable: false);
+      final tableData = sortedRows
+          .map(
+            (row) => selectedFields
+                .map((field) => _formatPdfFieldValue(field, row))
+                .toList(growable: false),
+          )
+          .toList(growable: false);
+
+      document.addPage(
+        pw.MultiPage(
+          theme: pw.ThemeData.withFont(
+            base: pdfBaseFont,
+            bold: pdfBoldFont,
+          ),
+          pageFormat: PdfPageFormat.a3.landscape,
+          build: (context) => [
+            pw.Text(
+              'Artikelkatalog Export',
+              style: pw.TextStyle(
+                fontSize: 14,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: headers,
+              data: tableData,
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+              headerStyle: pw.TextStyle(
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              cellStyle: const pw.TextStyle(fontSize: 7),
+              cellAlignment: pw.Alignment.centerLeft,
+              cellPadding: const pw.EdgeInsets.all(3),
+            ),
+          ],
+        ),
+      );
+
+      final fileName = 'item_catalogue_export_${_buildFileTimestamp(DateTime.now())}.pdf';
+      final targetPath = await _pickExportTargetPath(
+        dialogTitle: 'Artikelkatalog als PDF exportieren',
+        fileName: fileName,
+        allowedExtensions: const ['pdf'],
+      );
+      if (targetPath == null || targetPath.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Export abgebrochen: Kein Speicherort ausgewaehlt.')),
+          );
+        }
+        return;
+      }
+      await File(targetPath).writeAsBytes(await document.save());
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Artikelkatalog-PDF exportiert nach: $targetPath')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Artikelkatalog-PDF-Export fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   double _grossPrice(double netPrice) => netPrice * 1.19;
@@ -1120,6 +1771,22 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       appBar: AppBar(
         title: const Text('Artikelkatalog & BOM'),
         actions: [
+          PopupMenuButton<_CatalogueExportFormat>(
+            tooltip: 'Artikelkatalog exportieren',
+            enabled: !_loading,
+            onSelected: _onCatalogueExportSelected,
+            itemBuilder: (context) => const [
+              PopupMenuItem<_CatalogueExportFormat>(
+                value: _CatalogueExportFormat.csv,
+                child: Text('Als CSV exportieren'),
+              ),
+              PopupMenuItem<_CatalogueExportFormat>(
+                value: _CatalogueExportFormat.pdf,
+                child: Text('Als PDF exportieren'),
+              ),
+            ],
+            icon: const Icon(Icons.download_outlined),
+          ),
           IconButton(
             tooltip: 'Aktualisieren',
             onPressed: _loading ? null : _loadData,
@@ -1148,4 +1815,33 @@ enum _CatalogueFilter {
 enum _DuplicateMode {
   articleOnly,
   articleWithBom,
+}
+
+enum _CatalogueExportFormat {
+  csv,
+  pdf,
+}
+
+class _CatalogueExportField {
+  const _CatalogueExportField({
+    required this.key,
+    required this.label,
+    required this.csvHeader,
+    required this.value,
+  });
+
+  final String key;
+  final String label;
+  final String csvHeader;
+  final String Function(ItemCatalogueRow row) value;
+}
+
+class _CataloguePdfSortSelection {
+  const _CataloguePdfSortSelection({
+    required this.fieldKey,
+    required this.ascending,
+  });
+
+  final String? fieldKey;
+  final bool ascending;
 }
