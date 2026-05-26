@@ -34,6 +34,39 @@ class ItemRepository {
     });
   }
 
+  Future<int> deleteRootOnlyBomAnchors() async {
+    final db = await AppDatabase.instance.database;
+    return db.transaction((txn) async {
+      await _ensureBomIdsInTransaction(txn);
+      final bomRows = await _fetchBomRows(txn);
+      if (bomRows.isEmpty) {
+        return 0;
+      }
+
+      final parentIds = bomRows.map((row) => row.ibParentId).whereType<int>().toSet();
+      final rootOnlyIds = bomRows
+          .where((row) => row.ibParentId == null)
+          .map((row) => row.ibId)
+          .whereType<int>()
+          .where((id) => !parentIds.contains(id))
+          .toList(growable: false);
+
+      if (rootOnlyIds.isEmpty) {
+        return 0;
+      }
+
+      await txn.delete(
+        'item_bom',
+        where: _whereInClause('ib_id', rootOnlyIds.length),
+        whereArgs: rootOnlyIds,
+      );
+
+      final remaining = await _fetchBomRows(txn);
+      await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(remaining)));
+      return rootOnlyIds.length;
+    });
+  }
+
   Future<List<ItemBomRow>> getBomItems() async {
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {

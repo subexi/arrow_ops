@@ -43,6 +43,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   bool _loading = true;
   Set<String> _catalogueExportFieldSelection = const {};
   List<String> _catalogueExportFieldOrder = const [];
+  Set<String> _bomExportFieldSelection = const {};
+  List<String> _bomExportFieldOrder = const [];
 
   int? _selectedCatalogueId;
   int? _selectedBomId;
@@ -66,6 +68,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   static const List<String> _bomSortLabels = ['ID', 'Artikel-ID', 'Eltern Artikel (Katalog)', 'Menge', 'Bezeichnung'];
   static const String _catalogueExportFieldPrefsKey = 'item_catalogue_export_fields';
   static const String _catalogueExportFieldOrderPrefsKey = 'item_catalogue_export_field_order';
+  static const String _bomExportFieldPrefsKey = 'item_bom_export_fields';
+  static const String _bomExportFieldOrderPrefsKey = 'item_bom_export_field_order';
 
   @override
   void initState() {
@@ -83,6 +87,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       setState(() => _searchQuery = nextQuery);
     });
     _loadCatalogueExportPreferences();
+    _loadBomExportPreferences();
     _loadData();
   }
 
@@ -103,7 +108,14 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       await _repository.deleteOrphanBomItems(
         validCatalogueIds: catalogueItems.map((item) => item.icId).toSet(),
       );
-      final bomItems = await _repository.getBomItems();
+      var bomItems = await _repository.getBomItems();
+      final removedRootOnlyAnchors = await _repository.deleteRootOnlyBomAnchors();
+      if (removedRootOnlyAnchors > 0) {
+        if (kDebugMode) {
+          debugPrint('🧹 Entfernte Root-Only BOM-Anker: $removedRootOnlyAnchors');
+        }
+        bomItems = await _repository.getBomItems();
+      }
       await _syncManagedCatalogueImages(catalogueItems);
       if (!mounted) {
         return;
@@ -238,6 +250,62 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     );
   }
 
+  Set<String> _normalizeBomExportFieldSelection(Iterable<String> selectedKeys) {
+    final availableKeys = _bomExportFields().map((field) => field.key).toSet();
+    final normalized = selectedKeys.where(availableKeys.contains).toSet();
+    return normalized.isEmpty ? availableKeys : normalized;
+  }
+
+  List<String> _normalizeBomExportFieldOrder(Iterable<String> orderedKeys) {
+    final availableKeys = _bomExportFields().map((field) => field.key).toList(growable: false);
+    final availableSet = availableKeys.toSet();
+
+    final normalized = <String>[];
+    for (final key in orderedKeys) {
+      if (availableSet.contains(key) && !normalized.contains(key)) {
+        normalized.add(key);
+      }
+    }
+
+    for (final key in availableKeys) {
+      if (!normalized.contains(key)) {
+        normalized.add(key);
+      }
+    }
+
+    return normalized;
+  }
+
+  Future<void> _loadBomExportPreferences() async {
+    final preferences = await SharedPreferences.getInstance();
+    final storedSelectedKeys = preferences.getStringList(_bomExportFieldPrefsKey) ?? const <String>[];
+    final storedOrderKeys = preferences.getStringList(_bomExportFieldOrderPrefsKey) ?? const <String>[];
+    final normalizedSelection = _normalizeBomExportFieldSelection(storedSelectedKeys);
+    final normalizedOrder = _normalizeBomExportFieldOrder(storedOrderKeys);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _bomExportFieldSelection = normalizedSelection;
+      _bomExportFieldOrder = normalizedOrder;
+    });
+  }
+
+  Future<void> _saveBomExportPreferences({
+    required Set<String> selectedKeys,
+    required List<String> orderedKeys,
+  }) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      _bomExportFieldPrefsKey,
+      selectedKeys.toList(growable: false),
+    );
+    await preferences.setStringList(
+      _bomExportFieldOrderPrefsKey,
+      orderedKeys,
+    );
+  }
+
   List<_CatalogueExportField> _catalogueExportFields() {
     return [
       _CatalogueExportField(
@@ -347,6 +415,65 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         label: 'ZB Komponenten',
         csvHeader: 'ic_ic',
         value: (row) => row.icIc.toString(),
+      ),
+    ];
+  }
+
+  List<_BomExportField> _bomExportFields() {
+    return [
+      _BomExportField(
+        key: 'root_catalogue_id',
+        label: 'BOM zu Artikel-ID',
+        csvHeader: 'root_catalogue_id',
+        value: (row) => row.rootCatalogueId.toString(),
+      ),
+      _BomExportField(
+        key: 'root_catalogue_name',
+        label: 'BOM zu Artikel',
+        csvHeader: 'root_catalogue_name',
+        value: (row) => row.rootCatalogueName,
+      ),
+      _BomExportField(
+        key: 'ib_id',
+        label: 'BOM-ID',
+        csvHeader: 'ib_id',
+        value: (row) => row.bomId.toString(),
+      ),
+      _BomExportField(
+        key: 'ib_item_id',
+        label: 'Artikel-ID',
+        csvHeader: 'ib_item_id',
+        value: (row) => row.articleId.toString(),
+      ),
+      _BomExportField(
+        key: 'item_name',
+        label: 'Bezeichnung',
+        csvHeader: 'Bezeichnung',
+        value: (row) => row.articleName,
+      ),
+      _BomExportField(
+        key: 'ib_parent_id',
+        label: 'Parent BOM-ID',
+        csvHeader: 'ib_parent_id',
+        value: (row) => row.parentBomId?.toString() ?? '',
+      ),
+      _BomExportField(
+        key: 'parent_article_label',
+        label: 'Eltern_Artikel',
+        csvHeader: 'Eltern_Artikel',
+        value: (row) => row.parentArticleLabel,
+      ),
+      _BomExportField(
+        key: 'ib_order',
+        label: 'Reihenfolge',
+        csvHeader: 'ib_order',
+        value: (row) => row.order.toString(),
+      ),
+      _BomExportField(
+        key: 'ib_quantity',
+        label: 'Menge',
+        csvHeader: 'Menge',
+        value: (row) => row.quantity.toString(),
       ),
     ];
   }
@@ -489,6 +616,281 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     return selectedFields;
   }
 
+  Future<Set<int>?> _showBomTargetSelectionDialog() async {
+    final targets = _catalogueItems
+        .map((item) {
+          final rows = _buildVisibleBomRows(
+            selectedCatalogueId: item.icId,
+            allBomRows: _bomItems,
+            includeRoots: false,
+          );
+          return _BomExportTarget(
+            catalogueId: item.icId,
+            catalogueName: item.icIdi,
+            rowCount: rows.length,
+          );
+        })
+        .where((target) => target.rowCount > 0)
+        .toList(growable: false)
+      ..sort((a, b) => a.catalogueId.compareTo(b.catalogueId));
+
+    if (targets.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Keine BOM-Daten zum Export vorhanden.')),
+        );
+      }
+      return null;
+    }
+
+    final selectedIds = targets.map((target) => target.catalogueId).toSet();
+
+    return showDialog<Set<int>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Zu exportierende BOMs auswählen'),
+              content: SizedBox(
+                width: 560,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text('Ausgewählt: ${selectedIds.length}/${targets.length}'),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedIds
+                                ..clear()
+                                ..addAll(targets.map((target) => target.catalogueId));
+                            });
+                          },
+                          child: const Text('Alle'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(selectedIds.clear);
+                          },
+                          child: const Text('Keine'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 320,
+                      child: ListView.builder(
+                        itemCount: targets.length,
+                        itemBuilder: (context, index) {
+                          final target = targets[index];
+                          final name = target.catalogueName.trim().isEmpty
+                              ? '#${target.catalogueId}'
+                              : '#${target.catalogueId} • ${target.catalogueName}';
+                          return CheckboxListTile(
+                            dense: true,
+                            value: selectedIds.contains(target.catalogueId),
+                            title: Text(name),
+                            subtitle: Text('${target.rowCount} BOM-Zeilen'),
+                            onChanged: (checked) {
+                              setDialogState(() {
+                                if (checked == true) {
+                                  selectedIds.add(target.catalogueId);
+                                } else {
+                                  selectedIds.remove(target.catalogueId);
+                                }
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Abbrechen'),
+                ),
+                FilledButton(
+                  onPressed: selectedIds.isEmpty
+                      ? null
+                      : () => Navigator.of(context).pop(Set<int>.from(selectedIds)),
+                  child: const Text('Weiter'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  List<_BomExportRow> _buildBomExportRows(Set<int> selectedCatalogueIds) {
+    final rows = <_BomExportRow>[];
+    for (final catalogueId in selectedCatalogueIds) {
+      final rootItem = _catalogueById[catalogueId];
+      final rootName = rootItem?.icIdi.trim() ?? '';
+      final bomRows = _buildVisibleBomRows(
+        selectedCatalogueId: catalogueId,
+        allBomRows: _bomItems,
+        includeRoots: false,
+      );
+
+      for (final row in bomRows) {
+        rows.add(
+          _BomExportRow(
+            rootCatalogueId: catalogueId,
+            rootCatalogueName: rootName,
+            bomId: row.ibId ?? 0,
+            articleId: row.ibItemId,
+            articleName: _catalogueById[row.ibItemId]?.icIdi ?? '',
+            parentBomId: row.ibParentId,
+            parentArticleLabel: _parentArticleLabelOf(row),
+            order: row.ibOrder,
+            quantity: row.ibQuantity,
+          ),
+        );
+      }
+    }
+    return rows;
+  }
+
+  Future<List<_BomExportField>?> _showBomExportFieldDialog() async {
+    final fields = _bomExportFields();
+    final fieldsByKey = {for (final field in fields) field.key: field};
+    final selectedKeys = _normalizeBomExportFieldSelection(_bomExportFieldSelection);
+    final orderedFieldKeys = _normalizeBomExportFieldOrder(
+      _bomExportFieldOrder.isEmpty ? fields.map((field) => field.key) : _bomExportFieldOrder,
+    );
+
+    return showDialog<List<_BomExportField>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('BOM-Exportfelder auswählen'),
+              content: SizedBox(
+                width: 520,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text('Ausgewählt: ${selectedKeys.length}/${fields.length}'),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedKeys
+                                ..clear()
+                                ..addAll(orderedFieldKeys);
+                            });
+                          },
+                          child: const Text('Alle'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(selectedKeys.clear);
+                          },
+                          child: const Text('Keine'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 360,
+                      child: ReorderableListView.builder(
+                        buildDefaultDragHandles: false,
+                        itemCount: orderedFieldKeys.length,
+                        onReorderItem: (oldIndex, newIndex) {
+                          setDialogState(() {
+                            final moved = orderedFieldKeys.removeAt(oldIndex);
+                            orderedFieldKeys.insert(newIndex, moved);
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          final key = orderedFieldKeys[index];
+                          final field = fieldsByKey[key];
+                          if (field == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return CheckboxListTile(
+                            key: ValueKey(field.key),
+                            dense: true,
+                            value: selectedKeys.contains(field.key),
+                            title: Text(field.label),
+                            subtitle: Text(field.csvHeader),
+                            secondary: ReorderableDragStartListener(
+                              index: index,
+                              child: const Icon(Icons.drag_handle),
+                            ),
+                            onChanged: (checked) {
+                              setDialogState(() {
+                                if (checked == true) {
+                                  selectedKeys.add(field.key);
+                                } else {
+                                  selectedKeys.remove(field.key);
+                                }
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Abbrechen'),
+                ),
+                FilledButton(
+                  onPressed: selectedKeys.isEmpty
+                      ? null
+                      : () {
+                          final selectedFields = orderedFieldKeys
+                              .map((key) => fieldsByKey[key])
+                              .whereType<_BomExportField>()
+                              .where((field) => selectedKeys.contains(field.key))
+                              .toList(growable: false);
+                          Navigator.of(context).pop(selectedFields);
+                        },
+                  child: const Text('Weiter'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<List<_BomExportField>?> _promptBomExportFields() async {
+    final selectedFields = await _showBomExportFieldDialog();
+    if (selectedFields == null || selectedFields.isEmpty) {
+      return null;
+    }
+
+    final selectedKeys = selectedFields.map((field) => field.key).toSet();
+    final orderedKeys = selectedFields.map((field) => field.key).toList(growable: false);
+    if (mounted) {
+      setState(() {
+        _bomExportFieldSelection = selectedKeys;
+        _bomExportFieldOrder = orderedKeys;
+      });
+    }
+    await _saveBomExportPreferences(selectedKeys: selectedKeys, orderedKeys: orderedKeys);
+    return selectedFields;
+  }
+
   Future<String?> _pickExportTargetPath({
     required String dialogTitle,
     required String fileName,
@@ -524,6 +926,128 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         }
         await _exportCataloguePdf(selectedFields, sortSelection: sortSelection);
     }
+  }
+
+  Future<void> _onBomExportSelected(_BomExportFormat format) async {
+    final selectedBomCatalogueIds = await _showBomTargetSelectionDialog();
+    if (selectedBomCatalogueIds == null || selectedBomCatalogueIds.isEmpty) {
+      return;
+    }
+
+    final exportRows = _buildBomExportRows(selectedBomCatalogueIds);
+    if (exportRows.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Keine BOM-Zeilen für die Auswahl gefunden.')),
+        );
+      }
+      return;
+    }
+
+    final selectedFields = await _promptBomExportFields();
+    if (selectedFields == null) {
+      return;
+    }
+
+    switch (format) {
+      case _BomExportFormat.csv:
+        await _exportBomCsv(exportRows, selectedFields);
+      case _BomExportFormat.pdf:
+        final sortSelection = await _showBomPdfSortDialog(selectedFields);
+        if (sortSelection == null) {
+          return;
+        }
+        await _exportBomPdf(
+          exportRows,
+          selectedFields,
+          sortSelection: sortSelection,
+        );
+    }
+  }
+
+  Future<_BomPdfSortSelection?> _showBomPdfSortDialog(
+    List<_BomExportField> selectedFields,
+  ) async {
+    const noneKey = '__none__';
+    var selectedKey = noneKey;
+    var ascending = true;
+
+    return showDialog<_BomPdfSortSelection>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('BOM PDF-Sortierung wählen'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedKey,
+                    decoration: const InputDecoration(
+                      labelText: 'Sortierfeld',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: noneKey,
+                        child: Text('Keine Sortierung'),
+                      ),
+                      ...selectedFields.map(
+                        (field) => DropdownMenuItem<String>(
+                          value: field.key,
+                          child: Text(field.label),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setDialogState(() {
+                        selectedKey = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    value: ascending,
+                    title: const Text('Aufsteigend'),
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: selectedKey == noneKey
+                        ? null
+                        : (value) {
+                            setDialogState(() {
+                              ascending = value;
+                            });
+                          },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Abbrechen'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final fieldKey = selectedKey == noneKey ? null : selectedKey;
+                    Navigator.of(context).pop(
+                      _BomPdfSortSelection(
+                        fieldKey: fieldKey,
+                        ascending: ascending,
+                      ),
+                    );
+                  },
+                  child: const Text('Weiter'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<_CataloguePdfSortSelection?> _showPdfSortDialog(
@@ -646,13 +1170,32 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     }
   }
 
+  String _formatBomPdfFieldValue(_BomExportField field, _BomExportRow row) {
+    final rawValue = field.value(row);
+
+    String toGermanFixed(String value, int fractionDigits) {
+      final parsed = double.tryParse(value.trim().replaceAll(',', '.'));
+      if (parsed == null) {
+        return value;
+      }
+      return parsed.toStringAsFixed(fractionDigits).replaceAll('.', ',');
+    }
+
+    switch (field.key) {
+      case 'ib_quantity':
+      case 'ib_order':
+        return toGermanFixed(rawValue, 0);
+      default:
+        return rawValue;
+    }
+  }
+
   Future<void> _exportCatalogueCsv(List<_CatalogueExportField> selectedFields) async {
 
     setState(() => _loading = true);
     try {
       final rows = await _repository.getCatalogueItems();
       final buffer = StringBuffer();
-      buffer.writeln('sep=;');
       buffer.writeln(
         selectedFields.map((field) => _csvEscape(field.csvHeader)).join(';'),
       );
@@ -803,6 +1346,165 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       if (mounted) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  Future<void> _exportBomCsv(
+    List<_BomExportRow> exportRows,
+    List<_BomExportField> selectedFields,
+  ) async {
+    setState(() => _loading = true);
+    try {
+      final buffer = StringBuffer();
+      buffer.writeln(selectedFields.map((field) => _csvEscape(field.csvHeader)).join(';'));
+
+      for (final row in exportRows) {
+        final values = selectedFields.map((field) => _csvEscape(field.value(row))).join(';');
+        buffer.writeln(values);
+      }
+
+      final fileName = 'item_bom_export_${_buildFileTimestamp(DateTime.now())}.csv';
+      final targetPath = await _pickExportTargetPath(
+        dialogTitle: 'BOM als CSV exportieren',
+        fileName: fileName,
+        allowedExtensions: const ['csv'],
+      );
+      if (targetPath == null || targetPath.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Export abgebrochen: Kein Speicherort ausgewählt.')),
+          );
+        }
+        return;
+      }
+      await File(targetPath).writeAsString(buffer.toString());
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('BOM-CSV exportiert nach: $targetPath')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('BOM-CSV-Export fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _exportBomPdf(
+    List<_BomExportRow> exportRows,
+    List<_BomExportField> selectedFields, {
+    required _BomPdfSortSelection sortSelection,
+  }) async {
+    setState(() => _loading = true);
+    try {
+      final sortedRows = List<_BomExportRow>.from(exportRows);
+      final sortFieldKey = sortSelection.fieldKey;
+      if (sortFieldKey != null) {
+        final sortField = selectedFields
+            .where((field) => field.key == sortFieldKey)
+            .cast<_BomExportField?>()
+            .firstWhere((field) => field != null, orElse: () => null);
+        if (sortField != null) {
+          sortedRows.sort((a, b) {
+            final compare = _compareExportValues(
+              sortField.value(a),
+              sortField.value(b),
+            );
+            return sortSelection.ascending ? compare : -compare;
+          });
+        }
+      }
+
+      final document = pw.Document();
+      final pdfBaseFont = await PdfGoogleFonts.notoSansRegular();
+      final pdfBoldFont = await PdfGoogleFonts.notoSansBold();
+      final headers = selectedFields.map((field) => field.label).toList(growable: false);
+      final tableData = sortedRows
+          .map(
+          (row) => selectedFields
+            .map((field) => _formatBomPdfFieldValue(field, row))
+            .toList(growable: false),
+          )
+          .toList(growable: false);
+
+      document.addPage(
+        pw.MultiPage(
+          theme: pw.ThemeData.withFont(base: pdfBaseFont, bold: pdfBoldFont),
+          pageFormat: PdfPageFormat.a3.landscape,
+          build: (context) => [
+            pw.Text(
+              'BOM Export',
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: headers,
+              data: tableData,
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+              headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+              cellStyle: const pw.TextStyle(fontSize: 7),
+              cellAlignment: pw.Alignment.centerLeft,
+              cellPadding: const pw.EdgeInsets.all(3),
+            ),
+          ],
+        ),
+      );
+
+      final fileName = 'item_bom_export_${_buildFileTimestamp(DateTime.now())}.pdf';
+      final targetPath = await _pickExportTargetPath(
+        dialogTitle: 'BOM als PDF exportieren',
+        fileName: fileName,
+        allowedExtensions: const ['pdf'],
+      );
+      if (targetPath == null || targetPath.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Export abgebrochen: Kein Speicherort ausgewählt.')),
+          );
+        }
+        return;
+      }
+      await File(targetPath).writeAsBytes(await document.save());
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('BOM-PDF exportiert nach: $targetPath')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('BOM-PDF-Export fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _onExportMenuSelected(_ExportMenuAction action) async {
+    switch (action) {
+      case _ExportMenuAction.catalogueCsv:
+        await _onCatalogueExportSelected(_CatalogueExportFormat.csv);
+      case _ExportMenuAction.cataloguePdf:
+        await _onCatalogueExportSelected(_CatalogueExportFormat.pdf);
+      case _ExportMenuAction.bomCsv:
+        await _onBomExportSelected(_BomExportFormat.csv);
+      case _ExportMenuAction.bomPdf:
+        await _onBomExportSelected(_BomExportFormat.pdf);
     }
   }
 
@@ -1771,18 +2473,27 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       appBar: AppBar(
         title: const Text('Artikelkatalog & BOM'),
         actions: [
-          PopupMenuButton<_CatalogueExportFormat>(
-            tooltip: 'Artikelkatalog exportieren',
+          PopupMenuButton<_ExportMenuAction>(
+            tooltip: 'Exportieren',
             enabled: !_loading,
-            onSelected: _onCatalogueExportSelected,
+            onSelected: _onExportMenuSelected,
             itemBuilder: (context) => const [
-              PopupMenuItem<_CatalogueExportFormat>(
-                value: _CatalogueExportFormat.csv,
-                child: Text('Als CSV exportieren'),
+              PopupMenuItem<_ExportMenuAction>(
+                value: _ExportMenuAction.catalogueCsv,
+                child: Text('Artikelkatalog als CSV exportieren'),
               ),
-              PopupMenuItem<_CatalogueExportFormat>(
-                value: _CatalogueExportFormat.pdf,
-                child: Text('Als PDF exportieren'),
+              PopupMenuItem<_ExportMenuAction>(
+                value: _ExportMenuAction.cataloguePdf,
+                child: Text('Artikelkatalog als PDF exportieren'),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem<_ExportMenuAction>(
+                value: _ExportMenuAction.bomCsv,
+                child: Text('BOM als CSV exportieren'),
+              ),
+              PopupMenuItem<_ExportMenuAction>(
+                value: _ExportMenuAction.bomPdf,
+                child: Text('BOM als PDF exportieren'),
               ),
             ],
             icon: const Icon(Icons.download_outlined),
@@ -1822,6 +2533,18 @@ enum _CatalogueExportFormat {
   pdf,
 }
 
+enum _BomExportFormat {
+  csv,
+  pdf,
+}
+
+enum _ExportMenuAction {
+  catalogueCsv,
+  cataloguePdf,
+  bomCsv,
+  bomPdf,
+}
+
 class _CatalogueExportField {
   const _CatalogueExportField({
     required this.key,
@@ -1844,4 +2567,64 @@ class _CataloguePdfSortSelection {
 
   final String? fieldKey;
   final bool ascending;
+}
+
+class _BomPdfSortSelection {
+  const _BomPdfSortSelection({
+    required this.fieldKey,
+    required this.ascending,
+  });
+
+  final String? fieldKey;
+  final bool ascending;
+}
+
+class _BomExportTarget {
+  const _BomExportTarget({
+    required this.catalogueId,
+    required this.catalogueName,
+    required this.rowCount,
+  });
+
+  final int catalogueId;
+  final String catalogueName;
+  final int rowCount;
+}
+
+class _BomExportRow {
+  const _BomExportRow({
+    required this.rootCatalogueId,
+    required this.rootCatalogueName,
+    required this.bomId,
+    required this.articleId,
+    required this.articleName,
+    required this.parentBomId,
+    required this.parentArticleLabel,
+    required this.order,
+    required this.quantity,
+  });
+
+  final int rootCatalogueId;
+  final String rootCatalogueName;
+  final int bomId;
+  final int articleId;
+  final String articleName;
+  final int? parentBomId;
+  final String parentArticleLabel;
+  final int order;
+  final int quantity;
+}
+
+class _BomExportField {
+  const _BomExportField({
+    required this.key,
+    required this.label,
+    required this.csvHeader,
+    required this.value,
+  });
+
+  final String key;
+  final String label;
+  final String csvHeader;
+  final String Function(_BomExportRow row) value;
 }
