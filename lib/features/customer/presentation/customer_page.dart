@@ -29,7 +29,9 @@ import 'widgets/customer_detail_dialog.dart';
 import 'widgets/customer_form_dialog.dart';
 
 class CustomerPage extends StatefulWidget {
-  const CustomerPage({super.key});
+  const CustomerPage({super.key, this.showModuleNavigation = true});
+
+  final bool showModuleNavigation;
 
   @override
   State<CustomerPage> createState() => _CustomerPageState();
@@ -76,7 +78,9 @@ class _CustomerPageState extends State<CustomerPage> {
     }
     final tag = traceTag == null || traceTag.isEmpty ? '' : '[$traceTag]';
     final suffix = details == null || details.isEmpty ? '' : ' | $details';
-    debugPrint('⏱️ [perf]$tag $operation: ${stopwatch.elapsedMilliseconds} ms$suffix');
+    debugPrint(
+      '⏱️ [perf]$tag $operation: ${stopwatch.elapsedMilliseconds} ms$suffix',
+    );
   }
 
   void _showFeedback(String message) {
@@ -90,27 +94,22 @@ class _CustomerPageState extends State<CustomerPage> {
     final url = uri.toString();
     try {
       if (Platform.isMacOS) {
-        await Process.start(
-          '/usr/bin/open',
-          [url],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start('/usr/bin/open', [
+          url,
+        ], mode: ProcessStartMode.detached);
         return true;
       }
       if (Platform.isLinux) {
-        await Process.start(
-          'xdg-open',
-          [url],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start('xdg-open', [url], mode: ProcessStartMode.detached);
         return true;
       }
       if (Platform.isWindows) {
-        await Process.start(
-          'cmd',
-          ['/c', 'start', '', url],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start('cmd', [
+          '/c',
+          'start',
+          '',
+          url,
+        ], mode: ProcessStartMode.detached);
         return true;
       }
     } catch (_) {
@@ -246,16 +245,20 @@ class _CustomerPageState extends State<CustomerPage> {
     setState(() => _loading = true);
     try {
       final fetchStopwatch = Stopwatch()..start();
-      final normalizedItalianStates = await _repository.normalizeItalianAdministrativeUnits();
+      final normalizedItalianStates = await _repository
+          .normalizeItalianAdministrativeUnits();
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
       fetchStopwatch.stop();
 
       final indexStopwatch = Stopwatch()..start();
       final countryNameByCode = <String, String>{
-        for (final country in countries) country.coTld.toLowerCase(): country.coName,
+        for (final country in countries)
+          country.coTld.toLowerCase(): country.coName,
       };
-      final customerSearchIndex = customers.map(_buildSearchIndex).toList(growable: false);
+      final customerSearchIndex = customers
+          .map(_buildSearchIndex)
+          .toList(growable: false);
       indexStopwatch.stop();
 
       if (!mounted) {
@@ -266,7 +269,10 @@ class _CustomerPageState extends State<CustomerPage> {
         _customerSearchIndex = customerSearchIndex;
         _countryNameByCode = countryNameByCode;
         _lastFilterQuery = '';
-        _lastFilteredIndices = List<int>.generate(customers.length, (index) => index);
+        _lastFilteredIndices = List<int>.generate(
+          customers.length,
+          (index) => index,
+        );
       });
       _filterCustomers(traceTag: traceTag);
 
@@ -329,7 +335,9 @@ class _CustomerPageState extends State<CustomerPage> {
         : _customerSearchIndex.length;
 
     List<int> candidateIndices;
-    if (query.isNotEmpty && _lastFilterQuery.isNotEmpty && query.startsWith(_lastFilterQuery)) {
+    if (query.isNotEmpty &&
+        _lastFilterQuery.isNotEmpty &&
+        query.startsWith(_lastFilterQuery)) {
       candidateIndices = _lastFilteredIndices;
     } else {
       candidateIndices = List<int>.generate(maxLength, (index) => index);
@@ -348,7 +356,9 @@ class _CustomerPageState extends State<CustomerPage> {
       filteredIndices = results;
     }
 
-    final filtered = filteredIndices.map((index) => _customers[index]).toList(growable: false);
+    final filtered = filteredIndices
+        .map((index) => _customers[index])
+        .toList(growable: false);
 
     _applyCurrentSort(filtered);
 
@@ -379,7 +389,9 @@ class _CustomerPageState extends State<CustomerPage> {
     if (remove) {
       updatedCustomers.removeWhere((item) => item.cId == customer.cId);
     } else {
-      final existingIndex = updatedCustomers.indexWhere((item) => item.cId == customer.cId);
+      final existingIndex = updatedCustomers.indexWhere(
+        (item) => item.cId == customer.cId,
+      );
       if (existingIndex >= 0) {
         updatedCustomers[existingIndex] = customer;
       } else {
@@ -404,9 +416,14 @@ class _CustomerPageState extends State<CustomerPage> {
     setState(() {
       _customers = updatedCustomers;
       _countryNameByCode = updatedCountryMap;
-      _customerSearchIndex = updatedCustomers.map(_buildSearchIndex).toList(growable: false);
+      _customerSearchIndex = updatedCustomers
+          .map(_buildSearchIndex)
+          .toList(growable: false);
       _lastFilterQuery = '';
-      _lastFilteredIndices = List<int>.generate(updatedCustomers.length, (index) => index);
+      _lastFilteredIndices = List<int>.generate(
+        updatedCustomers.length,
+        (index) => index,
+      );
     });
 
     _filterCustomers(traceTag: traceTag);
@@ -414,7 +431,8 @@ class _CustomerPageState extends State<CustomerPage> {
     _logPerf(
       'local/update',
       stopwatch,
-      details: 'remove=$remove, total=${updatedCustomers.length}, id=${customer.cId}',
+      details:
+          'remove=$remove, total=${updatedCustomers.length}, id=${customer.cId}',
       traceTag: traceTag,
     );
   }
@@ -441,29 +459,41 @@ class _CustomerPageState extends State<CustomerPage> {
   void _applyCurrentSort(List<Customer> customers) {
     switch (_sortColumnIndex) {
       case 0:
-        customers.sort((a, b) => _sortAscending
-            ? a.cId.toLowerCase().compareTo(b.cId.toLowerCase())
-            : b.cId.toLowerCase().compareTo(a.cId.toLowerCase()));
+        customers.sort(
+          (a, b) => _sortAscending
+              ? a.cId.toLowerCase().compareTo(b.cId.toLowerCase())
+              : b.cId.toLowerCase().compareTo(a.cId.toLowerCase()),
+        );
         break;
       case 1:
-        customers.sort((a, b) => _sortAscending
-            ? a.cLastName.toLowerCase().compareTo(b.cLastName.toLowerCase())
-            : b.cLastName.toLowerCase().compareTo(a.cLastName.toLowerCase()));
+        customers.sort(
+          (a, b) => _sortAscending
+              ? a.cLastName.toLowerCase().compareTo(b.cLastName.toLowerCase())
+              : b.cLastName.toLowerCase().compareTo(a.cLastName.toLowerCase()),
+        );
         break;
       case 2:
-        customers.sort((a, b) => _sortAscending
-            ? a.cFirstName.toLowerCase().compareTo(b.cFirstName.toLowerCase())
-            : b.cFirstName.toLowerCase().compareTo(a.cFirstName.toLowerCase()));
+        customers.sort(
+          (a, b) => _sortAscending
+              ? a.cFirstName.toLowerCase().compareTo(b.cFirstName.toLowerCase())
+              : b.cFirstName.toLowerCase().compareTo(
+                  a.cFirstName.toLowerCase(),
+                ),
+        );
         break;
       case 3:
-        customers.sort((a, b) => _sortAscending
-            ? a.cCompany.toLowerCase().compareTo(b.cCompany.toLowerCase())
-            : b.cCompany.toLowerCase().compareTo(a.cCompany.toLowerCase()));
+        customers.sort(
+          (a, b) => _sortAscending
+              ? a.cCompany.toLowerCase().compareTo(b.cCompany.toLowerCase())
+              : b.cCompany.toLowerCase().compareTo(a.cCompany.toLowerCase()),
+        );
         break;
       case 4:
-        customers.sort((a, b) => _sortAscending
-            ? a.cCityB.toLowerCase().compareTo(b.cCityB.toLowerCase())
-            : b.cCityB.toLowerCase().compareTo(a.cCityB.toLowerCase()));
+        customers.sort(
+          (a, b) => _sortAscending
+              ? a.cCityB.toLowerCase().compareTo(b.cCityB.toLowerCase())
+              : b.cCityB.toLowerCase().compareTo(a.cCityB.toLowerCase()),
+        );
         break;
       case 5:
         customers.sort((a, b) {
@@ -479,9 +509,11 @@ class _CustomerPageState extends State<CustomerPage> {
         });
         break;
       case 6:
-        customers.sort((a, b) => _sortAscending
-            ? a.cMail.toLowerCase().compareTo(b.cMail.toLowerCase())
-            : b.cMail.toLowerCase().compareTo(a.cMail.toLowerCase()));
+        customers.sort(
+          (a, b) => _sortAscending
+              ? a.cMail.toLowerCase().compareTo(b.cMail.toLowerCase())
+              : b.cMail.toLowerCase().compareTo(a.cMail.toLowerCase()),
+        );
         break;
       default:
         break;
@@ -516,7 +548,8 @@ class _CustomerPageState extends State<CustomerPage> {
           ),
           child: Container(
             decoration: BoxDecoration(
-              color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(context),
+              color: CupertinoColors.secondarySystemGroupedBackground
+                  .resolveFrom(context),
               borderRadius: BorderRadius.circular(12),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -528,9 +561,8 @@ class _CustomerPageState extends State<CustomerPage> {
                     children: [
                       Text(
                         '${c.cLastName}, ${c.cFirstName}',
-                        style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
+                        style: CupertinoTheme.of(context).textTheme.textStyle
+                            .copyWith(fontWeight: FontWeight.w600),
                       ),
                       if (subtitle.isNotEmpty)
                         Padding(
@@ -539,14 +571,19 @@ class _CustomerPageState extends State<CustomerPage> {
                             subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: CupertinoTheme.of(context).textTheme.tabLabelTextStyle,
+                            style: CupertinoTheme.of(
+                              context,
+                            ).textTheme.tabLabelTextStyle,
                           ),
                         ),
                     ],
                   ),
                 ),
                 CupertinoButton(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   minimumSize: const Size(28, 28),
                   onPressed: () => _showMapDialog(c),
                   child: const Icon(CupertinoIcons.map_pin_ellipse),
@@ -649,24 +686,35 @@ class _CustomerPageState extends State<CustomerPage> {
 
   void _showAllLocationsDialog() {
     final validCustomers = _filteredCustomers
-        .where((c) => !((c.cLat == 0 && c.cLon == 0) || c.cLat.isNaN || c.cLon.isNaN))
+        .where(
+          (c) =>
+              !((c.cLat == 0 && c.cLon == 0) || c.cLat.isNaN || c.cLon.isNaN),
+        )
         .toList();
 
     if (validCustomers.isEmpty) {
-      _showFeedback('Keine gueltigen Koordinaten in der aktuellen Liste vorhanden.');
+      _showFeedback(
+        'Keine gueltigen Koordinaten in der aktuellen Liste vorhanden.',
+      );
       return;
     }
 
     final markers = validCustomers
-        .map((c) => Marker(
-              width: 36,
-              height: 36,
-              point: LatLng(c.cLat, c.cLon),
-              child: Tooltip(
-                message: '${c.cLastName}, ${c.cFirstName}',
-                child: const Icon(Icons.location_pin, color: Colors.red, size: 34),
+        .map(
+          (c) => Marker(
+            width: 36,
+            height: 36,
+            point: LatLng(c.cLat, c.cLon),
+            child: Tooltip(
+              message: '${c.cLastName}, ${c.cFirstName}',
+              child: const Icon(
+                Icons.location_pin,
+                color: Colors.red,
+                size: 34,
               ),
-            ))
+            ),
+          ),
+        )
         .toList();
 
     final lats = validCustomers.map((c) => c.cLat);
@@ -676,11 +724,14 @@ class _CustomerPageState extends State<CustomerPage> {
     final minLon = lons.reduce((a, b) => a < b ? a : b);
     final maxLon = lons.reduce((a, b) => a > b ? a : b);
     final center = LatLng((minLat + maxLat) / 2, (minLon + maxLon) / 2);
-    final geojsonFeatures = validCustomers.map((c) {
-      final name = '${c.cLastName}, ${c.cFirstName}'.replaceAll('"', '\\"');
-      return '{"type":"Feature","geometry":{"type":"Point","coordinates":[${c.cLon},${c.cLat}]},"properties":{"name":"$name"}}';
-    }).join(',');
-    final geojson = '{"type":"FeatureCollection","features":[$geojsonFeatures]}';
+    final geojsonFeatures = validCustomers
+        .map((c) {
+          final name = '${c.cLastName}, ${c.cFirstName}'.replaceAll('"', '\\"');
+          return '{"type":"Feature","geometry":{"type":"Point","coordinates":[${c.cLon},${c.cLat}]},"properties":{"name":"$name"}}';
+        })
+        .join(',');
+    final geojson =
+        '{"type":"FeatureCollection","features":[$geojsonFeatures]}';
     final mapUrl =
         'https://geojson.io/#data=data:application/json,${Uri.encodeComponent(geojson)}';
 
@@ -713,7 +764,8 @@ class _CustomerPageState extends State<CustomerPage> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.example.arrow_ops',
                             errorTileCallback: (tile, error, stackTrace) {
                               debugPrint(
@@ -841,7 +893,8 @@ class _CustomerPageState extends State<CustomerPage> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.example.arrow_ops',
                             errorTileCallback: (tile, error, stackTrace) {
                               debugPrint(
@@ -1036,7 +1089,10 @@ class _CustomerPageState extends State<CustomerPage> {
     await _importCsv(replaceExisting: true);
   }
 
-  Future<void> _processImport(String content, {bool replaceExisting = false}) async {
+  Future<void> _processImport(
+    String content, {
+    bool replaceExisting = false,
+  }) async {
     final customers = _csvService.importCustomers(content);
 
     if (!mounted) {
@@ -1084,26 +1140,38 @@ class _CustomerPageState extends State<CustomerPage> {
         customers: validCustomers,
         replaceExisting: replaceExisting,
         onConfirm: () async {
-          await _performImport(validCustomers, replaceExisting: replaceExisting);
+          await _performImport(
+            validCustomers,
+            replaceExisting: replaceExisting,
+          );
         },
       ),
     );
   }
 
-  Future<void> _performImport(List<Customer> customers, {bool replaceExisting = false}) async {
+  Future<void> _performImport(
+    List<Customer> customers, {
+    bool replaceExisting = false,
+  }) async {
     setState(() => _loading = true);
     try {
-      debugPrint('🔄 Starte Import von ${customers.length} Kundendatensätzen...');
-      debugPrint('📋 Erste Kundin: ${customers.isNotEmpty ? customers.first.cLastName : "keine"}');
+      debugPrint(
+        '🔄 Starte Import von ${customers.length} Kundendatensätzen...',
+      );
+      debugPrint(
+        '📋 Erste Kundin: ${customers.isNotEmpty ? customers.first.cLastName : "keine"}',
+      );
 
       var deleted = 0;
       if (replaceExisting) {
         deleted = await _repository.deleteAllCustomers();
-        debugPrint('🗑️ Vor Import wurden $deleted bestehende Kundendatensätze gelöscht');
+        debugPrint(
+          '🗑️ Vor Import wurden $deleted bestehende Kundendatensätze gelöscht',
+        );
       }
-      
+
       final inserted = await _repository.bulkUpsert(customers);
-      
+
       debugPrint('✅ Import erfolgreich: $inserted Datensätze');
 
       await _loadCustomers();
@@ -1153,7 +1221,10 @@ class _CustomerPageState extends State<CustomerPage> {
         );
       }
 
-      targetPath ??= p.join((await getApplicationDocumentsDirectory()).path, fileName);
+      targetPath ??= p.join(
+        (await getApplicationDocumentsDirectory()).path,
+        fileName,
+      );
 
       await File(targetPath).writeAsString(csv);
 
@@ -1178,7 +1249,10 @@ class _CustomerPageState extends State<CustomerPage> {
     return '"$escaped"';
   }
 
-  String _countryNameFromDeliveryCode(String? countryCode, Map<String, String> countryNameByCode) {
+  String _countryNameFromDeliveryCode(
+    String? countryCode,
+    Map<String, String> countryNameByCode,
+  ) {
     final normalized = countryCode?.trim().toLowerCase();
     if (normalized == null || normalized.isEmpty || normalized == '-') {
       return '';
@@ -1203,7 +1277,8 @@ class _CustomerPageState extends State<CustomerPage> {
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
       final countryNameByCode = <String, String>{
-        for (final country in countries) country.coTld.toLowerCase(): country.coName,
+        for (final country in countries)
+          country.coTld.toLowerCase(): country.coName,
       };
 
       final buffer = StringBuffer('street,zip,city,country,lat,lon\n');
@@ -1211,7 +1286,10 @@ class _CustomerPageState extends State<CustomerPage> {
         final street = customer.cStreetD.trim();
         final zip = customer.cPostalCodeD.trim();
         final city = customer.cCityD.trim();
-        final country = _countryNameFromDeliveryCode(customer.cCountryDId, countryNameByCode);
+        final country = _countryNameFromDeliveryCode(
+          customer.cCountryDId,
+          countryNameByCode,
+        );
         final lat = customer.cLat.toString();
         final lon = customer.cLon.toString();
 
@@ -1221,7 +1299,8 @@ class _CustomerPageState extends State<CustomerPage> {
       }
 
       final initialDirectory = await _defaultPickerDirectory();
-      final fileName = 'af_locations_${_buildFileTimestamp(DateTime.now())}.csv';
+      final fileName =
+          'af_locations_${_buildFileTimestamp(DateTime.now())}.csv';
 
       String? targetPath;
       if (Platform.isMacOS) {
@@ -1234,7 +1313,10 @@ class _CustomerPageState extends State<CustomerPage> {
         );
       }
 
-      targetPath ??= p.join((await getApplicationDocumentsDirectory()).path, fileName);
+      targetPath ??= p.join(
+        (await getApplicationDocumentsDirectory()).path,
+        fileName,
+      );
       await File(targetPath).writeAsString(buffer.toString());
 
       if (!mounted) {
@@ -1286,7 +1368,10 @@ class _CustomerPageState extends State<CustomerPage> {
         );
       }
 
-      targetPath ??= p.join((await getApplicationDocumentsDirectory()).path, fileName);
+      targetPath ??= p.join(
+        (await getApplicationDocumentsDirectory()).path,
+        fileName,
+      );
       await File(targetPath).writeAsString(buffer.toString());
 
       if (!mounted) {
@@ -1319,11 +1404,13 @@ class _CustomerPageState extends State<CustomerPage> {
           ].where((code) => code.isNotEmpty),
       };
 
-      final invalidCountries = countries.where((country) {
-        final code = country.coTld.trim().toLowerCase();
-        return !_validCountryCodePattern.hasMatch(code);
-      }).toList()
-        ..sort((a, b) => a.coTld.toLowerCase().compareTo(b.coTld.toLowerCase()));
+      final invalidCountries =
+          countries.where((country) {
+            final code = country.coTld.trim().toLowerCase();
+            return !_validCountryCodePattern.hasMatch(code);
+          }).toList()..sort(
+            (a, b) => a.coTld.toLowerCase().compareTo(b.coTld.toLowerCase()),
+          );
 
       if (!mounted) {
         return;
@@ -1351,7 +1438,10 @@ class _CustomerPageState extends State<CustomerPage> {
           return '-';
         }
         return entries
-            .map((entry) => '${entry.coTld.trim().toLowerCase()} (${entry.coName.trim()})')
+            .map(
+              (entry) =>
+                  '${entry.coTld.trim().toLowerCase()} (${entry.coName.trim()})',
+            )
             .join('\n');
       }
 
@@ -1367,20 +1457,30 @@ class _CustomerPageState extends State<CustomerPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Gefunden: ${invalidCountries.length} ungültige Einträge'),
+                    Text(
+                      'Gefunden: ${invalidCountries.length} ungültige Einträge',
+                    ),
                     const SizedBox(height: 10),
                     Text('Werden gelöscht (${deletable.length}):'),
                     const SizedBox(height: 4),
                     Text(
                       formatCountries(deletable),
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
                     ),
                     const SizedBox(height: 10),
-                    Text('Nicht löschbar wegen Kundenreferenzen (${blocked.length}):'),
+                    Text(
+                      'Nicht löschbar wegen Kundenreferenzen (${blocked.length}):',
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       formatCountries(blocked),
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -1508,12 +1608,19 @@ class _CustomerPageState extends State<CustomerPage> {
 
       debugPrint('✅ Kunde erstellt: ${result.cLastName}, ${result.cFirstName}');
       _applyLocalCustomerChange(result, remove: false, traceTag: traceTag);
-      _logPerf('save/create-db', dbStopwatch, details: 'id=${result.cId}', traceTag: traceTag);
+      _logPerf(
+        'save/create-db',
+        dbStopwatch,
+        details: 'id=${result.cId}',
+        traceTag: traceTag,
+      );
 
       if (!mounted) {
         return;
       }
-      _showFeedback('Kunde erstellt: ${result.cLastName}, ${result.cFirstName}');
+      _showFeedback(
+        'Kunde erstellt: ${result.cLastName}, ${result.cFirstName}',
+      );
     } catch (error) {
       debugPrint('❌ Fehler beim Erstellen: $error');
       if (!mounted) {
@@ -1540,7 +1647,8 @@ class _CustomerPageState extends State<CustomerPage> {
 
     final result = await showCupertinoDialog<Customer>(
       context: context,
-      builder: (context) => CustomerFormDialog(customer: customer, countries: countries),
+      builder: (context) =>
+          CustomerFormDialog(customer: customer, countries: countries),
     );
 
     if (result == null) {
@@ -1557,14 +1665,23 @@ class _CustomerPageState extends State<CustomerPage> {
       await _repository.update(result);
       dbStopwatch.stop();
 
-      debugPrint('✅ Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}');
+      debugPrint(
+        '✅ Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}',
+      );
       _applyLocalCustomerChange(result, remove: false, traceTag: traceTag);
-      _logPerf('save/edit-db', dbStopwatch, details: 'id=${result.cId}', traceTag: traceTag);
+      _logPerf(
+        'save/edit-db',
+        dbStopwatch,
+        details: 'id=${result.cId}',
+        traceTag: traceTag,
+      );
 
       if (!mounted) {
         return;
       }
-      _showFeedback('Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}');
+      _showFeedback(
+        'Kunde aktualisiert: ${result.cLastName}, ${result.cFirstName}',
+      );
     } catch (error) {
       debugPrint('❌ Fehler beim Aktualisieren: $error');
       if (!mounted) {
@@ -1573,7 +1690,12 @@ class _CustomerPageState extends State<CustomerPage> {
       _showFeedback('Fehler beim Aktualisieren: $error');
     } finally {
       totalStopwatch.stop();
-      _logPerf('save/edit-total', totalStopwatch, details: 'id=${result.cId}', traceTag: traceTag);
+      _logPerf(
+        'save/edit-total',
+        totalStopwatch,
+        details: 'id=${result.cId}',
+        traceTag: traceTag,
+      );
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -1591,14 +1713,23 @@ class _CustomerPageState extends State<CustomerPage> {
       await _repository.delete(customer.cId);
       dbStopwatch.stop();
 
-      debugPrint('✅ Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}');
+      debugPrint(
+        '✅ Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}',
+      );
       _applyLocalCustomerChange(customer, remove: true, traceTag: traceTag);
-      _logPerf('save/delete-db', dbStopwatch, details: 'id=${customer.cId}', traceTag: traceTag);
+      _logPerf(
+        'save/delete-db',
+        dbStopwatch,
+        details: 'id=${customer.cId}',
+        traceTag: traceTag,
+      );
 
       if (!mounted) {
         return;
       }
-      _showFeedback('Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}');
+      _showFeedback(
+        'Kunde gelöscht: ${customer.cLastName}, ${customer.cFirstName}',
+      );
     } catch (error) {
       debugPrint('❌ Fehler beim Löschen: $error');
       if (!mounted) {
@@ -1626,25 +1757,26 @@ class _CustomerPageState extends State<CustomerPage> {
         title: const Text('Arrow Ops'),
         centerTitle: false,
         actions: [
-          CupertinoButton(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            onPressed: _loading
-                ? null
-                : () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const ItemCataloguePage(),
-                      ),
-                    );
-                  },
-            child: const Row(
-              children: [
-                Icon(CupertinoIcons.cube_box, size: 20),
-                SizedBox(width: 6),
-                Text('Artikel'),
-              ],
+          if (widget.showModuleNavigation)
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              onPressed: _loading
+                  ? null
+                  : () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ItemCataloguePage(),
+                        ),
+                      );
+                    },
+              child: const Row(
+                children: [
+                  Icon(CupertinoIcons.cube_box, size: 20),
+                  SizedBox(width: 6),
+                  Text('Artikel'),
+                ],
+              ),
             ),
-          ),
           CupertinoButton(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             onPressed: _showDataActionsSheet,
@@ -1722,9 +1854,12 @@ class _CustomerPageState extends State<CustomerPage> {
                   ),
                 ),
                 Tooltip(
-                  message: 'Alle Locations der angezeigten Kunden auf einer Karte anzeigen.',
+                  message:
+                      'Alle Locations der angezeigten Kunden auf einer Karte anzeigen.',
                   child: CupertinoButton(
-                    onPressed: _filteredCustomers.isEmpty ? null : _showAllLocationsDialog,
+                    onPressed: _filteredCustomers.isEmpty
+                        ? null
+                        : _showAllLocationsDialog,
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1742,118 +1877,124 @@ class _CustomerPageState extends State<CustomerPage> {
               child: _loading
                   ? const Center(child: CupertinoActivityIndicator(radius: 14))
                   : _customers.isEmpty
-                      ? const Center(
-                          child: Text('Noch keine Kundendaten vorhanden.'),
-                        )
-                      : _filteredCustomers.isEmpty
-                          ? const Center(
-                              child: Text('Keine Kunden gefunden, die dem Suchbegriff entsprechen.'),
-                            )
-                          : LayoutBuilder(
-                              builder: (context, constraints) {
-                                if (constraints.maxWidth < 600) {
-                                  return _buildMobileCustomerList();
-                                }
-                                return PaginatedDataTable2(
-                                  sortColumnIndex: _sortColumnIndex,
-                                  sortAscending: _sortAscending,
-                                  rowsPerPage: _rowsPerPage,
-                                  availableRowsPerPage: const [10, 25, 50],
-                                  onRowsPerPageChanged: (value) {
-                                    if (value == null) {
-                                      return;
-                                    }
-                                    setState(() => _rowsPerPage = value);
-                                  },
-                                  showFirstLastButtons: true,
-                                  showCheckboxColumn: false,
-                                  minWidth: 1200,
-                                  columns: [
-                                    DataColumn(
-                                      label: const Text('ID'),
-                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                        columnIndex,
-                                        ascending,
-                                        (c) => c.cId.toLowerCase(),
-                                      ),
-                                    ),
-                                    DataColumn2(
-                                      fixedWidth: 190,
-                                      label: const Text('Nachname'),
-                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                        columnIndex,
-                                        ascending,
-                                        (c) => c.cLastName.toLowerCase(),
-                                      ),
-                                    ),
-                                    DataColumn(
-                                      label: const Text('Vorname'),
-                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                        columnIndex,
-                                        ascending,
-                                        (c) => c.cFirstName.toLowerCase(),
-                                      ),
-                                    ),
-                                    DataColumn(
-                                      label: const Text('Firma'),
-                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                        columnIndex,
-                                        ascending,
-                                        (c) => c.cCompany.toLowerCase(),
-                                      ),
-                                    ),
-                                    DataColumn(
-                                      label: const Text('Stadt'),
-                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                        columnIndex,
-                                        ascending,
-                                        (c) => c.cCityB.toLowerCase(),
-                                      ),
-                                    ),
-                                    DataColumn(
-                                      label: const Text('Land'),
-                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                        columnIndex,
-                                        ascending,
-                                        (c) =>
-                                            resolveDisplayCountry(
-                                              customer: c,
-                                              countryNameByCode: _countryNameByCode,
-                                            ).toLowerCase(),
-                                      ),
-                                    ),
-                                    DataColumn(
-                                      label: const Text('E-Mail'),
-                                      onSort: (columnIndex, ascending) => _sortFilteredCustomers(
-                                        columnIndex,
-                                        ascending,
-                                        (c) => c.cMail.toLowerCase(),
-                                      ),
-                                    ),
-                                    const DataColumn(
-                                      label: Text('Maps'),
-                                    ),
-                                  ],
-                                  source: CustomerDataTableSource(
-                                    customers: _filteredCustomers,
-                                    countryNameByCode: _countryNameByCode,
-                                    loading: _loading,
-                                    onOpenDetails: (customer) {
-                                      showCupertinoDialog(
-                                        context: context,
-                                        builder: (context) => CustomerDetailDialog(
-                                          customer: customer,
-                                          countryNameByCode: _countryNameByCode,
-                                          onEdit: () => _editCustomer(customer),
-                                          onDelete: () => _deleteCustomer(customer),
-                                        ),
-                                      );
-                                    },
-                                    onOpenMap: _showMapDialog,
+                  ? const Center(
+                      child: Text('Noch keine Kundendaten vorhanden.'),
+                    )
+                  : _filteredCustomers.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Keine Kunden gefunden, die dem Suchbegriff entsprechen.',
+                      ),
+                    )
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        if (constraints.maxWidth < 600) {
+                          return _buildMobileCustomerList();
+                        }
+                        return PaginatedDataTable2(
+                          sortColumnIndex: _sortColumnIndex,
+                          sortAscending: _sortAscending,
+                          rowsPerPage: _rowsPerPage,
+                          availableRowsPerPage: const [10, 25, 50],
+                          onRowsPerPageChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() => _rowsPerPage = value);
+                          },
+                          showFirstLastButtons: true,
+                          showCheckboxColumn: false,
+                          minWidth: 1200,
+                          columns: [
+                            DataColumn(
+                              label: const Text('ID'),
+                              onSort: (columnIndex, ascending) =>
+                                  _sortFilteredCustomers(
+                                    columnIndex,
+                                    ascending,
+                                    (c) => c.cId.toLowerCase(),
                                   ),
-                                );
-                              },
                             ),
+                            DataColumn2(
+                              fixedWidth: 190,
+                              label: const Text('Nachname'),
+                              onSort: (columnIndex, ascending) =>
+                                  _sortFilteredCustomers(
+                                    columnIndex,
+                                    ascending,
+                                    (c) => c.cLastName.toLowerCase(),
+                                  ),
+                            ),
+                            DataColumn(
+                              label: const Text('Vorname'),
+                              onSort: (columnIndex, ascending) =>
+                                  _sortFilteredCustomers(
+                                    columnIndex,
+                                    ascending,
+                                    (c) => c.cFirstName.toLowerCase(),
+                                  ),
+                            ),
+                            DataColumn(
+                              label: const Text('Firma'),
+                              onSort: (columnIndex, ascending) =>
+                                  _sortFilteredCustomers(
+                                    columnIndex,
+                                    ascending,
+                                    (c) => c.cCompany.toLowerCase(),
+                                  ),
+                            ),
+                            DataColumn(
+                              label: const Text('Stadt'),
+                              onSort: (columnIndex, ascending) =>
+                                  _sortFilteredCustomers(
+                                    columnIndex,
+                                    ascending,
+                                    (c) => c.cCityB.toLowerCase(),
+                                  ),
+                            ),
+                            DataColumn(
+                              label: const Text('Land'),
+                              onSort: (columnIndex, ascending) =>
+                                  _sortFilteredCustomers(
+                                    columnIndex,
+                                    ascending,
+                                    (c) => resolveDisplayCountry(
+                                      customer: c,
+                                      countryNameByCode: _countryNameByCode,
+                                    ).toLowerCase(),
+                                  ),
+                            ),
+                            DataColumn(
+                              label: const Text('E-Mail'),
+                              onSort: (columnIndex, ascending) =>
+                                  _sortFilteredCustomers(
+                                    columnIndex,
+                                    ascending,
+                                    (c) => c.cMail.toLowerCase(),
+                                  ),
+                            ),
+                            const DataColumn(label: Text('Maps')),
+                          ],
+                          source: CustomerDataTableSource(
+                            customers: _filteredCustomers,
+                            countryNameByCode: _countryNameByCode,
+                            loading: _loading,
+                            onOpenDetails: (customer) {
+                              showCupertinoDialog(
+                                context: context,
+                                builder: (context) => CustomerDetailDialog(
+                                  customer: customer,
+                                  countryNameByCode: _countryNameByCode,
+                                  onEdit: () => _editCustomer(customer),
+                                  onDelete: () => _deleteCustomer(customer),
+                                ),
+                              );
+                            },
+                            onOpenMap: _showMapDialog,
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
@@ -1894,13 +2035,47 @@ class CustomerDataTableSource extends DataTableSource {
       index: index,
       onSelectChanged: loading ? null : (_) => onOpenDetails(customer),
       cells: [
-        DataCell(Text(customer.cId, softWrap: false, overflow: TextOverflow.ellipsis)),
-        DataCell(Text(customer.cLastName, softWrap: false, overflow: TextOverflow.ellipsis)),
-        DataCell(Text(customer.cFirstName, softWrap: false, overflow: TextOverflow.ellipsis)),
-        DataCell(Text(customer.cCompany, softWrap: false, overflow: TextOverflow.ellipsis)),
-        DataCell(Text(customer.cCityB, softWrap: false, overflow: TextOverflow.ellipsis)),
-        DataCell(Text(countryName, softWrap: false, overflow: TextOverflow.ellipsis)),
-        DataCell(Text(customer.cMail, softWrap: false, overflow: TextOverflow.ellipsis)),
+        DataCell(
+          Text(customer.cId, softWrap: false, overflow: TextOverflow.ellipsis),
+        ),
+        DataCell(
+          Text(
+            customer.cLastName,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        DataCell(
+          Text(
+            customer.cFirstName,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        DataCell(
+          Text(
+            customer.cCompany,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        DataCell(
+          Text(
+            customer.cCityB,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        DataCell(
+          Text(countryName, softWrap: false, overflow: TextOverflow.ellipsis),
+        ),
+        DataCell(
+          Text(
+            customer.cMail,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
         DataCell(
           Tooltip(
             message: 'Location aus Koordinaten anzeigen',
