@@ -8,7 +8,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/sync/icloud_sync_service.dart';
@@ -19,7 +18,16 @@ import 'widgets/item_bom_form_dialog.dart';
 import 'widgets/item_catalogue_form_dialog.dart';
 
 class ItemCataloguePage extends StatefulWidget {
-  const ItemCataloguePage({super.key});
+  const ItemCataloguePage({
+    super.key,
+    this.loadOnInit = true,
+    this.initialCatalogueItems = const [],
+    this.initialBomItems = const [],
+  });
+
+  final bool loadOnInit;
+  final List<ItemCatalogueRow> initialCatalogueItems;
+  final List<ItemBomRow> initialBomItems;
 
   @override
   State<ItemCataloguePage> createState() => _ItemCataloguePageState();
@@ -53,6 +61,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   bool _catalogueSortAscending = true;
   int _bomSortColumnIndex = 0;
   bool _bomSortAscending = true;
+  double _cataloguePaneRatio = 0.72;
+  bool _isDraggingSplitter = false;
+
+  static const double _splitterHeight = 28.0;
+  static const double _minCataloguePaneHeight = 300.0;
+  static const double _minBomPaneHeight = 160.0;
 
   static const List<String> _catalogueSortLabels = [
     'Artikel-ID',
@@ -86,6 +100,19 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       }
       setState(() => _searchQuery = nextQuery);
     });
+
+    if (!widget.loadOnInit) {
+      _catalogueItems = List<ItemCatalogueRow>.unmodifiable(widget.initialCatalogueItems);
+      _bomItems = List<ItemBomRow>.unmodifiable(widget.initialBomItems);
+      _catalogueById = {
+        for (final item in _catalogueItems) item.icId: item,
+      };
+      _selectedCatalogueId = _catalogueItems.isEmpty ? null : _catalogueItems.first.icId;
+      _selectedBomId = null;
+      _loading = false;
+      return;
+    }
+
     _loadCatalogueExportPreferences();
     _loadBomExportPreferences();
     _loadData();
@@ -1269,8 +1296,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       }
 
       final document = pw.Document();
-      final pdfBaseFont = await PdfGoogleFonts.notoSansRegular();
-      final pdfBoldFont = await PdfGoogleFonts.notoSansBold();
+      final pdfBaseFont = pw.Font.helvetica();
+      final pdfBoldFont = pw.Font.helveticaBold();
 
       final headers = selectedFields.map((field) => field.label).toList(growable: false);
       final tableData = sortedRows
@@ -1425,8 +1452,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       }
 
       final document = pw.Document();
-      final pdfBaseFont = await PdfGoogleFonts.notoSansRegular();
-      final pdfBoldFont = await PdfGoogleFonts.notoSansBold();
+      final pdfBaseFont = pw.Font.helvetica();
+      final pdfBoldFont = pw.Font.helveticaBold();
       final headers = selectedFields.map((field) => field.label).toList(growable: false);
       final tableData = sortedRows
           .map(
@@ -1511,8 +1538,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   double _grossPrice(double netPrice) => netPrice * 1.19;
 
   Widget _leftAlignedHeader(String text) {
-    return SizedBox(
-      width: double.infinity,
+    return Align(
+      alignment: Alignment.centerLeft,
       child: Text(text, textAlign: TextAlign.left),
     );
   }
@@ -1522,12 +1549,9 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       GestureDetector(
         behavior: HitTestBehavior.opaque,
         onDoubleTap: () => _showCatalogueReadOnly(item),
-        child: SizedBox(
-          width: double.infinity,
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: child,
-          ),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: child,
         ),
       ),
     );
@@ -2134,51 +2158,217 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: LayoutBuilder(
+          builder: (context, catalogueConstraints) {
+            final compactVerticalSpacing = catalogueConstraints.maxHeight < 460;
+            final useCompactControls = catalogueConstraints.maxHeight < 560;
+            final useUltraCompactControls = catalogueConstraints.maxHeight < 420;
+            final useCompactButtons = catalogueConstraints.maxHeight < 620 || catalogueConstraints.maxWidth < 1100;
+            final sectionGap = useUltraCompactControls ? 2.0 : (compactVerticalSpacing ? 4.0 : 10.0);
+            final sortGap = useUltraCompactControls ? 0.0 : (compactVerticalSpacing ? 2.0 : 6.0);
+            final compactFilledStyle = FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: Size(0, useUltraCompactControls ? 30 : 34),
+              padding: EdgeInsets.symmetric(horizontal: useUltraCompactControls ? 8 : 10, vertical: useUltraCompactControls ? 6 : 8),
+            );
+            final compactOutlinedStyle = OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: Size(0, useUltraCompactControls ? 30 : 34),
+              padding: EdgeInsets.symmetric(horizontal: useUltraCompactControls ? 8 : 10, vertical: useUltraCompactControls ? 6 : 8),
+            );
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    _searchQuery.isEmpty
-                        ? 'Artikelkatalog (${_catalogueItems.length})'
-                        : 'Artikelkatalog (${visibleItems.length} von ${_catalogueItems.length})',
-                    style: Theme.of(context).textTheme.titleMedium,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isNarrow = constraints.maxWidth < 980;
+
+                      if (isNarrow) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _searchQuery.isEmpty
+                                  ? 'Artikelkatalog (${_catalogueItems.length})'
+                                  : 'Artikelkatalog (${visibleItems.length} von ${_catalogueItems.length})',
+                              style: useUltraCompactControls
+                                  ? Theme.of(context).textTheme.titleSmall
+                                  : Theme.of(context).textTheme.titleMedium,
+                            ),
+                            SizedBox(height: useUltraCompactControls ? 4 : 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: useUltraCompactControls ? 4 : 8,
+                              children: [
+                                if (useUltraCompactControls)
+                                  IconButton.filledTonal(
+                                    tooltip: 'Neu',
+                                    onPressed: _loading ? null : () => _showCatalogueForm(),
+                                    icon: const Icon(Icons.add),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.all(6),
+                                  )
+                                else
+                                  FilledButton.icon(
+                                    onPressed: _loading ? null : () => _showCatalogueForm(),
+                                    style: useCompactButtons ? compactFilledStyle : null,
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('Neu'),
+                                  ),
+                                if (useUltraCompactControls)
+                                  IconButton.outlined(
+                                    tooltip: 'Bearbeiten',
+                                    onPressed: _loading || selectedItem == null ? null : () => _showCatalogueForm(initialValue: selectedItem),
+                                    icon: const Icon(Icons.edit_outlined),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.all(6),
+                                  )
+                                else
+                                  OutlinedButton.icon(
+                                    onPressed:
+                                        _loading || selectedItem == null ? null : () => _showCatalogueForm(initialValue: selectedItem),
+                                    style: useCompactButtons ? compactOutlinedStyle : null,
+                                    icon: const Icon(Icons.edit_outlined),
+                                    label: const Text('Bearbeiten'),
+                                  ),
+                                if (useUltraCompactControls)
+                                  IconButton.outlined(
+                                    tooltip: 'Duplizieren',
+                                    onPressed: _loading || selectedItem == null ? null : () => _duplicateCatalogue(selectedItem),
+                                    icon: const Icon(Icons.copy_outlined),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.all(6),
+                                  )
+                                else
+                                  OutlinedButton.icon(
+                                    onPressed: _loading || selectedItem == null ? null : () => _duplicateCatalogue(selectedItem),
+                                    style: useCompactButtons ? compactOutlinedStyle : null,
+                                    icon: const Icon(Icons.copy_outlined),
+                                    label: const Text('Duplizieren'),
+                                  ),
+                                if (useUltraCompactControls)
+                                  IconButton.outlined(
+                                    tooltip: 'Loeschen',
+                                    onPressed: _loading || selectedItem == null ? null : () => _deleteCatalogue(selectedItem),
+                                    icon: const Icon(Icons.delete_outline),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.all(6),
+                                  )
+                                else
+                                  OutlinedButton.icon(
+                                    onPressed: _loading || selectedItem == null ? null : () => _deleteCatalogue(selectedItem),
+                                    style: useCompactButtons ? compactOutlinedStyle : null,
+                                    icon: const Icon(Icons.delete_outline),
+                                    label: const Text('Loeschen'),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _searchQuery.isEmpty
+                                  ? 'Artikelkatalog (${_catalogueItems.length})'
+                                  : 'Artikelkatalog (${visibleItems.length} von ${_catalogueItems.length})',
+                              style: useUltraCompactControls
+                                  ? Theme.of(context).textTheme.titleSmall
+                                  : Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          if (useUltraCompactControls)
+                            IconButton.filledTonal(
+                              tooltip: 'Neu',
+                              onPressed: _loading ? null : () => _showCatalogueForm(),
+                              icon: const Icon(Icons.add),
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.all(6),
+                            )
+                          else
+                            FilledButton.icon(
+                              onPressed: _loading ? null : () => _showCatalogueForm(),
+                              style: useCompactButtons ? compactFilledStyle : null,
+                              icon: const Icon(Icons.add),
+                              label: const Text('Neu'),
+                            ),
+                          const SizedBox(width: 8),
+                          if (useUltraCompactControls)
+                            IconButton.outlined(
+                              tooltip: 'Bearbeiten',
+                              onPressed: _loading || selectedItem == null ? null : () => _showCatalogueForm(initialValue: selectedItem),
+                              icon: const Icon(Icons.edit_outlined),
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.all(6),
+                            )
+                          else
+                            OutlinedButton.icon(
+                              onPressed: _loading || selectedItem == null ? null : () => _showCatalogueForm(initialValue: selectedItem),
+                              style: useCompactButtons ? compactOutlinedStyle : null,
+                              icon: const Icon(Icons.edit_outlined),
+                              label: const Text('Bearbeiten'),
+                            ),
+                          const SizedBox(width: 8),
+                          if (useUltraCompactControls)
+                            IconButton.outlined(
+                              tooltip: 'Duplizieren',
+                              onPressed: _loading || selectedItem == null ? null : () => _duplicateCatalogue(selectedItem),
+                              icon: const Icon(Icons.copy_outlined),
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.all(6),
+                            )
+                          else
+                            OutlinedButton.icon(
+                              onPressed: _loading || selectedItem == null ? null : () => _duplicateCatalogue(selectedItem),
+                              style: useCompactButtons ? compactOutlinedStyle : null,
+                              icon: const Icon(Icons.copy_outlined),
+                              label: const Text('Duplizieren'),
+                            ),
+                          const SizedBox(width: 8),
+                          if (useUltraCompactControls)
+                            IconButton.outlined(
+                              tooltip: 'Loeschen',
+                              onPressed: _loading || selectedItem == null ? null : () => _deleteCatalogue(selectedItem),
+                              icon: const Icon(Icons.delete_outline),
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.all(6),
+                            )
+                          else
+                            OutlinedButton.icon(
+                              onPressed: _loading || selectedItem == null ? null : () => _deleteCatalogue(selectedItem),
+                              style: useCompactButtons ? compactOutlinedStyle : null,
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('Loeschen'),
+                            ),
+                        ],
+                      );
+                    },
                   ),
-                ),
-                FilledButton.icon(
-                  onPressed: _loading ? null : () => _showCatalogueForm(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Neu'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _loading || selectedItem == null ? null : () => _showCatalogueForm(initialValue: selectedItem),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Bearbeiten'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _loading || selectedItem == null ? null : () => _duplicateCatalogue(selectedItem),
-                  icon: const Icon(Icons.copy_outlined),
-                  label: const Text('Duplizieren'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _loading || selectedItem == null ? null : () => _deleteCatalogue(selectedItem),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Loeschen'),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: sectionGap),
             TextField(
               controller: _searchController,
               decoration: InputDecoration(
                 labelText: 'Artikel suchen',
                 hintText: 'Bezeichnung, Beschreibung/Description, Notiz ...',
                 prefixIcon: const Icon(Icons.search),
+                isDense: useCompactControls,
+                contentPadding: useCompactControls
+                  ? EdgeInsets.symmetric(horizontal: 10, vertical: useUltraCompactControls ? 8 : 10)
+                  : null,
+                prefixIconConstraints: useCompactControls
+                  ? BoxConstraints(minWidth: useUltraCompactControls ? 32 : 36, minHeight: useUltraCompactControls ? 32 : 36)
+                  : null,
                 suffixIcon: _searchQuery.isEmpty
                     ? null
                     : IconButton(
@@ -2189,159 +2379,346 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                 border: const OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('Alle Artikel'),
-                  selected: _catalogueFilter == _CatalogueFilter.all,
-                  onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.all),
+            SizedBox(height: sectionGap),
+            if (useCompactControls)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(bottom: 4),
+                dense: useUltraCompactControls,
+                title: Text(
+                  'Filter & Sortierung',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
-                ChoiceChip(
-                  label: const Text('ZB Komponenten'),
-                  selected: _catalogueFilter == _CatalogueFilter.zbOnly,
-                  onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.zbOnly),
-                ),
-                ChoiceChip(
-                  label: const Text('ohne ZB Komponenten'),
-                  selected: _catalogueFilter == _CatalogueFilter.withoutZb,
-                  onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Text(
-                  'Sortierung: ${_safeCatalogueSortLabel()} '
-                  '${_catalogueSortAscending ? 'aufsteigend' : 'absteigend'}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(width: 12),
-                TextButton.icon(
-                  onPressed: _resetCatalogueSort,
-                  icon: const Icon(Icons.sort),
-                  label: const Text('Sortierung zuruecksetzen'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Alle Artikel'),
+                        selected: _catalogueFilter == _CatalogueFilter.all,
+                        onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.all),
+                      ),
+                      ChoiceChip(
+                        label: const Text('ZB Komponenten'),
+                        selected: _catalogueFilter == _CatalogueFilter.zbOnly,
+                        onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.zbOnly),
+                      ),
+                      ChoiceChip(
+                        label: const Text('ohne ZB Komponenten'),
+                        selected: _catalogueFilter == _CatalogueFilter.withoutZb,
+                        onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        'Sortierung: ${_safeCatalogueSortLabel()} '
+                        '${_catalogueSortAscending ? 'aufsteigend' : 'absteigend'}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      TextButton.icon(
+                        onPressed: _resetCatalogueSort,
+                        icon: const Icon(Icons.sort),
+                        label: const Text('Sortierung zuruecksetzen'),
+                      ),
+                    ],
+                  ),
+                ],
+              )
+            else ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Alle Artikel'),
+                    selected: _catalogueFilter == _CatalogueFilter.all,
+                    onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.all),
+                  ),
+                  ChoiceChip(
+                    label: const Text('ZB Komponenten'),
+                    selected: _catalogueFilter == _CatalogueFilter.zbOnly,
+                    onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.zbOnly),
+                  ),
+                  ChoiceChip(
+                    label: const Text('ohne ZB Komponenten'),
+                    selected: _catalogueFilter == _CatalogueFilter.withoutZb,
+                    onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                  ),
+                ],
+              ),
+              SizedBox(height: sectionGap),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    'Sortierung: ${_safeCatalogueSortLabel()} '
+                    '${_catalogueSortAscending ? 'aufsteigend' : 'absteigend'}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  TextButton.icon(
+                    onPressed: _resetCatalogueSort,
+                    icon: const Icon(Icons.sort),
+                    label: const Text('Sortierung zuruecksetzen'),
+                  ),
+                ],
+              ),
+            ],
+            SizedBox(height: sortGap),
             Expanded(
               child: visibleItems.isEmpty
                   ? const Center(child: Text('Keine Artikel im Katalog vorhanden.'))
                   : LayoutBuilder(
                       builder: (context, constraints) {
                         final isCompact = constraints.maxWidth < 1180;
+                        final useExternalScroll = Platform.isIOS;
                         const tableMinWidth = 1150.0;
 
-                        return DataTable2(
-                                showCheckboxColumn: false,
-                                sortColumnIndex: _catalogueSortColumnIndex,
-                                sortAscending: _catalogueSortAscending,
-                                scrollController: _catalogueVerticalController,
-                                horizontalScrollController: _catalogueHorizontalController,
-                                isVerticalScrollBarVisible: true,
-                                isHorizontalScrollBarVisible: true,
-                                columnSpacing: isCompact ? 10.0 : 16.0,
-                                horizontalMargin: isCompact ? 8.0 : 12.0,
-                                minWidth: tableMinWidth,
-                                fixedTopRows: 1,
-                                columns: [
-                                  DataColumn2(
-                                    size: ColumnSize.S,
-                                    label: _leftAlignedHeader('Artikel-ID'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.L,
-                                    label: _leftAlignedHeader('Bezeichnung'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.M,
-                                    label: _leftAlignedHeader('Bruttopreis\nincl. 19%'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.S,
-                                    label: _leftAlignedHeader('Nettopreis'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.M,
-                                    label: _leftAlignedHeader('Netto\nHaendlerpreis'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.M,
-                                    label: _leftAlignedHeader('Netto\nEinkaufspreis'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.S,
-                                    label: _leftAlignedHeader('Gewicht in g'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.S,
-                                    label: _leftAlignedHeader('HTS Code'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    size: ColumnSize.S,
-                                    label: _leftAlignedHeader('Bestand'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                    onSort: _onCatalogueSort,
-                                  ),
-                                  DataColumn2(
-                                    fixedWidth: 56,
-                                    label: _leftAlignedHeader('Bild'),
-                                    headingRowAlignment: MainAxisAlignment.start,
-                                  ),
+                        final columns = [
+                          DataColumn2(
+                            size: ColumnSize.S,
+                            label: _leftAlignedHeader('Artikel-ID'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.L,
+                            label: _leftAlignedHeader('Bezeichnung'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.M,
+                            label: _leftAlignedHeader('Bruttopreis\nincl. 19%'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.S,
+                            label: _leftAlignedHeader('Nettopreis'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.M,
+                            label: _leftAlignedHeader('Netto\nHaendlerpreis'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.M,
+                            label: _leftAlignedHeader('Netto\nEinkaufspreis'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.S,
+                            label: _leftAlignedHeader('Gewicht in g'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.S,
+                            label: _leftAlignedHeader('HTS Code'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.S,
+                            label: _leftAlignedHeader('Bestand'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            fixedWidth: 56,
+                            label: _leftAlignedHeader('Bild'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                          ),
+                        ];
+
+                        final rows = visibleItems
+                            .map(
+                              (item) => DataRow(
+                                selected: item.icId == _selectedCatalogueId,
+                                onSelectChanged: (selected) {
+                                  if (selected != true) {
+                                    return;
+                                  }
+                                  setState(() {
+                                    _selectedCatalogueId = item.icId;
+                                    _selectedBomId = null;
+                                  });
+                                },
+                                cells: [
+                                  _catalogueDetailCell(Text(item.icId.toString()), item),
+                                  _catalogueDetailCell(Text(item.icIdi), item),
+                                  _catalogueDetailCell(Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), item),
+                                  _catalogueDetailCell(Text(_formatDecimal(item.icPriceNet, 2)), item),
+                                  _catalogueDetailCell(Text(_formatDecimal(item.icPriceWholesaleNet, 2)), item),
+                                  _catalogueDetailCell(Text(_formatDecimal(item.icPurchasePriceNet, 2)), item),
+                                  _catalogueDetailCell(Text(_formatDecimal(item.icWeight, 1)), item),
+                                  _catalogueDetailCell(Text(item.icHts), item),
+                                  _catalogueDetailCell(Text(item.icStock.toString()), item),
+                                  _catalogueDetailCell(_buildCatalogueImagePreview(item, size: 32), item),
                                 ],
-                                rows: visibleItems
-                                    .map(
-                                      (item) => DataRow(
-                                        selected: item.icId == _selectedCatalogueId,
-                                        onSelectChanged: (selected) {
-                                          if (selected != true) {
-                                            return;
-                                          }
-                                          setState(() {
-                                            _selectedCatalogueId = item.icId;
-                                            _selectedBomId = null;
-                                          });
-                                        },
-                                        cells: [
-                                          _catalogueDetailCell(Text(item.icId.toString()), item),
-                                          _catalogueDetailCell(Text(item.icIdi), item),
-                                          _catalogueDetailCell(Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), item),
-                                          _catalogueDetailCell(Text(_formatDecimal(item.icPriceNet, 2)), item),
-                                          _catalogueDetailCell(Text(_formatDecimal(item.icPriceWholesaleNet, 2)), item),
-                                          _catalogueDetailCell(Text(_formatDecimal(item.icPurchasePriceNet, 2)), item),
-                                          _catalogueDetailCell(Text(_formatDecimal(item.icWeight, 1)), item),
-                                          _catalogueDetailCell(Text(item.icHts), item),
-                                          _catalogueDetailCell(Text(item.icStock.toString()), item),
-                                          _catalogueDetailCell(_buildCatalogueImagePreview(item, size: 32), item),
-                                        ],
+                              ),
+                            )
+                            .toList(growable: false);
+
+                        if (useExternalScroll) {
+                          const iosHeaders = <String>[
+                            'Artikel-ID',
+                            'Bezeichnung',
+                            'Bruttopreis\nincl. 19%',
+                            'Nettopreis',
+                            'Netto\nHaendlerpreis',
+                            'Netto\nEinkaufspreis',
+                            'Gewicht in g',
+                            'HTS Code',
+                            'Bestand',
+                            'Bild',
+                          ];
+                          const iosColumnWidths = <double>[90, 220, 130, 110, 150, 150, 100, 100, 90, 72];
+                          final iosColumnsTotalWidth = iosColumnWidths.fold<double>(0, (sum, width) => sum + width);
+                          final iosTableWidth = iosColumnsTotalWidth > tableMinWidth ? iosColumnsTotalWidth : tableMinWidth;
+                          final hideIosHeader = constraints.maxHeight < 140;
+
+                          Widget buildIosCell(double width, Widget child, {bool center = false, double verticalPadding = 10}) {
+                            return SizedBox(
+                              width: width,
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: verticalPadding),
+                                child: Align(
+                                  alignment: center ? Alignment.center : Alignment.centerLeft,
+                                  child: child,
+                                ),
+                              ),
+                            );
+                          }
+
+                          Widget buildHeaderCell(int index) {
+                            final label = Text(
+                              iosHeaders[index],
+                              style: Theme.of(context).textTheme.labelMedium,
+                            );
+                            if (index == iosHeaders.length - 1) {
+                              return buildIosCell(iosColumnWidths[index], label, center: true);
+                            }
+
+                            return InkWell(
+                              onTap: () {
+                                final nextAscending = _catalogueSortColumnIndex == index ? !_catalogueSortAscending : true;
+                                _onCatalogueSort(index, nextAscending);
+                              },
+                              child: buildIosCell(iosColumnWidths[index], label),
+                            );
+                          }
+
+                          return ExcludeSemantics(
+                            child: SingleChildScrollView(
+                              controller: _catalogueHorizontalController,
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: iosTableWidth,
+                                height: constraints.maxHeight,
+                                child: Column(
+                                  children: [
+                                    if (!hideIosHeader)
+                                      DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                          border: Border(
+                                            top: BorderSide(color: Theme.of(context).dividerColor),
+                                            bottom: BorderSide(color: Theme.of(context).dividerColor),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: List<Widget>.generate(iosHeaders.length, buildHeaderCell),
+                                        ),
                                       ),
-                                    )
-                                    .toList(growable: false),
-                              );
+                                    Expanded(
+                                      child: Scrollbar(
+                                        controller: _catalogueVerticalController,
+                                        thumbVisibility: true,
+                                        trackVisibility: true,
+                                        child: ListView.builder(
+                                          controller: _catalogueVerticalController,
+                                          itemCount: visibleItems.length,
+                                          itemBuilder: (context, index) {
+                                            final item = visibleItems[index];
+                                            final selected = item.icId == _selectedCatalogueId;
+                                            final rowColor = selected
+                                                ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35)
+                                                : (index.isEven
+                                                    ? Theme.of(context).colorScheme.surface
+                                                    : Theme.of(context).colorScheme.surfaceContainerLowest);
+
+                                            return Material(
+                                              color: rowColor,
+                                              child: InkWell(
+                                                onTap: () {
+                                                  setState(() {
+                                                    _selectedCatalogueId = item.icId;
+                                                    _selectedBomId = null;
+                                                  });
+                                                },
+                                                onDoubleTap: () => _showCatalogueReadOnly(item),
+                                                child: Row(
+                                                  children: [
+                                                    buildIosCell(iosColumnWidths[0], Text(item.icId.toString()), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[1], Text(item.icIdi), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[2], Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[3], Text(_formatDecimal(item.icPriceNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[4], Text(_formatDecimal(item.icPriceWholesaleNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[5], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[6], Text(_formatDecimal(item.icWeight, 1)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[7], Text(item.icHts), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[8], Text(item.icStock.toString()), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[9], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return DataTable2(
+                          showCheckboxColumn: false,
+                          sortColumnIndex: _catalogueSortColumnIndex,
+                          sortAscending: _catalogueSortAscending,
+                          scrollController: _catalogueVerticalController,
+                          horizontalScrollController: _catalogueHorizontalController,
+                          isVerticalScrollBarVisible: true,
+                          isHorizontalScrollBarVisible: true,
+                          columnSpacing: isCompact ? 10.0 : 16.0,
+                          horizontalMargin: isCompact ? 8.0 : 12.0,
+                          minWidth: tableMinWidth,
+                          fixedTopRows: 1,
+                          columns: columns,
+                          rows: rows,
+                        );
                       },
                     ),
             ),
           ],
+            );
+          },
         ),
       ),
     );
@@ -2357,72 +2734,278 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: LayoutBuilder(
+          builder: (context, bomConstraints) {
+            final compactVerticalSpacing = bomConstraints.maxHeight < 420;
+            final useUltraCompactControls = bomConstraints.maxHeight < 340;
+            final useCompactButtons = bomConstraints.maxHeight < 420 || bomConstraints.maxWidth < 980;
+            final useActionMenu = bomConstraints.maxHeight < 420 || bomConstraints.maxWidth < 860;
+            final sectionGap = compactVerticalSpacing ? 3.0 : 10.0;
+            final sortGap = compactVerticalSpacing ? 0.0 : 6.0;
+            final compactFilledStyle = FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size(0, 34),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            );
+            final compactOutlinedStyle = OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size(0, 34),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            );
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    selectedCatalogue == null
-                        ? 'BOM (kein Artikel ausgewaehlt)'
-                        : 'BOM zu #${selectedCatalogue.icId} • ${selectedCatalogue.icIdi} (${visibleBomRows.length})',
-                    style: Theme.of(context).textTheme.titleMedium,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isNarrow = constraints.maxWidth < 900;
+
+                      if (isNarrow) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              selectedCatalogue == null
+                                  ? 'BOM (kein Artikel ausgewaehlt)'
+                                  : 'BOM zu #${selectedCatalogue.icId} • ${selectedCatalogue.icIdi} (${visibleBomRows.length})',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (!useActionMenu)
+                                  if (useUltraCompactControls)
+                                    IconButton.filledTonal(
+                                      tooltip: 'Neu',
+                                      onPressed: _loading || selectedCatalogueId == null ? null : () => _showBomForm(),
+                                      icon: const Icon(Icons.add),
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.all(6),
+                                    )
+                                  else
+                                    FilledButton.icon(
+                                      onPressed: _loading || selectedCatalogueId == null ? null : () => _showBomForm(),
+                                      style: useCompactButtons ? compactFilledStyle : null,
+                                      icon: const Icon(Icons.add),
+                                      label: const Text('Neu'),
+                                    ),
+                                if (!useActionMenu)
+                                  if (useUltraCompactControls)
+                                    IconButton.outlined(
+                                      tooltip: 'Bearbeiten',
+                                      onPressed: _loading || selectedBom == null ? null : () => _showBomForm(initialValue: selectedBom),
+                                      icon: const Icon(Icons.edit_outlined),
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.all(6),
+                                    )
+                                  else
+                                    OutlinedButton.icon(
+                                      onPressed: _loading || selectedBom == null ? null : () => _showBomForm(initialValue: selectedBom),
+                                      style: useCompactButtons ? compactOutlinedStyle : null,
+                                      icon: const Icon(Icons.edit_outlined),
+                                      label: const Text('Bearbeiten'),
+                                    ),
+                                if (!useActionMenu)
+                                  if (useUltraCompactControls)
+                                    IconButton.outlined(
+                                      tooltip: 'Loeschen',
+                                      onPressed: _loading || selectedBom == null ? null : () => _deleteBom(selectedBom),
+                                      icon: const Icon(Icons.delete_outline),
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.all(6),
+                                    )
+                                  else
+                                    OutlinedButton.icon(
+                                      onPressed: _loading || selectedBom == null ? null : () => _deleteBom(selectedBom),
+                                      style: useCompactButtons ? compactOutlinedStyle : null,
+                                      icon: const Icon(Icons.delete_outline),
+                                      label: const Text('Loeschen'),
+                                    ),
+                              ],
+                            ),
+                            if (useActionMenu)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: PopupMenuButton<String>(
+                                  tooltip: 'BOM Aktionen',
+                                  onSelected: (value) {
+                                    switch (value) {
+                                      case 'new':
+                                        _showBomForm();
+                                      case 'edit':
+                                        if (selectedBom != null) {
+                                          _showBomForm(initialValue: selectedBom);
+                                        }
+                                      case 'delete':
+                                        if (selectedBom != null) {
+                                          _deleteBom(selectedBom);
+                                        }
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem<String>(
+                                      value: 'new',
+                                      enabled: !_loading && selectedCatalogueId != null,
+                                      child: const Text('Neu'),
+                                    ),
+                                    PopupMenuItem<String>(
+                                      value: 'edit',
+                                      enabled: !_loading && selectedBom != null,
+                                      child: const Text('Bearbeiten'),
+                                    ),
+                                    PopupMenuItem<String>(
+                                      value: 'delete',
+                                      enabled: !_loading && selectedBom != null,
+                                      child: const Text('Loeschen'),
+                                    ),
+                                  ],
+                                  child: const Icon(Icons.more_horiz),
+                                ),
+                              ),
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              selectedCatalogue == null
+                                  ? 'BOM (kein Artikel ausgewaehlt)'
+                                  : 'BOM zu #${selectedCatalogue.icId} • ${selectedCatalogue.icIdi} (${visibleBomRows.length})',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          if (useActionMenu)
+                            PopupMenuButton<String>(
+                              tooltip: 'BOM Aktionen',
+                              onSelected: (value) {
+                                switch (value) {
+                                  case 'new':
+                                    _showBomForm();
+                                  case 'edit':
+                                    if (selectedBom != null) {
+                                      _showBomForm(initialValue: selectedBom);
+                                    }
+                                  case 'delete':
+                                    if (selectedBom != null) {
+                                      _deleteBom(selectedBom);
+                                    }
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                PopupMenuItem<String>(
+                                  value: 'new',
+                                  enabled: !_loading && selectedCatalogueId != null,
+                                  child: const Text('Neu'),
+                                ),
+                                PopupMenuItem<String>(
+                                  value: 'edit',
+                                  enabled: !_loading && selectedBom != null,
+                                  child: const Text('Bearbeiten'),
+                                ),
+                                PopupMenuItem<String>(
+                                  value: 'delete',
+                                  enabled: !_loading && selectedBom != null,
+                                  child: const Text('Loeschen'),
+                                ),
+                              ],
+                              icon: const Icon(Icons.more_horiz),
+                            )
+                          else if (useUltraCompactControls)
+                            IconButton.filledTonal(
+                              tooltip: 'Neu',
+                              onPressed: _loading || selectedCatalogueId == null ? null : () => _showBomForm(),
+                              icon: const Icon(Icons.add),
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.all(6),
+                            )
+                          else
+                            FilledButton.icon(
+                              onPressed: _loading || selectedCatalogueId == null ? null : () => _showBomForm(),
+                              style: useCompactButtons ? compactFilledStyle : null,
+                              icon: const Icon(Icons.add),
+                              label: const Text('Neu'),
+                            ),
+                          if (!useActionMenu) const SizedBox(width: 8),
+                          if (!useActionMenu)
+                            if (useUltraCompactControls)
+                              IconButton.outlined(
+                                tooltip: 'Bearbeiten',
+                                onPressed: _loading || selectedBom == null ? null : () => _showBomForm(initialValue: selectedBom),
+                                icon: const Icon(Icons.edit_outlined),
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.all(6),
+                              )
+                            else
+                              OutlinedButton.icon(
+                                onPressed: _loading || selectedBom == null ? null : () => _showBomForm(initialValue: selectedBom),
+                                style: useCompactButtons ? compactOutlinedStyle : null,
+                                icon: const Icon(Icons.edit_outlined),
+                                label: const Text('Bearbeiten'),
+                              ),
+                          if (!useActionMenu) const SizedBox(width: 8),
+                          if (!useActionMenu)
+                            if (useUltraCompactControls)
+                              IconButton.outlined(
+                                tooltip: 'Loeschen',
+                                onPressed: _loading || selectedBom == null ? null : () => _deleteBom(selectedBom),
+                                icon: const Icon(Icons.delete_outline),
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.all(6),
+                              )
+                            else
+                              OutlinedButton.icon(
+                                onPressed: _loading || selectedBom == null ? null : () => _deleteBom(selectedBom),
+                                style: useCompactButtons ? compactOutlinedStyle : null,
+                                icon: const Icon(Icons.delete_outline),
+                                label: const Text('Loeschen'),
+                              ),
+                        ],
+                      );
+                    },
                   ),
-                ),
-                FilledButton.icon(
-                  onPressed: _loading || selectedCatalogueId == null ? null : () => _showBomForm(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Neu'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _loading || selectedBom == null ? null : () => _showBomForm(initialValue: selectedBom),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Bearbeiten'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _loading || selectedBom == null ? null : () => _deleteBom(selectedBom),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Loeschen'),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Row(
+            SizedBox(height: sectionGap),
+            Wrap(
+              spacing: useActionMenu ? 8 : 12,
+              runSpacing: useActionMenu ? 4 : 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text(
-                  'Sortierung: ${_safeBomSortLabel()} '
-                  '${_bomSortAscending ? 'aufsteigend' : 'absteigend'}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(width: 12),
+                if (!useActionMenu)
+                  Text(
+                    'Sortierung: ${_safeBomSortLabel()} '
+                    '${_bomSortAscending ? 'aufsteigend' : 'absteigend'}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 TextButton.icon(
                   onPressed: _resetBomSort,
                   icon: const Icon(Icons.sort),
-                  label: const Text('Sortierung zuruecksetzen'),
+                  label: Text(useActionMenu ? 'Sortierung' : 'Sortierung zuruecksetzen'),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: sortGap),
             Expanded(
               child: selectedCatalogueId == null
                   ? const Center(child: Text('Bitte zuerst oben einen Artikel auswaehlen.'))
                   : visibleBomRows.isEmpty
                       ? const Center(child: Text('Keine untergeordneten BOM-Eintraege gefunden.'))
-                      : Scrollbar(
+                      : SingleChildScrollView(
                           controller: _bomHorizontalController,
-                          thumbVisibility: true,
+                          scrollDirection: Axis.horizontal,
                           child: SingleChildScrollView(
-                            controller: _bomHorizontalController,
-                            scrollDirection: Axis.horizontal,
-                            child: Scrollbar(
-                              controller: _bomVerticalController,
-                              thumbVisibility: true,
-                              child: SingleChildScrollView(
-                                controller: _bomVerticalController,
-                                child: DataTable(
+                            controller: _bomVerticalController,
+                            child: DataTable(
                               showCheckboxColumn: false,
                               sortColumnIndex: _bomSortColumnIndex,
                               sortAscending: _bomSortAscending,
@@ -2455,13 +3038,13 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                     );
                                   })
                                   .toList(growable: false),
-                                ),
-                              ),
                             ),
                           ),
                         ),
             ),
           ],
+            );
+          },
         ),
       ),
     );
@@ -2507,11 +3090,157 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Expanded(flex: 3, child: _buildCatalogueSection()),
-                Expanded(flex: 2, child: _buildBomSection()),
-              ],
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final isShortViewport = constraints.maxHeight < 600;
+                if (isShortViewport) {
+                  final catalogueHeight = constraints.maxHeight * 0.7;
+                  final bomHeight = constraints.maxHeight * 0.55;
+
+                  return SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        SizedBox(height: catalogueHeight.clamp(520.0, 900.0), child: _buildCatalogueSection()),
+                        Container(
+                          height: _splitterHeight,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                            border: Border(
+                              top: BorderSide(color: Theme.of(context).dividerColor),
+                              bottom: BorderSide(color: Theme.of(context).dividerColor),
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Container(
+                            width: 196,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primaryContainer,
+                              border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.drag_handle,
+                                  size: 16,
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Trenner',
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: bomHeight.clamp(420.0, 760.0), child: _buildBomSection()),
+                      ],
+                    ),
+                  );
+                }
+
+                final availableHeight = constraints.maxHeight - _splitterHeight;
+                if (availableHeight <= 0) {
+                  return const SizedBox.shrink();
+                }
+
+                final minRatio = (_minCataloguePaneHeight / availableHeight).clamp(0.2, 0.9);
+                final maxRatio = (1.0 - (_minBomPaneHeight / availableHeight)).clamp(0.1, 0.8);
+
+                double effectiveRatio;
+                if (minRatio > maxRatio) {
+                  effectiveRatio = 0.62;
+                } else {
+                  effectiveRatio = _cataloguePaneRatio.clamp(minRatio, maxRatio);
+                }
+
+                final topHeight = availableHeight * effectiveRatio;
+                final bottomHeight = availableHeight - topHeight;
+                final topPercent = (effectiveRatio * 100).round();
+                final bottomPercent = (100 - topPercent).clamp(0, 100);
+
+                return Column(
+                  children: [
+                    SizedBox(height: topHeight, child: _buildCatalogueSection()),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.resizeUpDown,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onVerticalDragStart: (_) {
+                          setState(() {
+                            _isDraggingSplitter = true;
+                          });
+                        },
+                        onVerticalDragUpdate: (details) {
+                          final nextRatio = _cataloguePaneRatio + (details.delta.dy / availableHeight);
+                          final clampedRatio = minRatio > maxRatio ? nextRatio.clamp(0.3, 0.8) : nextRatio.clamp(minRatio, maxRatio);
+                          if (clampedRatio == _cataloguePaneRatio) {
+                            return;
+                          }
+                          setState(() {
+                            _cataloguePaneRatio = clampedRatio;
+                          });
+                        },
+                        onVerticalDragEnd: (_) {
+                          setState(() {
+                            _isDraggingSplitter = false;
+                          });
+                        },
+                        onVerticalDragCancel: () {
+                          setState(() {
+                            _isDraggingSplitter = false;
+                          });
+                        },
+                        child: Container(
+                          height: _splitterHeight,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                            border: Border(
+                              top: BorderSide(color: Theme.of(context).dividerColor),
+                              bottom: BorderSide(color: Theme.of(context).dividerColor),
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Container(
+                            width: 196,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primaryContainer,
+                              border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.drag_handle,
+                                  size: 16,
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _isDraggingSplitter ? 'Artikel $topPercent% | BOM $bottomPercent%' : 'Ziehen zum Anpassen',
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: bottomHeight, child: _buildBomSection()),
+                  ],
+                );
+              },
             ),
     );
   }

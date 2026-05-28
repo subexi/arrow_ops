@@ -161,12 +161,17 @@ class _ItemBomFormDialogState extends State<ItemBomFormDialog> {
                 ]),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
+                  isExpanded: true,
                   initialValue: effectiveItemId,
                   items: selectableChildItems
                       .map(
                         (item) => DropdownMenuItem<int>(
                           value: item.icId,
-                          child: Text(_catalogueLabel(item)),
+                          child: Text(
+                            _catalogueLabel(item),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       )
                       .toList(),

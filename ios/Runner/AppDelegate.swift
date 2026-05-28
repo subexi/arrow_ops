@@ -15,10 +15,10 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    registerICloudChannel(binaryMessenger: engineBridge.binaryMessenger)
+    registerICloudChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
   }
 
-  private func registerICloudChannel(binaryMessenger: FlutterBinaryMessenger) {
+  private func registerICloudChannel(binaryMessenger: any FlutterBinaryMessenger) {
     iCloudChannel = FlutterMethodChannel(name: iCloudChannelName, binaryMessenger: binaryMessenger)
     iCloudChannel?.setMethodCallHandler { [weak self] call, result in
       guard let self else {

@@ -905,9 +905,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       _showDialogSnackBar('Nachname erforderlich', type: _DialogSnackBarType.validation);
       return false;
     }
-    if (!_lastNameControl.text.trim().replaceAll(' ', '').split('').every((c) => RegExp(r'[a-zA-ZÀ-ÖØ-öø-ÿ]').hasMatch(c))) {
+    if (!_lastNameControl.text.trim().replaceAll(' ', '').split('').every((c) => RegExp(r"[a-zA-ZÀ-ÖØ-öø-ÿ'’]").hasMatch(c))) {
       _showDialogSnackBar(
-        'Nachname darf nur Buchstaben und Leerzeichen enthalten.',
+        'Nachname darf nur Buchstaben, Leerzeichen und Apostroph enthalten.',
         type: _DialogSnackBarType.validation,
       );
       return false;
