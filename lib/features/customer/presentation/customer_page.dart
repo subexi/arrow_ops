@@ -8,7 +8,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:data_table_2/data_table_2.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -27,6 +26,11 @@ import 'customer_country_display.dart';
 import 'widgets/csv_import_preview_dialog.dart';
 import 'widgets/customer_detail_dialog.dart';
 import 'widgets/customer_form_dialog.dart';
+import 'widgets/customer_page_actions.dart';
+import 'widgets/customer_paginated_table.dart';
+import 'widgets/customer_results_header.dart';
+
+export 'widgets/customer_paginated_table.dart' show CustomerDataTableSource;
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key, this.showModuleNavigation = true});
@@ -1795,82 +1799,21 @@ class _CustomerPageState extends State<CustomerPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Action Buttons
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                Tooltip(
-                  message: 'Erstellt einen neuen Kundendatensatz.',
-                  child: CupertinoButton.filled(
-                    onPressed: _loading ? null : _createCustomer,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(CupertinoIcons.person_add, size: 18),
-                        SizedBox(width: 8),
-                        Text('Neuer Kunde'),
-                      ],
-                    ),
-                  ),
-                ),
-                Tooltip(
-                  message: 'Lädt die Kundenliste neu aus der SQLite-Datenbank.',
-                  child: CupertinoButton(
-                    onPressed: _loading ? null : _loadCustomers,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(CupertinoIcons.refresh, size: 18),
-                        SizedBox(width: 8),
-                        Text('Aktualisieren'),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            CustomerPageActions(
+              loading: _loading,
+              databasePath: _databasePath,
+              searchController: _searchController,
+              onCreateCustomer: _createCustomer,
+              onRefresh: _loadCustomers,
             ),
             const SizedBox(height: 16),
-            SelectableText(
-              'SQLite: $_databasePath',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            // Search Field
-            CupertinoSearchTextField(
-              controller: _searchController,
-              placeholder: 'Kundendaten durchsuchen...',
-            ),
-            const SizedBox(height: 16),
-            // Customer List
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _searchController.text.isEmpty
-                        ? 'Kundendaten (${_customers.length})'
-                        : 'Kundendaten (${_filteredCustomers.length} von ${_customers.length})',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Tooltip(
-                  message:
-                      'Alle Locations der angezeigten Kunden auf einer Karte anzeigen.',
-                  child: CupertinoButton(
-                    onPressed: _filteredCustomers.isEmpty
-                        ? null
-                        : _showAllLocationsDialog,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(CupertinoIcons.map, size: 18),
-                        SizedBox(width: 8),
-                        Text('Alle Locations'),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            CustomerResultsHeader(
+              searchText: _searchController.text,
+              totalCount: _customers.length,
+              filteredCount: _filteredCustomers.length,
+              onShowAllLocations: _filteredCustomers.isEmpty
+                  ? null
+                  : _showAllLocationsDialog,
             ),
             const SizedBox(height: 8),
             Expanded(
@@ -1891,107 +1834,19 @@ class _CustomerPageState extends State<CustomerPage> {
                         if (constraints.maxWidth < 600) {
                           return _buildMobileCustomerList();
                         }
-                        return PaginatedDataTable2(
+                        return CustomerPaginatedTable(
+                          customers: _filteredCustomers,
+                          countryNameByCode: _countryNameByCode,
+                          loading: _loading,
                           sortColumnIndex: _sortColumnIndex,
                           sortAscending: _sortAscending,
                           rowsPerPage: _rowsPerPage,
-                          availableRowsPerPage: const [10, 25, 50],
-                          onRowsPerPageChanged: (value) {
-                            if (value == null) {
-                              return;
-                            }
-                            setState(() => _rowsPerPage = value);
-                          },
-                          showFirstLastButtons: true,
-                          showCheckboxColumn: false,
-                          minWidth: 1200,
-                          columns: [
-                            DataColumn(
-                              label: const Text('ID'),
-                              onSort: (columnIndex, ascending) =>
-                                  _sortFilteredCustomers(
-                                    columnIndex,
-                                    ascending,
-                                    (c) => c.cId.toLowerCase(),
-                                  ),
-                            ),
-                            DataColumn2(
-                              fixedWidth: 190,
-                              label: const Text('Nachname'),
-                              onSort: (columnIndex, ascending) =>
-                                  _sortFilteredCustomers(
-                                    columnIndex,
-                                    ascending,
-                                    (c) => c.cLastName.toLowerCase(),
-                                  ),
-                            ),
-                            DataColumn(
-                              label: const Text('Vorname'),
-                              onSort: (columnIndex, ascending) =>
-                                  _sortFilteredCustomers(
-                                    columnIndex,
-                                    ascending,
-                                    (c) => c.cFirstName.toLowerCase(),
-                                  ),
-                            ),
-                            DataColumn(
-                              label: const Text('Firma'),
-                              onSort: (columnIndex, ascending) =>
-                                  _sortFilteredCustomers(
-                                    columnIndex,
-                                    ascending,
-                                    (c) => c.cCompany.toLowerCase(),
-                                  ),
-                            ),
-                            DataColumn(
-                              label: const Text('Stadt'),
-                              onSort: (columnIndex, ascending) =>
-                                  _sortFilteredCustomers(
-                                    columnIndex,
-                                    ascending,
-                                    (c) => c.cCityB.toLowerCase(),
-                                  ),
-                            ),
-                            DataColumn(
-                              label: const Text('Land'),
-                              onSort: (columnIndex, ascending) =>
-                                  _sortFilteredCustomers(
-                                    columnIndex,
-                                    ascending,
-                                    (c) => resolveDisplayCountry(
-                                      customer: c,
-                                      countryNameByCode: _countryNameByCode,
-                                    ).toLowerCase(),
-                                  ),
-                            ),
-                            DataColumn(
-                              label: const Text('E-Mail'),
-                              onSort: (columnIndex, ascending) =>
-                                  _sortFilteredCustomers(
-                                    columnIndex,
-                                    ascending,
-                                    (c) => c.cMail.toLowerCase(),
-                                  ),
-                            ),
-                            const DataColumn(label: Text('Maps')),
-                          ],
-                          source: CustomerDataTableSource(
-                            customers: _filteredCustomers,
-                            countryNameByCode: _countryNameByCode,
-                            loading: _loading,
-                            onOpenDetails: (customer) {
-                              showCupertinoDialog(
-                                context: context,
-                                builder: (context) => CustomerDetailDialog(
-                                  customer: customer,
-                                  countryNameByCode: _countryNameByCode,
-                                  onEdit: () => _editCustomer(customer),
-                                  onDelete: () => _deleteCustomer(customer),
-                                ),
-                              );
-                            },
-                            onOpenMap: _showMapDialog,
-                          ),
+                          onRowsPerPageChanged: (value) =>
+                              setState(() => _rowsPerPage = value),
+                          onSort: _sortFilteredCustomers,
+                          onEditCustomer: _editCustomer,
+                          onDeleteCustomer: _deleteCustomer,
+                          onOpenMap: _showMapDialog,
                         );
                       },
                     ),
@@ -2001,100 +1856,4 @@ class _CustomerPageState extends State<CustomerPage> {
       ),
     );
   }
-}
-
-class CustomerDataTableSource extends DataTableSource {
-  CustomerDataTableSource({
-    required this.customers,
-    required this.countryNameByCode,
-    required this.loading,
-    required this.onOpenDetails,
-    required this.onOpenMap,
-  });
-
-  final List<Customer> customers;
-  final Map<String, String> countryNameByCode;
-  final bool loading;
-  final ValueChanged<Customer> onOpenDetails;
-  final ValueChanged<Customer> onOpenMap;
-
-  @override
-  DataRow? getRow(int index) {
-    if (index < 0 || index >= customers.length) {
-      return null;
-    }
-
-    final customer = customers[index];
-    final countryName = resolveDisplayCountry(
-      customer: customer,
-      countryNameByCode: countryNameByCode,
-      fallbackWhenMissing: '-',
-    );
-
-    return DataRow.byIndex(
-      index: index,
-      onSelectChanged: loading ? null : (_) => onOpenDetails(customer),
-      cells: [
-        DataCell(
-          Text(customer.cId, softWrap: false, overflow: TextOverflow.ellipsis),
-        ),
-        DataCell(
-          Text(
-            customer.cLastName,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        DataCell(
-          Text(
-            customer.cFirstName,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        DataCell(
-          Text(
-            customer.cCompany,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        DataCell(
-          Text(
-            customer.cCityB,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        DataCell(
-          Text(countryName, softWrap: false, overflow: TextOverflow.ellipsis),
-        ),
-        DataCell(
-          Text(
-            customer.cMail,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        DataCell(
-          Tooltip(
-            message: 'Location aus Koordinaten anzeigen',
-            child: IconButton(
-              icon: const Icon(Icons.map_outlined),
-              onPressed: loading ? null : () => onOpenMap(customer),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  int get rowCount => customers.length;
-
-  @override
-  bool get isRowCountApproximate => false;
-
-  @override
-  int get selectedRowCount => 0;
 }

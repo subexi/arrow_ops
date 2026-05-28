@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../features/customer/presentation/customer_page.dart';
-import '../features/item/presentation/item_catalogue_page.dart';
 import 'app_breakpoints.dart';
-import 'widgets/module_placeholder_page.dart';
+import 'app_module.dart';
 
 class ArrowOpsShell extends StatefulWidget {
-  const ArrowOpsShell({super.key});
+  const ArrowOpsShell({
+    super.key,
+    this.initialModuleId = ArrowOpsModuleId.customers,
+  });
+
+  final ArrowOpsModuleId initialModuleId;
 
   @override
   State<ArrowOpsShell> createState() => _ArrowOpsShellState();
@@ -16,43 +19,12 @@ class _ArrowOpsShellState extends State<ArrowOpsShell> {
   int _selectedIndex = 0;
   late final List<Widget?> _pages;
 
-  static const List<_ArrowOpsDestination> _destinations = [
-    _ArrowOpsDestination(
-      label: 'Kunden',
-      icon: Icons.people_outline,
-      selectedIcon: Icons.people,
-    ),
-    _ArrowOpsDestination(
-      label: 'Artikel',
-      icon: Icons.inventory_2_outlined,
-      selectedIcon: Icons.inventory_2,
-    ),
-    _ArrowOpsDestination(
-      label: 'Aufträge',
-      icon: Icons.assignment_outlined,
-      selectedIcon: Icons.assignment,
-    ),
-    _ArrowOpsDestination(
-      label: 'Rechnungen',
-      icon: Icons.receipt_long_outlined,
-      selectedIcon: Icons.receipt_long,
-    ),
-    _ArrowOpsDestination(
-      label: 'Auswertung',
-      icon: Icons.query_stats_outlined,
-      selectedIcon: Icons.query_stats,
-    ),
-    _ArrowOpsDestination(
-      label: 'Sync',
-      icon: Icons.cloud_sync_outlined,
-      selectedIcon: Icons.cloud_sync,
-    ),
-  ];
-
   @override
   void initState() {
     super.initState();
-    _pages = List<Widget?>.filled(_destinations.length, null);
+    final initialIndex = ArrowOpsModules.indexOf(widget.initialModuleId);
+    _selectedIndex = initialIndex < 0 ? 0 : initialIndex;
+    _pages = List<Widget?>.filled(ArrowOpsModules.all.length, null);
     _pages[_selectedIndex] = _buildPage(_selectedIndex);
   }
 
@@ -64,42 +36,7 @@ class _ArrowOpsShellState extends State<ArrowOpsShell> {
   }
 
   Widget _buildPage(int index) {
-    switch (index) {
-      case 0:
-        return const CustomerPage(showModuleNavigation: false);
-      case 1:
-        return const ItemCataloguePage();
-      case 2:
-        return const ModulePlaceholderPage(
-          title: 'Aufträge',
-          icon: Icons.assignment_outlined,
-          description:
-              'Hier entsteht die Auftragsbearbeitung mit Kunden-, Artikel- und Positionsdaten.',
-        );
-      case 3:
-        return const ModulePlaceholderPage(
-          title: 'Rechnungen',
-          icon: Icons.receipt_long_outlined,
-          description:
-              'Hier entsteht die Rechnungserstellung auf Grundlage fakturierter Aufträge.',
-        );
-      case 4:
-        return const ModulePlaceholderPage(
-          title: 'Auswertung',
-          icon: Icons.query_stats_outlined,
-          description:
-              'Hier entstehen statistische Auswertungen mit Kennzahlen und Diagrammen.',
-        );
-      case 5:
-        return const ModulePlaceholderPage(
-          title: 'Sync',
-          icon: Icons.cloud_sync_outlined,
-          description:
-              'Hier entsteht die Übersicht für iCloud-Synchronisation, Status und Konflikte.',
-        );
-      default:
-        return const CustomerPage(showModuleNavigation: false);
-    }
+    return ArrowOpsModules.all[index].buildPage(context);
   }
 
   @override
@@ -119,12 +56,12 @@ class _ArrowOpsShellState extends State<ArrowOpsShell> {
         bottomNavigationBar: NavigationBar(
           selectedIndex: _selectedIndex,
           onDestinationSelected: _selectDestination,
-          destinations: _destinations
+          destinations: ArrowOpsModules.all
               .map(
-                (destination) => NavigationDestination(
-                  icon: Icon(destination.icon),
-                  selectedIcon: Icon(destination.selectedIcon),
-                  label: destination.label,
+                (module) => NavigationDestination(
+                  icon: Icon(module.icon),
+                  selectedIcon: Icon(module.selectedIcon),
+                  label: module.label,
                 ),
               )
               .toList(growable: false),
@@ -148,12 +85,12 @@ class _ArrowOpsShellState extends State<ArrowOpsShell> {
                 color: Theme.of(context).colorScheme.primary,
               ),
             ),
-            destinations: _destinations
+            destinations: ArrowOpsModules.all
                 .map(
-                  (destination) => NavigationRailDestination(
-                    icon: Icon(destination.icon),
-                    selectedIcon: Icon(destination.selectedIcon),
-                    label: Text(destination.label),
+                  (module) => NavigationRailDestination(
+                    icon: Icon(module.icon),
+                    selectedIcon: Icon(module.selectedIcon),
+                    label: Text(module.label),
                   ),
                 )
                 .toList(growable: false),
@@ -168,16 +105,4 @@ class _ArrowOpsShellState extends State<ArrowOpsShell> {
       ),
     );
   }
-}
-
-class _ArrowOpsDestination {
-  const _ArrowOpsDestination({
-    required this.label,
-    required this.icon,
-    required this.selectedIcon,
-  });
-
-  final String label;
-  final IconData icon;
-  final IconData selectedIcon;
 }

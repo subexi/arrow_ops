@@ -6,11 +6,13 @@ class ModulePlaceholderPage extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.description,
+    this.primaryAction,
   });
 
   final String title;
   final IconData icon;
   final String description;
+  final Widget? primaryAction;
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +20,7 @@ class ModulePlaceholderPage extends StatelessWidget {
       appBar: AppBar(title: Text(title)),
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
+          constraints: const BoxConstraints(maxWidth: 560),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -41,6 +43,10 @@ class ModulePlaceholderPage extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium,
                   textAlign: TextAlign.center,
                 ),
+                if (primaryAction != null) ...[
+                  const SizedBox(height: 24),
+                  primaryAction!,
+                ],
               ],
             ),
           ),
