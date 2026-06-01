@@ -6,7 +6,6 @@ class ItemCatalogueRow {
     this.icIdv = '',
     this.icDescriptionDeLong = '',
     this.icDescriptionEnLong = '',
-    this.icColorCode = '',
     this.icPriceNet = 0,
     this.icPriceWholesaleNet = 0,
     this.icPurchasePriceNet = 0,
@@ -25,7 +24,6 @@ class ItemCatalogueRow {
   final String icIdv;
   final String icDescriptionDeLong;
   final String icDescriptionEnLong;
-  final String icColorCode;
   final double icPriceNet;
   final double icPriceWholesaleNet;
   final double icPurchasePriceNet;
@@ -45,7 +43,6 @@ class ItemCatalogueRow {
       icIdv: _string(map['ic_idv']),
       icDescriptionDeLong: _string(map['ic_description_de_long']),
       icDescriptionEnLong: _string(map['ic_description_en_long']),
-      icColorCode: _string(map['ic_color_code']),
       icPriceNet: _double(map['ic_price_net']),
       icPriceWholesaleNet: _double(map['ic_price_wholesale_net']),
       icPurchasePriceNet: _double(map['ic_purchase_price_net']),
@@ -67,7 +64,6 @@ class ItemCatalogueRow {
       'ic_idv': icIdv,
       'ic_description_de_long': icDescriptionDeLong,
       'ic_description_en_long': icDescriptionEnLong,
-      'ic_color_code': icColorCode,
       'ic_price_net': icPriceNet,
       'ic_price_wholesale_net': icPriceWholesaleNet,
       'ic_purchase_price_net': icPurchasePriceNet,
@@ -88,7 +84,6 @@ class ItemCatalogueRow {
     String? icIdv,
     String? icDescriptionDeLong,
     String? icDescriptionEnLong,
-    String? icColorCode,
     double? icPriceNet,
     double? icPriceWholesaleNet,
     double? icPurchasePriceNet,
@@ -107,7 +102,6 @@ class ItemCatalogueRow {
       icIdv: icIdv ?? this.icIdv,
       icDescriptionDeLong: icDescriptionDeLong ?? this.icDescriptionDeLong,
       icDescriptionEnLong: icDescriptionEnLong ?? this.icDescriptionEnLong,
-      icColorCode: icColorCode ?? this.icColorCode,
       icPriceNet: icPriceNet ?? this.icPriceNet,
       icPriceWholesaleNet: icPriceWholesaleNet ?? this.icPriceWholesaleNet,
       icPurchasePriceNet: icPurchasePriceNet ?? this.icPurchasePriceNet,

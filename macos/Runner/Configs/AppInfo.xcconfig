@@ -12,3 +12,6 @@ PRODUCT_BUNDLE_IDENTIFIER = com.example.arrowOps
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+
+// Keep TOOLCHAIN_DIR stable to avoid transient Metal cryptex linker search paths.
+TOOLCHAIN_DIR = $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain

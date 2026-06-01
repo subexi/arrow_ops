@@ -35,7 +35,6 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   late final TextEditingController _idvController;
   late final TextEditingController _descriptionDeController;
   late final TextEditingController _descriptionEnController;
-  late final TextEditingController _colorCodeController;
   late final TextEditingController _priceNetController;
   late final TextEditingController _priceWholesaleNetController;
   late final TextEditingController _purchasePriceNetController;
@@ -59,7 +58,6 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     _idvController = TextEditingController(text: initialValue?.icIdv ?? '');
     _descriptionDeController = TextEditingController(text: initialValue?.icDescriptionDeLong ?? '');
     _descriptionEnController = TextEditingController(text: initialValue?.icDescriptionEnLong ?? '');
-    _colorCodeController = TextEditingController(text: initialValue?.icColorCode ?? '');
     _priceNetController = TextEditingController(text: _decimalText(initialValue?.icPriceNet, 2));
     _priceWholesaleNetController = TextEditingController(text: _decimalText(initialValue?.icPriceWholesaleNet, 2));
     _purchasePriceNetController = TextEditingController(text: _decimalText(initialValue?.icPurchasePriceNet, 2));
@@ -80,7 +78,6 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     _idvController.dispose();
     _descriptionDeController.dispose();
     _descriptionEnController.dispose();
-    _colorCodeController.dispose();
     _priceNetController.dispose();
     _priceWholesaleNetController.dispose();
     _purchasePriceNetController.dispose();
@@ -419,7 +416,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                 const SizedBox(height: 12),
                 _compactRow([
                   _field(_ideController, 'Bezeichnung extern', enabled: canEdit, readOnly: readOnly),
-                  _field(_idvController, 'ID-Version', enabled: canEdit, readOnly: readOnly),
+                  _field(_idvController, 'Variante', enabled: canEdit, readOnly: readOnly),
                 ]),
                 const SizedBox(height: 12),
                 _field(
@@ -450,10 +447,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                   },
                 ),
                 const SizedBox(height: 12),
-                _compactRow([
-                  _field(_colorCodeController, 'Farbe', enabled: canEdit, readOnly: readOnly),
-                  _field(_sourceOfSupplyController, 'Lieferant', enabled: canEdit, readOnly: readOnly),
-                ]),
+                _field(_sourceOfSupplyController, 'Lieferant', enabled: canEdit, readOnly: readOnly),
                 const SizedBox(height: 12),
                 _compactRow([
                   _field(
@@ -543,7 +537,6 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                 icIdv: _text(_idvController),
                 icDescriptionDeLong: _text(_descriptionDeController),
                 icDescriptionEnLong: _text(_descriptionEnController),
-                icColorCode: _text(_colorCodeController),
                 icPriceNet: _parseDouble(_priceNetController),
                 icPriceWholesaleNet: _parseDouble(_priceWholesaleNetController),
                 icPurchasePriceNet: _parseDouble(_purchasePriceNetController),

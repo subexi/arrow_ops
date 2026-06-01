@@ -57,6 +57,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   int? _selectedCatalogueId;
   int? _selectedBomId;
   _CatalogueFilter _catalogueFilter = _CatalogueFilter.all;
+  _VariantFilter _variantFilter = _VariantFilter.all;
   int _catalogueSortColumnIndex = 0;
   bool _catalogueSortAscending = true;
   int _bomSortColumnIndex = 0;
@@ -71,6 +72,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   static const List<String> _catalogueSortLabels = [
     'Artikel-ID',
     'Bezeichnung',
+    'Variante',
     'Bruttopreis',
     'Nettopreis',
     'Netto Haendlerpreis',
@@ -355,7 +357,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       ),
       _CatalogueExportField(
         key: 'ic_idv',
-        label: 'ic_idv',
+        label: 'Variante',
         csvHeader: 'ic_idv',
         value: (row) => row.icIdv,
       ),
@@ -370,12 +372,6 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         label: 'Beschreibung EN',
         csvHeader: 'ic_description_en_long',
         value: (row) => row.icDescriptionEnLong,
-      ),
-      _CatalogueExportField(
-        key: 'ic_color_code',
-        label: 'Farbcode',
-        csvHeader: 'ic_color_code',
-        value: (row) => row.icColorCode,
       ),
       _CatalogueExportField(
         key: 'ic_price_net',
@@ -1581,9 +1577,21 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     }
   }
 
+  bool _matchesVariantFilter(ItemCatalogueRow item) {
+    final variantValue = item.icIdv.trim();
+    switch (_variantFilter) {
+      case _VariantFilter.all:
+        return true;
+      case _VariantFilter.withVariants:
+        return variantValue != '-';
+      case _VariantFilter.withoutVariants:
+        return variantValue == '-';
+    }
+  }
+
   List<ItemCatalogueRow> _visibleCatalogueRows() {
     final result = _catalogueItems
-        .where((item) => _matchesCatalogueQuery(item) && _matchesCatalogueFilter(item))
+        .where((item) => _matchesCatalogueQuery(item) && _matchesCatalogueFilter(item) && _matchesVariantFilter(item))
         .toList();
     result.sort((a, b) {
       final compare = _compareCatalogueByColumn(a, b, _catalogueSortColumnIndex);
@@ -1614,18 +1622,20 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case 1:
         return a.icIdi.toLowerCase().compareTo(b.icIdi.toLowerCase());
       case 2:
-        return _grossPrice(a.icPriceNet).compareTo(_grossPrice(b.icPriceNet));
+        return a.icIdv.toLowerCase().compareTo(b.icIdv.toLowerCase());
       case 3:
-        return a.icPriceNet.compareTo(b.icPriceNet);
+        return _grossPrice(a.icPriceNet).compareTo(_grossPrice(b.icPriceNet));
       case 4:
-        return a.icPriceWholesaleNet.compareTo(b.icPriceWholesaleNet);
+        return a.icPriceNet.compareTo(b.icPriceNet);
       case 5:
-        return a.icPurchasePriceNet.compareTo(b.icPurchasePriceNet);
+        return a.icPriceWholesaleNet.compareTo(b.icPriceWholesaleNet);
       case 6:
-        return a.icWeight.compareTo(b.icWeight);
+        return a.icPurchasePriceNet.compareTo(b.icPurchasePriceNet);
       case 7:
-        return a.icHts.toLowerCase().compareTo(b.icHts.toLowerCase());
+        return a.icWeight.compareTo(b.icWeight);
       case 8:
+        return a.icHts.toLowerCase().compareTo(b.icHts.toLowerCase());
+      case 9:
         return a.icStock.compareTo(b.icStock);
       default:
         return a.icId.compareTo(b.icId);
@@ -2400,14 +2410,39 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                         onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.all),
                       ),
                       ChoiceChip(
-                        label: const Text('ZB Komponenten'),
+                        label: const Text('ZB-Komponenten'),
                         selected: _catalogueFilter == _CatalogueFilter.zbOnly,
                         onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.zbOnly),
                       ),
                       ChoiceChip(
-                        label: const Text('ohne ZB Komponenten'),
+                        label: const Text('ohne ZB-Komponenten'),
                         selected: _catalogueFilter == _CatalogueFilter.withoutZb,
                         onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        key: const ValueKey('variant-filter-all'),
+                        label: const Text('Alle Varianten'),
+                        selected: _variantFilter == _VariantFilter.all,
+                        onSelected: (_) => setState(() => _variantFilter = _VariantFilter.all),
+                      ),
+                      ChoiceChip(
+                        key: const ValueKey('variant-filter-with'),
+                        label: const Text('Varianten'),
+                        selected: _variantFilter == _VariantFilter.withVariants,
+                        onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withVariants),
+                      ),
+                      ChoiceChip(
+                        key: const ValueKey('variant-filter-without'),
+                        label: const Text('ohne Varianten'),
+                        selected: _variantFilter == _VariantFilter.withoutVariants,
+                        onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withoutVariants),
                       ),
                     ],
                   ),
@@ -2442,14 +2477,39 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                     onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.all),
                   ),
                   ChoiceChip(
-                    label: const Text('ZB Komponenten'),
+                    label: const Text('ZB-Komponenten'),
                     selected: _catalogueFilter == _CatalogueFilter.zbOnly,
                     onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.zbOnly),
                   ),
                   ChoiceChip(
-                    label: const Text('ohne ZB Komponenten'),
+                    label: const Text('ohne ZB-Komponenten'),
                     selected: _catalogueFilter == _CatalogueFilter.withoutZb,
                     onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                  ),
+                ],
+              ),
+              SizedBox(height: compactVerticalSpacing ? 6 : 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    key: const ValueKey('variant-filter-all'),
+                    label: const Text('Alle Varianten'),
+                    selected: _variantFilter == _VariantFilter.all,
+                    onSelected: (_) => setState(() => _variantFilter = _VariantFilter.all),
+                  ),
+                  ChoiceChip(
+                    key: const ValueKey('variant-filter-with'),
+                    label: const Text('Varianten'),
+                    selected: _variantFilter == _VariantFilter.withVariants,
+                    onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withVariants),
+                  ),
+                  ChoiceChip(
+                    key: const ValueKey('variant-filter-without'),
+                    label: const Text('ohne Varianten'),
+                    selected: _variantFilter == _VariantFilter.withoutVariants,
+                    onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withoutVariants),
                   ),
                 ],
               ),
@@ -2480,7 +2540,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                       builder: (context, constraints) {
                         final isCompact = constraints.maxWidth < 1180;
                         final useExternalScroll = Platform.isIOS;
-                        const tableMinWidth = 1150.0;
+                        const tableMinWidth = 1260.0;
 
                         final columns = [
                           DataColumn2(
@@ -2492,6 +2552,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                           DataColumn2(
                             size: ColumnSize.L,
                             label: _leftAlignedHeader('Bezeichnung'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.M,
+                            label: _leftAlignedHeader('Variante'),
                             headingRowAlignment: MainAxisAlignment.start,
                             onSort: _onCatalogueSort,
                           ),
@@ -2560,6 +2626,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                 cells: [
                                   _catalogueDetailCell(Text(item.icId.toString()), item),
                                   _catalogueDetailCell(Text(item.icIdi), item),
+                                  _catalogueDetailCell(Text(item.icIdv), item),
                                   _catalogueDetailCell(Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPriceNet, 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPriceWholesaleNet, 2)), item),
@@ -2577,6 +2644,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                           const iosHeaders = <String>[
                             'Artikel-ID',
                             'Bezeichnung',
+                            'Variante',
                             'Bruttopreis\nincl. 19%',
                             'Nettopreis',
                             'Netto\nHaendlerpreis',
@@ -2586,7 +2654,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                             'Bestand',
                             'Bild',
                           ];
-                          const iosColumnWidths = <double>[90, 220, 130, 110, 150, 150, 100, 100, 90, 72];
+                          const iosColumnWidths = <double>[90, 220, 120, 130, 110, 150, 150, 100, 100, 90, 72];
                           final iosColumnsTotalWidth = iosColumnWidths.fold<double>(0, (sum, width) => sum + width);
                           final iosTableWidth = iosColumnsTotalWidth > tableMinWidth ? iosColumnsTotalWidth : tableMinWidth;
                           final hideIosHeader = constraints.maxHeight < 140;
@@ -2675,14 +2743,15 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                                   children: [
                                                     buildIosCell(iosColumnWidths[0], Text(item.icId.toString()), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[1], Text(item.icIdi), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[2], Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[3], Text(_formatDecimal(item.icPriceNet, 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[4], Text(_formatDecimal(item.icPriceWholesaleNet, 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[5], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[6], Text(_formatDecimal(item.icWeight, 1)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[7], Text(item.icHts), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[8], Text(item.icStock.toString()), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[9], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
+                                                    buildIosCell(iosColumnWidths[2], Text(item.icIdv), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[3], Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[4], Text(_formatDecimal(item.icPriceNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[5], Text(_formatDecimal(item.icPriceWholesaleNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[6], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[7], Text(_formatDecimal(item.icWeight, 1)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[8], Text(item.icHts), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[9], Text(item.icStock.toString()), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[10], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
                                                   ],
                                                 ),
                                               ),
@@ -3250,6 +3319,12 @@ enum _CatalogueFilter {
   all,
   zbOnly,
   withoutZb,
+}
+
+enum _VariantFilter {
+  all,
+  withVariants,
+  withoutVariants,
 }
 
 enum _DuplicateMode {

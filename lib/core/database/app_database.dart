@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 4;
+  static const int _currentVersion = 5;
 
   Database? _database;
 
@@ -20,6 +20,7 @@ class AppDatabase {
     DatabaseMigration(version: 2, run: _migrationV2),
     DatabaseMigration(version: 3, run: _migrationV3),
     DatabaseMigration(version: 4, run: _migrationV4),
+    DatabaseMigration(version: 5, run: _migrationV5),
   ];
 
   Future<Database> get database async {
@@ -237,5 +238,77 @@ class AppDatabase {
         );
       }
     }
+  }
+
+  static Future<void> _migrationV5(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(item_catalogue)');
+    final hasColorColumn = columns.any((column) => column['name'] == 'ic_color_code');
+
+    if (!hasColorColumn) {
+      return;
+    }
+
+    await db.execute('''
+      CREATE TABLE item_catalogue_v5 (
+        ic_id INTEGER NOT NULL,
+        ic_idi TEXT,
+        ic_ide TEXT,
+        ic_idv TEXT,
+        ic_description_de_long TEXT,
+        ic_description_en_long TEXT,
+        ic_price_net REAL,
+        ic_price_wholesale_net REAL,
+        ic_purchase_price_net REAL,
+        ic_weight REAL,
+        ic_source_of_supply TEXT,
+        ic_hts TEXT,
+        ic_image_path TEXT,
+        ic_note TEXT,
+        ic_stock INTEGER,
+        ic_ic INTEGER
+      )
+    ''');
+
+    await db.execute('''
+      INSERT INTO item_catalogue_v5 (
+        ic_id,
+        ic_idi,
+        ic_ide,
+        ic_idv,
+        ic_description_de_long,
+        ic_description_en_long,
+        ic_price_net,
+        ic_price_wholesale_net,
+        ic_purchase_price_net,
+        ic_weight,
+        ic_source_of_supply,
+        ic_hts,
+        ic_image_path,
+        ic_note,
+        ic_stock,
+        ic_ic
+      )
+      SELECT
+        ic_id,
+        ic_idi,
+        ic_ide,
+        ic_idv,
+        ic_description_de_long,
+        ic_description_en_long,
+        ic_price_net,
+        ic_price_wholesale_net,
+        ic_purchase_price_net,
+        ic_weight,
+        ic_source_of_supply,
+        ic_hts,
+        ic_image_path,
+        ic_note,
+        ic_stock,
+        ic_ic
+      FROM item_catalogue
+    ''');
+
+    await db.execute('DROP TABLE item_catalogue');
+    await db.execute('ALTER TABLE item_catalogue_v5 RENAME TO item_catalogue');
   }
 }
