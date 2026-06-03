@@ -355,10 +355,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _resolveItalianStateInControllers(billing: false);
     _resolveUSStateInControllers(billing: true);
     _resolveUSStateInControllers(billing: false);
-    if (_isItaly(_countryBId) || _isUSA(_countryBId)) {
+    _resolveAustraliaStateInControllers(billing: true);
+    _resolveAustraliaStateInControllers(billing: false);
+    if (_isItaly(_countryBId) || _isUSA(_countryBId) || _isAustralia(_countryBId)) {
       _updateStateFromCountryAndPostalCode(billing: true);
     }
-    if (_isItaly(_countryDId) || _isUSA(_countryDId)) {
+    if (_isItaly(_countryDId) || _isUSA(_countryDId) || _isAustralia(_countryDId)) {
       _updateStateFromCountryAndPostalCode(billing: false);
     }
 
@@ -466,6 +468,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     return isItalyCountry(countryId);
   }
 
+  bool _isAustralia(String? countryId) {
+    return isAustraliaCountry(countryId);
+  }
+
   void _resolveItalianStateInControllers({required bool billing}) {
     final countryId = billing ? _countryBId : _countryDId;
     if (!_isItaly(countryId)) {
@@ -502,6 +508,21 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     cityControl.text = appendUSStateAbbreviationToCity(
       city: cityControl.text,
       administrativeUnit: stateControl.text,
+    );
+  }
+
+  void _resolveAustraliaStateInControllers({required bool billing}) {
+    final countryId = billing ? _countryBId : _countryDId;
+    if (!_isAustralia(countryId)) {
+      return;
+    }
+
+    final cityControl = billing ? _cityBControl : _cityDControl;
+    final stateControl = billing ? _stateBControl : _stateDControl;
+    stateControl.text = resolveAustralianStateAdministrativeUnit(
+      countryCode: countryId,
+      currentState: stateControl.text,
+      city: cityControl.text,
     );
   }
 
@@ -587,9 +608,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     return mapping[tld] ?? tld;
   }
 
+  bool _isIsoAlpha2CountryCode(String value) {
+    return RegExp(r'^[a-z]{2}$').hasMatch(value);
+  }
+
   Future<void> _fetchCoordinates() async {
     final rawCode = _countryDId?.trim().toLowerCase() ?? '';
-    final countryCode = _tldToIso(rawCode);
+    final resolvedCountryCode = _tldToIso(rawCode).trim().toLowerCase();
+    final countryCode =
+        _isIsoAlpha2CountryCode(resolvedCountryCode) ? resolvedCountryCode : '';
     final countryName = _countryNameForId(_countryDId);
 
     final street = _streetDControl.text.trim();
@@ -628,6 +655,14 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
       var results = await _nominatimSearch(structuredParams);
 
+      // Bei Tippfehlern im Ortsnamen hilft oft ein Retry ohne Stadtfeld.
+      if (results.isEmpty && city.isNotEmpty) {
+        final structuredParamsWithoutCity = Map<String, String>.from(
+          structuredParams,
+        )..remove('city');
+        results = await _nominatimSearch(structuredParamsWithoutCity);
+      }
+
       // 2. Fallback: freie Suche (besser bei unvollständigen Adressen)
       if (results.isEmpty) {
         final freeParts = [
@@ -645,6 +680,26 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         if (countryCode.isNotEmpty) freeParams['countrycodes'] = countryCode;
 
         results = await _nominatimSearch(freeParams);
+
+        if (results.isEmpty && city.isNotEmpty) {
+          final freePartsWithoutCity = [
+            streetWithNumber,
+            if (postalCode.isNotEmpty) postalCode,
+            if (countryCode.isEmpty && countryName.isNotEmpty) countryName,
+          ].where((s) => s.isNotEmpty).toList();
+
+          if (freePartsWithoutCity.isNotEmpty) {
+            final freeParamsWithoutCity = <String, String>{
+              'q': freePartsWithoutCity.join(', '),
+              'format': 'json',
+              'limit': '1',
+            };
+            if (countryCode.isNotEmpty) {
+              freeParamsWithoutCity['countrycodes'] = countryCode;
+            }
+            results = await _nominatimSearch(freeParamsWithoutCity);
+          }
+        }
       }
 
       if (!mounted) return;
@@ -743,6 +798,23 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       resolvedState = await _resolveGermanState(postalCode);
     } else if (_isUSA(countryId)) {
       resolvedState = await _resolveUSState(postalCode);
+    } else if (_isAustralia(countryId)) {
+      resolvedState = resolveAustralianStateAdministrativeUnit(
+        countryCode: countryId,
+        currentState: currentState,
+        city: city,
+      );
+      final isUnresolvedAustralianState =
+          resolvedState.trim().isEmpty || resolvedState.trim() == '-';
+      if (isUnresolvedAustralianState) {
+        final resolvedByLookup = await _resolveAustralianStateFromNominatim(
+          postalCode: postalCode,
+          city: city,
+        );
+        if (resolvedByLookup != null && resolvedByLookup.isNotEmpty) {
+          resolvedState = resolvedByLookup;
+        }
+      }
     } else if (_isItaly(countryId)) {
       resolvedState = resolveItalianBillingProvince(
         countryCode: countryId,
@@ -810,6 +882,65 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
 
     _updateStateFromCountryAndPostalCode(billing: billing);
+  }
+
+  Future<String?> _resolveAustralianStateFromNominatim({
+    required String postalCode,
+    required String city,
+  }) async {
+    final normalizedPostalCode = postalCode.trim();
+    final normalizedCity = city.trim();
+    if (normalizedPostalCode.isEmpty && normalizedCity.isEmpty) {
+      return null;
+    }
+
+    final params = <String, String>{
+      'format': 'json',
+      'limit': '1',
+      'addressdetails': '1',
+      'countrycodes': 'au',
+    };
+    if (normalizedPostalCode.isNotEmpty) {
+      params['postalcode'] = normalizedPostalCode;
+    }
+    if (normalizedCity.isNotEmpty) {
+      params['city'] = normalizedCity;
+    }
+
+    var results = await _nominatimSearch(params);
+    if (results.isEmpty && normalizedCity.isNotEmpty) {
+      final paramsWithoutCity = Map<String, String>.from(params)..remove('city');
+      results = await _nominatimSearch(paramsWithoutCity);
+    }
+    if (results.isEmpty) {
+      return null;
+    }
+
+    final first = results.first;
+    if (first is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final address = first['address'];
+    if (address is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final stateFull = address['state']?.toString().trim() ?? '';
+    final isoRaw = address['ISO3166-2-lvl4']?.toString().trim() ?? '';
+    final isoShort = isoRaw.contains('-') ? isoRaw.split('-').last.trim() : isoRaw;
+
+    final mergedState =
+        isoShort.isEmpty
+            ? stateFull
+            : (stateFull.isEmpty ? isoShort : '$isoShort - $stateFull');
+
+    final resolved = resolveAustralianStateAdministrativeUnit(
+      countryCode: 'au',
+      currentState: mergedState,
+      city: normalizedCity,
+    );
+    return resolved == '-' ? null : resolved;
   }
 
   Future<String?> _resolveItalianStateFromNominatim({
@@ -978,6 +1109,17 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         city: _cityBControl.text,
         administrativeUnit: _stateBControl.text,
       );
+    } else if (_isAustralia(_countryBId)) {
+      final billingState = await _resolveAustralianStateFromNominatim(
+        postalCode: _postalCodeBControl.text,
+        city: _cityBControl.text,
+      );
+      if (!mounted) {
+        return false;
+      }
+      if (billingState != null && billingState.isNotEmpty) {
+        _stateBControl.text = billingState;
+      }
     }
     if (_streetDControl.text.trim().isEmpty) {
       _showDialogSnackBar('Straße (Lieferadresse) erforderlich', type: _DialogSnackBarType.validation);
@@ -1041,6 +1183,17 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         city: _cityDControl.text,
         administrativeUnit: _stateDControl.text,
       );
+    } else if (_isAustralia(_countryDId)) {
+      final deliveryState = await _resolveAustralianStateFromNominatim(
+        postalCode: _postalCodeDControl.text,
+        city: _cityDControl.text,
+      );
+      if (!mounted) {
+        return false;
+      }
+      if (deliveryState != null && deliveryState.isNotEmpty) {
+        _stateDControl.text = deliveryState;
+      }
     }
     final mail = _mailControl.text.trim();
     if (mail.isNotEmpty && mail != '-') {

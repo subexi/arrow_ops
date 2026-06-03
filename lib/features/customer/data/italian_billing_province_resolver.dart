@@ -163,6 +163,33 @@ bool isUsCountry(String? countryCode) {
       normalizedCountry == 'vereinigte staaten';
 }
 
+bool isAustraliaCountry(String? countryCode) {
+  final normalizedCountry = countryCode?.trim().toLowerCase();
+  return normalizedCountry == 'au' ||
+      normalizedCountry == 'australia' ||
+      normalizedCountry == 'australien';
+}
+
+String resolveAustralianStateAdministrativeUnit({
+  required String? countryCode,
+  required String? currentState,
+  String? city,
+}) {
+  final normalizedState = currentState?.trim();
+  final isAustralia = isAustraliaCountry(countryCode);
+  if (!isAustralia) {
+    return normalizedState == null || normalizedState.isEmpty ? '-' : normalizedState;
+  }
+
+  if (normalizedState != null && normalizedState.isNotEmpty && normalizedState != '-') {
+    final canonical = _canonicalAustralianStateFromText(normalizedState);
+    return canonical ?? normalizedState;
+  }
+
+  final canonicalFromCity = _canonicalAustralianStateFromText(city ?? '');
+  return canonicalFromCity ?? '-';
+}
+
 String? _provinceCodeFromAdministrativeUnit(String? administrativeUnit) {
   final trimmed = administrativeUnit?.trim() ?? '';
   if (trimmed.isEmpty || trimmed == '-') {
@@ -198,6 +225,40 @@ String? _canonicalUSStateFromText(String text) {
   }
 
   for (final entry in _usStateNameByCode.entries) {
+    final normalizedStateName = _normalizeCityToken(entry.value) ?? '';
+    if (normalizedStateName == normalized) {
+      return '${entry.key}-${entry.value}';
+    }
+  }
+
+  return null;
+}
+
+String? _canonicalAustralianStateFromText(String text) {
+  final normalized = _normalizeCityToken(text);
+  if (normalized == null) {
+    return null;
+  }
+
+  final directCode = normalized.toUpperCase();
+  final directName = _auStateNameByCode[directCode];
+  if (directName != null) {
+    return '$directCode-$directName';
+  }
+
+  final matches = RegExp(r'\b([a-z]{2,3})\b').allMatches(normalized);
+  for (final match in matches) {
+    final code = match.group(1)?.toUpperCase();
+    if (code == null) {
+      continue;
+    }
+    final name = _auStateNameByCode[code];
+    if (name != null) {
+      return '$code-$name';
+    }
+  }
+
+  for (final entry in _auStateNameByCode.entries) {
     final normalizedStateName = _normalizeCityToken(entry.value) ?? '';
     if (normalizedStateName == normalized) {
       return '${entry.key}-${entry.value}';
@@ -474,6 +535,17 @@ const Map<String, String> _usStateNameByCode = {
   'WI': 'Wisconsin',
   'WY': 'Wyoming',
   'DC': 'District of Columbia',
+};
+
+const Map<String, String> _auStateNameByCode = {
+  'NSW': 'New South Wales',
+  'VIC': 'Victoria',
+  'QLD': 'Queensland',
+  'SA': 'South Australia',
+  'WA': 'Western Australia',
+  'TAS': 'Tasmania',
+  'NT': 'Northern Territory',
+  'ACT': 'Australian Capital Territory',
 };
 
 String? _provinceFromName(String normalizedName) {
