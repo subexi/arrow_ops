@@ -14,11 +14,13 @@ class ItemCatalogueFormDialog extends StatefulWidget {
     required this.nextId,
     this.initialValue,
     this.readOnly = false,
+    this.lockPurchasePriceNet = false,
   });
 
   final int nextId;
   final ItemCatalogueRow? initialValue;
   final bool readOnly;
+  final bool lockPurchasePriceNet;
 
   @override
   State<ItemCatalogueFormDialog> createState() => _ItemCatalogueFormDialogState();
@@ -29,7 +31,6 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
 
   bool get _isWide => MediaQuery.of(context).size.width >= 760;
 
-  late final TextEditingController _idController;
   late final TextEditingController _idiController;
   late final TextEditingController _ideController;
   late final TextEditingController _idvController;
@@ -52,7 +53,6 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   void initState() {
     super.initState();
     final initialValue = widget.initialValue;
-    _idController = TextEditingController(text: (initialValue?.icId ?? widget.nextId).toString());
     _idiController = TextEditingController(text: initialValue?.icIdi ?? '');
     _ideController = TextEditingController(text: initialValue?.icIde ?? '');
     _idvController = TextEditingController(text: initialValue?.icIdv ?? '');
@@ -72,7 +72,6 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
 
   @override
   void dispose() {
-    _idController.dispose();
     _idiController.dispose();
     _ideController.dispose();
     _idvController.dispose();
@@ -125,15 +124,39 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
         labelText: label,
         border: const OutlineInputBorder(),
       ),
-      validator: (value) {
-        if (label == 'Artikel-ID' && (value == null || value.trim().isEmpty)) {
-          return 'Bitte eine ID angeben.';
-        }
-        if (label == 'Artikel-ID' && int.tryParse(value!.trim()) == null) {
-          return 'Bitte eine gueltige Zahl angeben.';
-        }
-        return null;
-      },
+    );
+  }
+
+  Widget _displayField(String label, String value) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      child: Text(value.trim().isEmpty ? '-' : value.trim()),
+    );
+  }
+
+  Widget _purchasePriceNetField({required bool canEdit, required bool readOnly}) {
+    final lock = widget.lockPurchasePriceNet && !readOnly;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _field(
+          _purchasePriceNetController,
+          'Netto-Einkaufspreis',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          enabled: canEdit,
+          readOnly: readOnly || lock,
+        ),
+        if (lock) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Wird automatisch aus den BOM-Kindartikeln berechnet.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ],
     );
   }
 
@@ -409,10 +432,23 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _compactRow([
-                  _field(_idController, 'Artikel-ID', enabled: !isEditing && canEdit, readOnly: readOnly),
-                  _field(_idiController, 'Bezeichnung', enabled: canEdit, readOnly: readOnly),
-                ]),
+                if (isEditing)
+                  _compactRow([
+                    _displayField('Artikel-ID', '${widget.initialValue?.icId ?? widget.nextId}'),
+                    _field(_idiController, 'Bezeichnung', enabled: canEdit, readOnly: readOnly),
+                  ])
+                else
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _field(_idiController, 'Bezeichnung', enabled: canEdit, readOnly: readOnly),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Artikel-ID wird beim Speichern automatisch vergeben.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 12),
                 _compactRow([
                   _field(_ideController, 'Bezeichnung extern', enabled: canEdit, readOnly: readOnly),
@@ -467,13 +503,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                 ]),
                 const SizedBox(height: 12),
                 _compactRow([
-                  _field(
-                    _purchasePriceNetController,
-                    'Netto-Einkaufspreis',
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    enabled: canEdit,
-                    readOnly: readOnly,
-                  ),
+                  _purchasePriceNetField(canEdit: canEdit, readOnly: readOnly),
                   _field(
                     _weightController,
                     'Gewicht in g',
@@ -531,7 +561,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
               }
 
               final result = ItemCatalogueRow(
-                icId: _parseInt(_idController),
+                icId: isEditing ? (widget.initialValue?.icId ?? widget.nextId) : widget.nextId,
                 icIdi: _text(_idiController),
                 icIde: _text(_ideController),
                 icIdv: _text(_idvController),

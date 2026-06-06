@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../core/database/app_database.dart';
+import '../domain/item_purchase_price_calculator.dart';
 import '../domain/item_models.dart';
 
 class DuplicateCatalogueResult {
@@ -18,6 +19,16 @@ class DuplicateCatalogueResult {
 class ItemRepository {
   const ItemRepository();
 
+  Future<void> syncDerivedPurchasePrices({Set<int> excludedArticleIds = const {}}) async {
+    final db = await AppDatabase.instance.database;
+    await db.transaction((txn) async {
+      await _recalculatePurchasePricesInTransaction(
+        txn,
+        excludedArticleIds: excludedArticleIds,
+      );
+    });
+  }
+
   Future<List<ItemCatalogueRow>> getCatalogueItems() async {
     final db = await AppDatabase.instance.database;
     final rows = await db.query('item_catalogue', orderBy: 'ic_id ASC');
@@ -27,10 +38,14 @@ class ItemRepository {
   Future<int> deleteOrphanBomItems({required Set<int> validCatalogueIds}) async {
     final db = await AppDatabase.instance.database;
     return db.transaction((txn) async {
-      return _deleteOrphanBomItemsInTransaction(
+      final deleted = await _deleteOrphanBomItemsInTransaction(
         txn,
         validCatalogueIds: validCatalogueIds,
       );
+      if (deleted > 0) {
+        await _recalculatePurchasePricesInTransaction(txn);
+      }
+      return deleted;
     });
   }
 
@@ -63,6 +78,7 @@ class ItemRepository {
 
       final remaining = await _fetchBomRows(txn);
       await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(remaining)));
+      await _recalculatePurchasePricesInTransaction(txn);
       return rootOnlyIds.length;
     });
   }
@@ -111,6 +127,8 @@ class ItemRepository {
         await txn.insert('item_catalogue', item.toMap());
       }
     });
+
+    await syncDerivedPurchasePrices(excludedArticleIds: {item.icId});
   }
 
   Future<DuplicateCatalogueResult> duplicateCatalogueItemWithBom(
@@ -265,6 +283,7 @@ class ItemRepository {
 
       final remainingBomRows = await _fetchBomRows(txn);
       await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(remainingBomRows)));
+      await _recalculatePurchasePricesInTransaction(txn);
     });
   }
 
@@ -284,6 +303,7 @@ class ItemRepository {
       if (updated == 0) {
         await txn.insert('item_bom', normalized.toMap());
       }
+      await _recalculatePurchasePricesInTransaction(txn);
     });
   }
 
@@ -337,6 +357,7 @@ class ItemRepository {
       grouped[targetParentId] = targetSiblings;
 
       await _writeBomRows(txn, _renumberBomRows(grouped));
+      await _recalculatePurchasePricesInTransaction(txn);
     });
   }
 
@@ -355,7 +376,62 @@ class ItemRepository {
 
       final remaining = await _fetchBomRows(txn);
       await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(remaining)));
+      await _recalculatePurchasePricesInTransaction(txn);
     });
+  }
+
+  Future<void> _recalculatePurchasePricesInTransaction(
+    Transaction txn, {
+    Set<int> excludedArticleIds = const {},
+  }) async {
+    await _ensureBomIdsInTransaction(txn);
+    final catalogueRowsRaw = await txn.query('item_catalogue', orderBy: 'ic_id ASC');
+    final catalogueRows = catalogueRowsRaw.map(ItemCatalogueRow.fromMap).toList(growable: false);
+    if (catalogueRows.isEmpty) {
+      return;
+    }
+
+    final bomRows = await _fetchBomRows(txn);
+    if (bomRows.isEmpty) {
+      return;
+    }
+
+    final derivedByArticleId = calculateDerivedPurchasePrices(
+      catalogueRows: catalogueRows,
+      bomRows: bomRows,
+    );
+
+    if (derivedByArticleId.isEmpty) {
+      return;
+    }
+
+    final catalogueById = {
+      for (final row in catalogueRows) row.icId: row,
+    };
+
+    for (final entry in derivedByArticleId.entries) {
+      final articleId = entry.key;
+      if (excludedArticleIds.contains(articleId)) {
+        // Den gerade manuell gespeicherten Artikel nicht sofort wieder ueberschreiben.
+        continue;
+      }
+      final derivedValue = entry.value;
+      final current = catalogueById[articleId];
+      if (current == null) {
+        continue;
+      }
+
+      if ((current.icPurchasePriceNet - derivedValue).abs() < 0.000001) {
+        continue;
+      }
+
+      await txn.update(
+        'item_catalogue',
+        {'ic_purchase_price_net': derivedValue},
+        where: 'ic_id = ?',
+        whereArgs: [articleId],
+      );
+    }
   }
 
   Future<List<ItemBomRow>> _fetchBomRows(Transaction txn) async {

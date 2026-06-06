@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 5;
+  static const int _currentVersion = 8;
 
   Database? _database;
 
@@ -21,6 +21,9 @@ class AppDatabase {
     DatabaseMigration(version: 3, run: _migrationV3),
     DatabaseMigration(version: 4, run: _migrationV4),
     DatabaseMigration(version: 5, run: _migrationV5),
+    DatabaseMigration(version: 6, run: _migrationV6),
+    DatabaseMigration(version: 7, run: _migrationV7),
+    DatabaseMigration(version: 8, run: _migrationV8),
   ];
 
   Future<Database> get database async {
@@ -310,5 +313,218 @@ class AppDatabase {
 
     await db.execute('DROP TABLE item_catalogue');
     await db.execute('ALTER TABLE item_catalogue_v5 RENAME TO item_catalogue');
+  }
+
+  static Future<void> _migrationV6(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS "order" (
+        o_id TEXT NOT NULL PRIMARY KEY,
+        o_customer_id TEXT NOT NULL,
+        o_dealer INTEGER NOT NULL DEFAULT 0,
+        o_date TEXT NOT NULL,
+        o_currency TEXT NOT NULL DEFAULT 'EUR',
+        o_vat_rate REAL NOT NULL,
+        o_shipping REAL NOT NULL,
+        o_value_goods REAL NOT NULL,
+        o_total_price REAL NOT NULL,
+        o_vat REAL NOT NULL,
+        o_total_weight REAL NOT NULL,
+        o_pay_date TEXT NOT NULL,
+        o_payment INTEGER NOT NULL,
+        o_paypal_fee REAL NOT NULL,
+        o_delivery TEXT NOT NULL,
+        o_tracking_code TEXT NOT NULL,
+        o_note TEXT NOT NULL DEFAULT '-',
+        FOREIGN KEY (o_customer_id) REFERENCES customer(c_id)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS item_ordered (
+        io_id INTEGER NOT NULL PRIMARY KEY,
+        io_order_id TEXT NOT NULL,
+        io_pos INTEGER NOT NULL,
+        io_quantity INTEGER NOT NULL,
+        io_item_id INTEGER NOT NULL,
+        io_idi TEXT NOT NULL,
+        io_description_de_long TEXT NOT NULL,
+        io_description_en_long TEXT NOT NULL,
+        io_color TEXT NOT NULL DEFAULT '-',
+        io_unit_price REAL NOT NULL DEFAULT 0,
+        io_discount REAL NOT NULL DEFAULT 0,
+        io_total_price REAL NOT NULL DEFAULT 0,
+        io_item_weight REAL NOT NULL DEFAULT 0,
+        io_total_weight REAL NOT NULL DEFAULT 0,
+        io_photo TEXT NOT NULL DEFAULT '-',
+        FOREIGN KEY (io_order_id) REFERENCES "order"(o_id),
+        FOREIGN KEY (io_item_id) REFERENCES item_catalogue(ic_id)
+      )
+    ''');
+  }
+
+  static Future<void> _migrationV7(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(item_catalogue)');
+    final hasPrimaryKey = columns.any(
+      (column) => column['name'] == 'ic_id' && (column['pk'] as int? ?? 0) == 1,
+    );
+
+    if (hasPrimaryKey) {
+      return;
+    }
+
+    await db.execute('''
+      CREATE TABLE item_catalogue_v7 (
+        ic_id INTEGER NOT NULL PRIMARY KEY,
+        ic_idi TEXT,
+        ic_ide TEXT,
+        ic_idv TEXT,
+        ic_description_de_long TEXT,
+        ic_description_en_long TEXT,
+        ic_price_net REAL,
+        ic_price_wholesale_net REAL,
+        ic_purchase_price_net REAL,
+        ic_weight REAL,
+        ic_source_of_supply TEXT,
+        ic_hts TEXT,
+        ic_image_path TEXT,
+        ic_note TEXT,
+        ic_stock INTEGER,
+        ic_ic INTEGER
+      )
+    ''');
+
+    await db.execute('''
+      INSERT OR REPLACE INTO item_catalogue_v7 (
+        ic_id,
+        ic_idi,
+        ic_ide,
+        ic_idv,
+        ic_description_de_long,
+        ic_description_en_long,
+        ic_price_net,
+        ic_price_wholesale_net,
+        ic_purchase_price_net,
+        ic_weight,
+        ic_source_of_supply,
+        ic_hts,
+        ic_image_path,
+        ic_note,
+        ic_stock,
+        ic_ic
+      )
+      SELECT
+        ic_id,
+        ic_idi,
+        ic_ide,
+        ic_idv,
+        ic_description_de_long,
+        ic_description_en_long,
+        ic_price_net,
+        ic_price_wholesale_net,
+        ic_purchase_price_net,
+        ic_weight,
+        ic_source_of_supply,
+        ic_hts,
+        ic_image_path,
+        ic_note,
+        ic_stock,
+        ic_ic
+      FROM item_catalogue
+    ''');
+
+    await db.execute('DROP TABLE item_catalogue');
+    await db.execute('ALTER TABLE item_catalogue_v7 RENAME TO item_catalogue');
+  }
+
+  static Future<void> _migrationV8(Database db) async {
+    final orderedColumns = await db.rawQuery('PRAGMA table_info(item_ordered)');
+    if (orderedColumns.isEmpty) {
+      // Falls item_ordered noch nicht existiert (z.B. bei inkonsistentem Altbestand), neu anlegen.
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS item_ordered (
+          io_id INTEGER NOT NULL PRIMARY KEY,
+          io_order_id TEXT NOT NULL,
+          io_pos INTEGER NOT NULL,
+          io_quantity INTEGER NOT NULL,
+          io_item_id INTEGER NOT NULL,
+          io_idi TEXT NOT NULL,
+          io_description_de_long TEXT NOT NULL,
+          io_description_en_long TEXT NOT NULL,
+          io_color TEXT NOT NULL DEFAULT '-',
+          io_unit_price REAL NOT NULL DEFAULT 0,
+          io_discount REAL NOT NULL DEFAULT 0,
+          io_total_price REAL NOT NULL DEFAULT 0,
+          io_item_weight REAL NOT NULL DEFAULT 0,
+          io_total_weight REAL NOT NULL DEFAULT 0,
+          io_photo TEXT NOT NULL DEFAULT '-',
+          FOREIGN KEY (io_order_id) REFERENCES "order"(o_id),
+          FOREIGN KEY (io_item_id) REFERENCES item_catalogue(ic_id)
+        )
+      ''');
+      return;
+    }
+
+    // Rebuild der Tabelle stellt sicher, dass FK-Metadaten zur aktuellen item_catalogue-Struktur passen.
+    await db.execute('''
+      CREATE TABLE item_ordered_v8 (
+        io_id INTEGER NOT NULL PRIMARY KEY,
+        io_order_id TEXT NOT NULL,
+        io_pos INTEGER NOT NULL,
+        io_quantity INTEGER NOT NULL,
+        io_item_id INTEGER NOT NULL,
+        io_idi TEXT NOT NULL,
+        io_description_de_long TEXT NOT NULL,
+        io_description_en_long TEXT NOT NULL,
+        io_color TEXT NOT NULL DEFAULT '-',
+        io_unit_price REAL NOT NULL DEFAULT 0,
+        io_discount REAL NOT NULL DEFAULT 0,
+        io_total_price REAL NOT NULL DEFAULT 0,
+        io_item_weight REAL NOT NULL DEFAULT 0,
+        io_total_weight REAL NOT NULL DEFAULT 0,
+        io_photo TEXT NOT NULL DEFAULT '-',
+        FOREIGN KEY (io_order_id) REFERENCES "order"(o_id),
+        FOREIGN KEY (io_item_id) REFERENCES item_catalogue(ic_id)
+      )
+    ''');
+
+    await db.execute('''
+      INSERT INTO item_ordered_v8 (
+        io_id,
+        io_order_id,
+        io_pos,
+        io_quantity,
+        io_item_id,
+        io_idi,
+        io_description_de_long,
+        io_description_en_long,
+        io_color,
+        io_unit_price,
+        io_discount,
+        io_total_price,
+        io_item_weight,
+        io_total_weight,
+        io_photo
+      )
+      SELECT
+        io_id,
+        io_order_id,
+        io_pos,
+        io_quantity,
+        io_item_id,
+        io_idi,
+        io_description_de_long,
+        io_description_en_long,
+        io_color,
+        io_unit_price,
+        io_discount,
+        io_total_price,
+        io_item_weight,
+        io_total_weight,
+        io_photo
+      FROM item_ordered
+    ''');
+
+    await db.execute('DROP TABLE item_ordered');
+    await db.execute('ALTER TABLE item_ordered_v8 RENAME TO item_ordered');
   }
 }

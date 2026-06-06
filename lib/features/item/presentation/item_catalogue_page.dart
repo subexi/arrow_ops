@@ -81,7 +81,14 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     'HTS Code',
     'Bestand',
   ];
-  static const List<String> _bomSortLabels = ['ID', 'Artikel-ID', 'Eltern Artikel (Katalog)', 'Menge', 'Bezeichnung'];
+  static const List<String> _bomSortLabels = [
+    'ID',
+    'Artikel-ID',
+    'Eltern Artikel (Katalog)',
+    'Menge',
+    'Bezeichnung',
+    'Netto-Einkaufspreis',
+  ];
   static const String _catalogueExportFieldPrefsKey = 'item_catalogue_export_fields';
   static const String _catalogueExportFieldOrderPrefsKey = 'item_catalogue_export_field_order';
   static const String _bomExportFieldPrefsKey = 'item_bom_export_fields';
@@ -162,7 +169,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       final visibleBom = _buildVisibleBomRows(
         selectedCatalogueId: nextSelectedCatalogueId,
         allBomRows: bomItems,
-        includeRoots: false,
+        includeRoots: true,
       );
 
       var nextSelectedBomId = _selectedBomId;
@@ -191,7 +198,13 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         .toSet();
 
     for (final path in managedPaths) {
-      await _icloudSync.syncManagedImage(path);
+      try {
+        await _icloudSync.syncManagedImage(path);
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('⚠️ Konnte Bild nicht synchronisieren ($path): $error');
+        }
+      }
     }
   }
 
@@ -473,6 +486,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         label: 'Bezeichnung',
         csvHeader: 'Bezeichnung',
         value: (row) => row.articleName,
+      ),
+      _BomExportField(
+        key: 'net_purchase_total',
+        label: 'Netto-Einkaufspreis',
+        csvHeader: 'Netto-Einkaufspreis',
+        value: (row) => row.netPurchaseTotal.toString(),
       ),
       _BomExportField(
         key: 'ib_parent_id',
@@ -765,6 +784,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       );
 
       for (final row in bomRows) {
+        final article = _catalogueById[row.ibItemId];
+        final netPurchaseTotal = (article?.icPurchasePriceNet ?? 0) * row.ibQuantity;
         rows.add(
           _BomExportRow(
             rootCatalogueId: catalogueId,
@@ -776,6 +797,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
             parentArticleLabel: _parentArticleLabelOf(row),
             order: row.ibOrder,
             quantity: row.ibQuantity,
+            netPurchaseTotal: netPurchaseTotal,
           ),
         );
       }
@@ -1208,6 +1230,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case 'ib_quantity':
       case 'ib_order':
         return toGermanFixed(rawValue, 0);
+      case 'net_purchase_total':
+        return toGermanFixed(rawValue, 2);
       default:
         return rawValue;
     }
@@ -1667,6 +1691,14 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     return name.isEmpty ? parentArticleId.toString() : '$parentArticleId • $name';
   }
 
+  double _bomNetPurchaseTotalOf(ItemBomRow row) {
+    final item = _catalogueById[row.ibItemId];
+    if (item == null) {
+      return 0;
+    }
+    return item.icPurchasePriceNet * row.ibQuantity;
+  }
+
   int _compareBomByColumn(ItemBomRow a, ItemBomRow b, int columnIndex) {
     switch (columnIndex) {
       case 0:
@@ -1681,6 +1713,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         final aIdi = (_catalogueById[a.ibItemId]?.icIdi ?? '').toLowerCase();
         final bIdi = (_catalogueById[b.ibItemId]?.icIdi ?? '').toLowerCase();
         return aIdi.compareTo(bIdi);
+      case 5:
+        return _bomNetPurchaseTotalOf(a).compareTo(_bomNetPurchaseTotalOf(b));
       default:
         return (a.ibId ?? 0).compareTo(b.ibId ?? 0);
     }
@@ -1818,12 +1852,15 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   }
 
   Future<void> _showCatalogueForm({ItemCatalogueRow? initialValue}) async {
+    final lockPurchasePriceNet =
+        initialValue != null && _isAutoCalculatedPurchasePriceArticle(initialValue.icId);
     final result = await showDialog<ItemCatalogueRow>(
       context: context,
       barrierDismissible: false,
       builder: (context) => ItemCatalogueFormDialog(
         nextId: _nextCatalogueId(),
         initialValue: initialValue,
+        lockPurchasePriceNet: lockPurchasePriceNet,
       ),
     );
 
@@ -1831,17 +1868,34 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       return;
     }
 
-    final normalizedResult = await _normalizeCatalogueItemImagePath(result);
-    await _repository.saveCatalogueItem(normalizedResult);
-    await _icloudSync.syncManagedImage(normalizedResult.icImagePath);
-    await _loadData();
+    try {
+      final normalizedResult = await _normalizeCatalogueItemImagePath(result);
+      await _repository.saveCatalogueItem(normalizedResult);
 
-    if (!mounted) {
-      return;
+      try {
+        await _icloudSync.syncManagedImage(normalizedResult.icImagePath);
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('⚠️ iCloud Sync beim Speichern fehlgeschlagen: $error');
+        }
+      }
+
+      await _loadData();
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _selectedCatalogueId = normalizedResult.icId;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Speichern fehlgeschlagen: $error')),
+      );
     }
-    setState(() {
-      _selectedCatalogueId = normalizedResult.icId;
-    });
   }
 
   Future<void> _showCatalogueReadOnly(ItemCatalogueRow item) async {
@@ -1852,8 +1906,35 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         nextId: item.icId,
         initialValue: item,
         readOnly: true,
+        lockPurchasePriceNet: _isAutoCalculatedPurchasePriceArticle(item.icId),
       ),
     );
+  }
+
+  bool _isAutoCalculatedPurchasePriceArticle(int articleId) {
+    final validRows = _bomItems.where((row) => _catalogueById.containsKey(row.ibItemId)).toList(growable: false);
+    final parentBomIds = validRows.map((row) => row.ibParentId).whereType<int>().toSet();
+
+    final appearsAsChild = validRows.any((row) => row.ibItemId == articleId && row.ibParentId != null);
+    if (appearsAsChild) {
+      return false;
+    }
+
+    for (final row in validRows) {
+      final id = row.ibId;
+      if (id == null || row.ibItemId != articleId) {
+        continue;
+      }
+
+      // Preis nur dann sperren, wenn der Artikel als ausgewiesener Root-Elternknoten
+      // in der BOM auftritt und mindestens ein Kind hat. Artikel, die irgendwo
+      // als Kind vorkommen, bleiben editierbar.
+      if (row.ibParentId == null && parentBomIds.contains(id)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   Future<ItemCatalogueRow> _normalizeCatalogueItemImagePath(ItemCatalogueRow item) async {
@@ -1954,46 +2035,89 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     );
   }
 
-  Future<void> _showBomForm({ItemBomRow? initialValue}) async {
+  Future<void> _showBomForm({ItemBomRow? initialValue, int? forcedParentBomId}) async {
     final selectedCatalogueId = _selectedCatalogueId;
     if (selectedCatalogueId == null && _catalogueItems.isEmpty) {
       return;
     }
 
-    final dialogBomItems = selectedCatalogueId == null
-        ? _bomItems
-        : _buildVisibleBomRows(
-            selectedCatalogueId: selectedCatalogueId,
-            allBomRows: _bomItems,
-            includeRoots: true,
-          );
-
-    var initialParentId = initialValue?.ibParentId;
+    var initialParentId = forcedParentBomId ?? initialValue?.ibParentId;
     var initialItemId = initialValue?.ibItemId ?? selectedCatalogueId;
 
     if (initialValue == null && selectedCatalogueId != null) {
-      final existingRoot = _bomItems.where((row) => row.ibItemId == selectedCatalogueId && row.ibParentId == null).cast<ItemBomRow?>().firstWhere(
-            (row) => row != null,
+      if (forcedParentBomId != null) {
+        final forcedParent = _bomItems.cast<ItemBomRow?>().firstWhere(
+              (row) => row?.ibId == forcedParentBomId,
+              orElse: () => null,
+            );
+        initialParentId = forcedParent?.ibId;
+      } else {
+        final existingRoot = _bomItems.where((row) => row.ibItemId == selectedCatalogueId && row.ibParentId == null).cast<ItemBomRow?>().firstWhere(
+              (row) => row != null,
+              orElse: () => null,
+            );
+
+        ItemBomRow? rootRow = existingRoot;
+        if (rootRow == null) {
+          rootRow = ItemBomRow(
+            ibId: _nextBomId(),
+            ibItemId: selectedCatalogueId,
+            ibParentId: null,
+            ibQuantity: 1,
+          );
+          if (widget.loadOnInit) {
+            await _repository.saveBomItem(rootRow);
+          }
+          final nextBomItems = List<ItemBomRow>.from(_bomItems);
+          nextBomItems.add(rootRow);
+          _bomItems = List<ItemBomRow>.unmodifiable(nextBomItems);
+        }
+
+        initialParentId = rootRow.ibId;
+      }
+      initialItemId = null;
+    }
+
+    final dialogBomItems = selectedCatalogueId == null
+        ? _bomItems
+        : (forcedParentBomId != null
+              ? _bomItems
+              : _buildVisibleBomRows(
+                  selectedCatalogueId: selectedCatalogueId,
+                  allBomRows: _bomItems,
+                  includeRoots: true,
+                ));
+
+    final validDialogBomItems = dialogBomItems
+        .where((row) => _catalogueById.containsKey(row.ibItemId))
+        .toList(growable: false);
+    final validDialogParentIds = validDialogBomItems
+        .map((row) => row.ibId)
+        .whereType<int>()
+        .toSet();
+
+    if (initialParentId != null && !validDialogParentIds.contains(initialParentId)) {
+      if (initialValue == null && selectedCatalogueId != null) {
+        final fallbackRoot = validDialogBomItems.cast<ItemBomRow?>().firstWhere(
+              (row) => row?.ibItemId == selectedCatalogueId && row?.ibParentId == null,
+              orElse: () => null,
+            );
+        initialParentId = fallbackRoot?.ibId;
+      } else {
+        initialParentId = null;
+      }
+    }
+
+    if (initialParentId == null && initialValue == null && selectedCatalogueId != null) {
+      final fallbackRoot = validDialogBomItems.cast<ItemBomRow?>().firstWhere(
+            (row) => row?.ibItemId == selectedCatalogueId && row?.ibParentId == null,
             orElse: () => null,
           );
+      initialParentId = fallbackRoot?.ibId;
+    }
 
-      ItemBomRow? rootRow = existingRoot;
-      if (rootRow == null) {
-        rootRow = ItemBomRow(
-          ibId: await _repository.nextBomId(),
-          ibItemId: selectedCatalogueId,
-          ibParentId: null,
-          ibQuantity: 1,
-        );
-        await _repository.saveBomItem(rootRow);
-        await _loadData();
-        if (!mounted) {
-          return;
-        }
-      }
-
-      initialParentId = rootRow.ibId;
-      initialItemId = null;
+    if (!mounted) {
+      return;
     }
 
     final result = await showDialog<ItemBomRow>(
@@ -2001,7 +2125,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       barrierDismissible: false,
       builder: (context) => ItemBomFormDialog(
         catalogueItems: _catalogueItems,
-        availableBomItems: dialogBomItems,
+        availableBomItems: validDialogBomItems,
         nextId: _nextBomId(),
         initialValue: initialValue,
         initialParentId: initialParentId,
@@ -2797,7 +2921,13 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     final selectedCatalogueId = _selectedCatalogueId;
     final selectedCatalogue = selectedCatalogueId == null ? null : _catalogueById[selectedCatalogueId];
     final visibleBomRows = _visibleBomRows();
+    final selectableParentBomRows = _buildVisibleBomRows(
+      selectedCatalogueId: selectedCatalogueId,
+      allBomRows: _bomItems,
+      includeRoots: true,
+    ).where((row) => _catalogueById.containsKey(row.ibItemId)).toList(growable: false);
     final selectedBom = _selectedBomFrom(visibleBomRows);
+    final selectedBomParent = _selectedBomFrom(selectableParentBomRows);
 
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -2868,6 +2998,26 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                 if (!useActionMenu)
                                   if (useUltraCompactControls)
                                     IconButton.outlined(
+                                      tooltip: 'Neu unter markiertem Eintrag',
+                                      onPressed: _loading || selectedBomParent == null
+                                          ? null
+                                          : () => _showBomForm(forcedParentBomId: selectedBomParent.ibId),
+                                      icon: const Icon(Icons.subdirectory_arrow_right),
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.all(6),
+                                    )
+                                  else
+                                    OutlinedButton.icon(
+                                      onPressed: _loading || selectedBomParent == null
+                                          ? null
+                                          : () => _showBomForm(forcedParentBomId: selectedBomParent.ibId),
+                                      style: useCompactButtons ? compactOutlinedStyle : null,
+                                      icon: const Icon(Icons.subdirectory_arrow_right),
+                                      label: const Text('Neu unter markiertem'),
+                                    ),
+                                if (!useActionMenu)
+                                  if (useUltraCompactControls)
+                                    IconButton.outlined(
                                       tooltip: 'Bearbeiten',
                                       onPressed: _loading || selectedBom == null ? null : () => _showBomForm(initialValue: selectedBom),
                                       icon: const Icon(Icons.edit_outlined),
@@ -2908,14 +3058,22 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                     switch (value) {
                                       case 'new':
                                         _showBomForm();
+                                        break;
+                                      case 'new_child':
+                                        if (selectedBomParent != null) {
+                                          _showBomForm(forcedParentBomId: selectedBomParent.ibId);
+                                        }
+                                        break;
                                       case 'edit':
                                         if (selectedBom != null) {
                                           _showBomForm(initialValue: selectedBom);
                                         }
+                                        break;
                                       case 'delete':
                                         if (selectedBom != null) {
                                           _deleteBom(selectedBom);
                                         }
+                                        break;
                                     }
                                   },
                                   itemBuilder: (context) => [
@@ -2928,6 +3086,11 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                       value: 'edit',
                                       enabled: !_loading && selectedBom != null,
                                       child: const Text('Bearbeiten'),
+                                    ),
+                                    PopupMenuItem<String>(
+                                      value: 'new_child',
+                                      enabled: !_loading && selectedBomParent != null,
+                                      child: const Text('Neu unter markiertem'),
                                     ),
                                     PopupMenuItem<String>(
                                       value: 'delete',
@@ -2959,14 +3122,22 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                 switch (value) {
                                   case 'new':
                                     _showBomForm();
+                                    break;
+                                  case 'new_child':
+                                    if (selectedBomParent != null) {
+                                      _showBomForm(forcedParentBomId: selectedBomParent.ibId);
+                                    }
+                                    break;
                                   case 'edit':
                                     if (selectedBom != null) {
                                       _showBomForm(initialValue: selectedBom);
                                     }
+                                    break;
                                   case 'delete':
                                     if (selectedBom != null) {
                                       _deleteBom(selectedBom);
                                     }
+                                    break;
                                 }
                               },
                               itemBuilder: (context) => [
@@ -2979,6 +3150,11 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                   value: 'edit',
                                   enabled: !_loading && selectedBom != null,
                                   child: const Text('Bearbeiten'),
+                                ),
+                                PopupMenuItem<String>(
+                                  value: 'new_child',
+                                  enabled: !_loading && selectedBomParent != null,
+                                  child: const Text('Neu unter markiertem'),
                                 ),
                                 PopupMenuItem<String>(
                                   value: 'delete',
@@ -3003,6 +3179,27 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                               icon: const Icon(Icons.add),
                               label: const Text('Neu'),
                             ),
+                          if (!useActionMenu) const SizedBox(width: 8),
+                          if (!useActionMenu)
+                            if (useUltraCompactControls)
+                              IconButton.outlined(
+                                tooltip: 'Neu unter markiertem Eintrag',
+                                onPressed: _loading || selectedBomParent == null
+                                    ? null
+                                    : () => _showBomForm(forcedParentBomId: selectedBomParent.ibId),
+                                icon: const Icon(Icons.subdirectory_arrow_right),
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.all(6),
+                              )
+                            else
+                              OutlinedButton.icon(
+                                onPressed: _loading || selectedBomParent == null
+                                    ? null
+                                    : () => _showBomForm(forcedParentBomId: selectedBomParent.ibId),
+                                style: useCompactButtons ? compactOutlinedStyle : null,
+                                icon: const Icon(Icons.subdirectory_arrow_right),
+                                label: const Text('Neu unter markiertem'),
+                              ),
                           if (!useActionMenu) const SizedBox(width: 8),
                           if (!useActionMenu)
                             if (useUltraCompactControls)
@@ -3084,6 +3281,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                 DataColumn(label: const Text('Eltern Artikel (Katalog)'), onSort: _onBomSort),
                                 DataColumn(label: const Text('Menge'), onSort: _onBomSort),
                                 DataColumn(label: const Text('Bezeichnung'), onSort: _onBomSort),
+                                DataColumn(label: const Text('Netto-Einkaufspreis'), onSort: _onBomSort),
                                 const DataColumn(label: Text('Bild')),
                               ],
                               rows: visibleBomRows
@@ -3102,6 +3300,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                         DataCell(Text(_parentArticleLabelOf(row))),
                                         DataCell(Text(row.ibQuantity.toString())),
                                         DataCell(Text(item?.icIdi ?? '')),
+                                        DataCell(Text(_formatDecimal(_bomNetPurchaseTotalOf(row), 2))),
                                         DataCell(item == null ? _emptyImagePreview() : _buildCatalogueImagePreview(item)),
                                       ],
                                     );
@@ -3406,6 +3605,7 @@ class _BomExportRow {
     required this.parentArticleLabel,
     required this.order,
     required this.quantity,
+    required this.netPurchaseTotal,
   });
 
   final int rootCatalogueId;
@@ -3417,6 +3617,7 @@ class _BomExportRow {
   final String parentArticleLabel;
   final int order;
   final int quantity;
+  final double netPurchaseTotal;
 }
 
 class _BomExportField {
