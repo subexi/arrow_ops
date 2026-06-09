@@ -6,6 +6,9 @@ class CustomerPageActions extends StatelessWidget {
     super.key,
     required this.loading,
     required this.databasePath,
+    this.databasePathFallbackActive = false,
+    this.preferredDatabasePath,
+    this.databaseStatusMessage,
     required this.searchController,
     required this.onCreateCustomer,
     required this.onRefresh,
@@ -13,6 +16,9 @@ class CustomerPageActions extends StatelessWidget {
 
   final bool loading;
   final String databasePath;
+  final bool databasePathFallbackActive;
+  final String? preferredDatabasePath;
+  final String? databaseStatusMessage;
   final TextEditingController searchController;
   final VoidCallback onCreateCustomer;
   final VoidCallback onRefresh;
@@ -61,6 +67,58 @@ class CustomerPageActions extends StatelessWidget {
           'SQLite: $databasePath',
           style: Theme.of(context).textTheme.bodySmall,
         ),
+        if (databasePathFallbackActive) ...[
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 16,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  preferredDatabasePath == null || preferredDatabasePath!.trim().isEmpty
+                      ? 'Hinweis: Es wird ein Fallback-Datenbankpfad verwendet.'
+                      : 'Hinweis: Der bevorzugte Datenbankpfad ist nicht verfügbar. Es wird ein Fallback-Pfad verwendet.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (databaseStatusMessage != null && databaseStatusMessage!.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SelectableText(
+                    databaseStatusMessage!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         CupertinoSearchTextField(
           controller: searchController,

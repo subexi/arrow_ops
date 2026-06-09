@@ -288,8 +288,14 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
       _countryBControl.text = _countryNameForId(_countryBId);
       if (_countryBId != _countryBIdOnFocus) {
-        _updateStateFromCountryAndPostalCode(billing: true);
-        _updateStateFromCountryAndPostalCode(billing: false);
+        _updateStateFromCountryAndPostalCode(
+          billing: true,
+          clearWhenUnresolved: true,
+        );
+        _updateStateFromCountryAndPostalCode(
+          billing: false,
+          clearWhenUnresolved: true,
+        );
       }
     });
     _countryDFocusNode.addListener(() {
@@ -300,7 +306,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
       _countryDControl.text = _countryNameForId(_countryDId);
       if (_countryDId != _countryDIdOnFocus) {
-        _updateStateFromCountryAndPostalCode(billing: false);
+        _updateStateFromCountryAndPostalCode(
+          billing: false,
+          clearWhenUnresolved: true,
+        );
       }
     });
     _syncOnBlur(
@@ -787,7 +796,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
   }
 
-  Future<void> _updateStateFromCountryAndPostalCode({required bool billing}) async {
+  Future<void> _updateStateFromCountryAndPostalCode({
+    required bool billing,
+    bool clearWhenUnresolved = false,
+  }) async {
     final countryId = billing ? _countryBId : _countryDId;
     final postalCode = billing ? _postalCodeBControl.text : _postalCodeDControl.text;
     final city = billing ? _cityBControl.text : _cityDControl.text;
@@ -833,13 +845,28 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       }
     }
 
-    if (!mounted || resolvedState == null || resolvedState.isEmpty) {
+    if (!mounted) {
+      return;
+    }
+
+    final normalizedResolvedState = resolvedState?.trim() ?? '';
+    if (normalizedResolvedState.isEmpty || normalizedResolvedState == '-') {
+      if (!clearWhenUnresolved) {
+        return;
+      }
+      setState(() {
+        if (billing) {
+          _stateBControl.text = '-';
+        } else {
+          _stateDControl.text = '-';
+        }
+      });
       return;
     }
 
     setState(() {
       if (billing) {
-        _stateBControl.text = resolvedState!;
+        _stateBControl.text = normalizedResolvedState;
         if (_isItaly(_countryBId)) {
           _cityBControl.text = appendItalianProvinceAbbreviationToCity(
             city: _cityBControl.text,
@@ -852,7 +879,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
           );
         }
       } else {
-        _stateDControl.text = resolvedState!;
+        _stateDControl.text = normalizedResolvedState;
         if (_isItaly(_countryDId)) {
           _cityDControl.text = appendItalianProvinceAbbreviationToCity(
             city: _cityDControl.text,
@@ -1120,6 +1147,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       if (billingState != null && billingState.isNotEmpty) {
         _stateBControl.text = billingState;
       }
+    } else {
+      _stateBControl.text = '-';
     }
     if (_streetDControl.text.trim().isEmpty) {
       _showDialogSnackBar('Straße (Lieferadresse) erforderlich', type: _DialogSnackBarType.validation);
@@ -1194,6 +1223,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       if (deliveryState != null && deliveryState.isNotEmpty) {
         _stateDControl.text = deliveryState;
       }
+    } else {
+      _stateDControl.text = '-';
     }
     final mail = _mailControl.text.trim();
     if (mail.isNotEmpty && mail != '-') {
@@ -1387,8 +1418,14 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     _resolveUSStateInControllers(billing: true);
                     _resolveUSStateInControllers(billing: false);
                   });
-                  _updateStateFromCountryAndPostalCode(billing: true);
-                  _updateStateFromCountryAndPostalCode(billing: false);
+                  _updateStateFromCountryAndPostalCode(
+                    billing: true,
+                    clearWhenUnresolved: true,
+                  );
+                  _updateStateFromCountryAndPostalCode(
+                    billing: false,
+                    clearWhenUnresolved: true,
+                  );
                 }
               : (v) {
                   setState(() {
@@ -1396,7 +1433,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     _resolveItalianStateInControllers(billing: false);
                     _resolveUSStateInControllers(billing: false);
                   });
-                  _updateStateFromCountryAndPostalCode(billing: false);
+                  _updateStateFromCountryAndPostalCode(
+                    billing: false,
+                    clearWhenUnresolved: true,
+                  );
                 },
         ),
       ],

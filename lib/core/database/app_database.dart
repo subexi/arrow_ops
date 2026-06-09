@@ -11,9 +11,12 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 8;
+  static const int _currentVersion = 10;
 
   Database? _database;
+  String? _activeDatabasePath;
+
+  String? get activeDatabasePath => _activeDatabasePath;
 
   final List<DatabaseMigration> _migrations = [
     DatabaseMigration(version: 1, run: _migrationV1),
@@ -24,6 +27,8 @@ class AppDatabase {
     DatabaseMigration(version: 6, run: _migrationV6),
     DatabaseMigration(version: 7, run: _migrationV7),
     DatabaseMigration(version: 8, run: _migrationV8),
+    DatabaseMigration(version: 9, run: _migrationV9),
+    DatabaseMigration(version: 10, run: _migrationV10),
   ];
 
   Future<Database> get database async {
@@ -32,6 +37,7 @@ class AppDatabase {
     }
 
     final path = await _resolveDatabasePath();
+    _activeDatabasePath = path;
 
     _database = await openDatabase(
       path,
@@ -59,17 +65,31 @@ class AppDatabase {
   }
 
   Future<String> _resolveDatabasePath() async {
-    final preferredPath = DatabasePathConfig.databasePath;
-    final migrationSources = <String>{
-      await _defaultDatabasePath(),
-      _legacyMacOsContainerDatabasePath(),
-    };
+    final defaultPath = await _defaultDatabasePath();
+    final preferredPath = DatabasePathConfig.preferredDatabasePath;
+    final legacyPath = _legacyMacOsContainerDatabasePath();
 
-    await _prepareDatabaseFile(
-      preferredPath,
-      migrationSourcePaths: migrationSources,
-    );
-    return preferredPath;
+    if (preferredPath == null) {
+      await _prepareDatabaseFile(
+        defaultPath,
+        migrationSourcePaths: {legacyPath},
+      );
+      return defaultPath;
+    }
+
+    try {
+      await _prepareDatabaseFile(
+        preferredPath,
+        migrationSourcePaths: {defaultPath, legacyPath},
+      );
+      return preferredPath;
+    } on FileSystemException {
+      await _prepareDatabaseFile(
+        defaultPath,
+        migrationSourcePaths: {preferredPath, legacyPath},
+      );
+      return defaultPath;
+    }
   }
 
   Future<String> _defaultDatabasePath() async {
@@ -323,6 +343,8 @@ class AppDatabase {
         o_dealer INTEGER NOT NULL DEFAULT 0,
         o_date TEXT NOT NULL,
         o_currency TEXT NOT NULL DEFAULT 'EUR',
+        o_language TEXT NOT NULL DEFAULT 'DE',
+        o_price_basis TEXT NOT NULL DEFAULT 'net',
         o_vat_rate REAL NOT NULL,
         o_shipping REAL NOT NULL,
         o_value_goods REAL NOT NULL,
@@ -526,5 +548,39 @@ class AppDatabase {
 
     await db.execute('DROP TABLE item_ordered');
     await db.execute('ALTER TABLE item_ordered_v8 RENAME TO item_ordered');
+  }
+
+  static Future<void> _migrationV9(Database db) async {
+    final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    final hasLanguageColumn = orderColumns.any(
+      (column) => column['name'] == 'o_language',
+    );
+    final hasPriceBasisColumn = orderColumns.any(
+      (column) => column['name'] == 'o_price_basis',
+    );
+
+    if (!hasLanguageColumn) {
+      await db.execute(
+        "ALTER TABLE \"order\" ADD COLUMN o_language TEXT NOT NULL DEFAULT 'DE'",
+      );
+    }
+    if (!hasPriceBasisColumn) {
+      await db.execute(
+        "ALTER TABLE \"order\" ADD COLUMN o_price_basis TEXT NOT NULL DEFAULT 'net'",
+      );
+    }
+  }
+
+  static Future<void> _migrationV10(Database db) async {
+    final orderedColumns = await db.rawQuery('PRAGMA table_info(item_ordered)');
+    final hasHtsColumn = orderedColumns.any(
+      (column) => column['name'] == 'io_hts',
+    );
+
+    if (!hasHtsColumn) {
+      await db.execute(
+        "ALTER TABLE item_ordered ADD COLUMN io_hts TEXT NOT NULL DEFAULT '-'",
+      );
+    }
   }
 }

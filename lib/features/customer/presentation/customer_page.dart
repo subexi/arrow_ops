@@ -55,6 +55,9 @@ class _CustomerPageState extends State<CustomerPage> {
   List<String> _customerSearchIndex = const [];
   Map<String, String> _countryNameByCode = const {};
   String _databasePath = 'wird geladen...';
+  bool _databasePathFallbackActive = false;
+  String? _preferredDatabasePath;
+  String? _databaseStatusMessage;
   int _sortColumnIndex = 0;
   bool _sortAscending = false;
   int _rowsPerPage = 25;
@@ -234,12 +237,36 @@ class _CustomerPageState extends State<CustomerPage> {
       if (!mounted) {
         return;
       }
-      setState(() => _databasePath = DatabasePathConfig.databasePath);
-    } catch (_) {
+      final activePath = AppDatabase.instance.activeDatabasePath;
+      final preferredPath = DatabasePathConfig.preferredDatabasePath;
+      final resolvedPath =
+          (activePath == null || activePath.trim().isEmpty)
+              ? (preferredPath ?? 'Pfad unbekannt')
+              : activePath;
+      final fallbackActive =
+          preferredPath != null &&
+          preferredPath.trim().isNotEmpty &&
+          resolvedPath.trim().isNotEmpty &&
+          resolvedPath != preferredPath;
+      setState(() {
+        _databasePath = resolvedPath;
+        _preferredDatabasePath = preferredPath;
+        _databasePathFallbackActive = fallbackActive;
+        _databaseStatusMessage = null;
+      });
+    } catch (error) {
       if (!mounted) {
         return;
       }
-      setState(() => _databasePath = 'Pfad konnte nicht geladen werden');
+      final preferredPath = DatabasePathConfig.preferredDatabasePath;
+      setState(() {
+        _databasePath = 'Pfad konnte nicht geladen werden';
+        _databasePathFallbackActive = false;
+        _preferredDatabasePath = preferredPath;
+        _databaseStatusMessage =
+            'SQLite-Initialisierung fehlgeschlagen: $error'
+            '${preferredPath == null ? '' : '\nBevorzugter Pfad: $preferredPath'}';
+      });
     }
   }
 
@@ -1802,6 +1829,9 @@ class _CustomerPageState extends State<CustomerPage> {
             CustomerPageActions(
               loading: _loading,
               databasePath: _databasePath,
+              databasePathFallbackActive: _databasePathFallbackActive,
+              preferredDatabasePath: _preferredDatabasePath,
+              databaseStatusMessage: _databaseStatusMessage,
               searchController: _searchController,
               onCreateCustomer: _createCustomer,
               onRefresh: _loadCustomers,

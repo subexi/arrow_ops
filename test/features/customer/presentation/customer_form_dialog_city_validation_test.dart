@@ -311,6 +311,103 @@ void main() {
     expect(result.cStateD, 'BZ-Bolzano');
   });
 
+  testWidgets('entfernt deutsches Bundesland bei Land Frankreich beim Speichern', (tester) async {
+    final result = await openAndSubmitDialog(
+      tester,
+      customer: Customer(
+        cId: '2605191234',
+        cLastName: 'MUSTER',
+        cFirstName: 'Max',
+        cStreetB: 'Rue de Rivoli',
+        cHouseNumberB: '1',
+        cPostalCodeB: '75001',
+        cCityB: 'Paris',
+        cStateB: 'BY - Bayern',
+        cCountryBId: 'fr',
+        cStreetD: 'Rue de Rivoli',
+        cHouseNumberD: '1',
+        cPostalCodeD: '75001',
+        cCityD: 'Paris',
+        cStateD: 'BY - Bayern',
+        cCountryDId: 'fr',
+      ),
+      countries: const [
+        CountryTld(coTld: 'fr', coName: 'France'),
+      ],
+    );
+
+    expect(result, isNotNull);
+    expect(result!.cStateB, '-');
+    expect(result.cStateD, '-');
+  });
+
+  testWidgets('entfernt deutsches Bundesland sofort nach Wechsel von Germany auf France', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return CupertinoButton(
+              onPressed: () async {
+                await showCupertinoDialog<Customer>(
+                  context: context,
+                  builder: (_) => CustomerFormDialog(
+                    customer: Customer(
+                      cId: '2605191234',
+                      cLastName: 'MUSTER',
+                      cFirstName: 'Max',
+                      cStreetB: 'Musterweg',
+                      cHouseNumberB: '1',
+                      cPostalCodeB: '80331',
+                      cCityB: 'Muenchen',
+                      cStateB: 'BY - Bayern',
+                      cCountryBId: 'de',
+                      cStreetD: 'Musterweg',
+                      cHouseNumberD: '1',
+                      cPostalCodeD: '80331',
+                      cCityD: 'Muenchen',
+                      cStateD: 'BY - Bayern',
+                      cCountryDId: 'de',
+                    ),
+                    countries: const [
+                      CountryTld(coTld: 'de', coName: 'Germany'),
+                      CountryTld(coTld: 'fr', coName: 'France'),
+                    ],
+                  ),
+                );
+              },
+              child: const Text('open country switch'),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open country switch'));
+    await tester.pumpAndSettle();
+
+    final valuesBefore = tester
+        .widgetList<CupertinoTextField>(find.byType(CupertinoTextField))
+        .map((field) => field.controller?.text ?? '')
+        .toList();
+    expect(valuesBefore, contains('BY - Bayern'));
+
+    final countryDropdowns = tester.widgetList<DropdownMenu<String>>(
+      find.byType(DropdownMenu<String>),
+    );
+    expect(countryDropdowns.length, greaterThanOrEqualTo(1));
+
+    countryDropdowns.first.onSelected?.call('fr');
+    await tester.pumpAndSettle();
+
+    final valuesAfter = tester
+        .widgetList<CupertinoTextField>(find.byType(CupertinoTextField))
+        .map((field) => field.controller?.text ?? '')
+        .toList();
+    expect(valuesAfter, isNot(contains('BY - Bayern')));
+  });
+
   testWidgets('akzeptiert Stadtname mit Klammern beim Speichern', (tester) async {
     final result = await openAndSubmitDialog(
       tester,
