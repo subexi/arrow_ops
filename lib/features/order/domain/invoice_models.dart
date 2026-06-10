@@ -9,6 +9,8 @@ class InvoiceDocumentData {
     required this.isReseller,
     required this.seller,
     required this.buyer,
+    required this.delivery,
+    required this.footer,
     required this.lines,
     required this.totals,
     this.note = '-',
@@ -27,6 +29,8 @@ class InvoiceDocumentData {
   final bool isReseller;
   final InvoicePartyData seller;
   final InvoicePartyData buyer;
+  final InvoicePartyData delivery;
+  final InvoiceFooterData footer;
   final List<InvoiceLineData> lines;
   final InvoiceTotalsData totals;
   final String note;
@@ -34,6 +38,18 @@ class InvoiceDocumentData {
   final String payDate;
   final String deliveryDate;
   final String trackingCode;
+}
+
+class InvoiceFooterData {
+  const InvoiceFooterData({
+    this.leftLines = const <String>[],
+    this.centerLines = const <String>[],
+    this.rightLines = const <String>[],
+  });
+
+  final List<String> leftLines;
+  final List<String> centerLines;
+  final List<String> rightLines;
 }
 
 class InvoicePartyData {

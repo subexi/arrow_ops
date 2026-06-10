@@ -17,6 +17,22 @@ class InvoiceSellerProfile {
     this.vatId = '-',
     this.email = '-',
     this.phone = '-',
+    this.footerLeftLines = const <String>[
+      'Sitz des Unternehmens: Fellbach',
+      'Registergericht: Stuttgart',
+      'HRB 732452',
+      'USt-ID-Nr: DE268366503',
+    ],
+    this.footerCenterLines = const <String>[
+      'Geschaeftsfuehrer: Helmut Dittrich',
+    ],
+    this.footerRightLines = const <String>[
+      'Bankverbindung: Kreissparkasse Waiblingen',
+      'Kto.: 1000 835 126 | BLZ: 602 500 10',
+      'BIC / SWIFT: SOLADES1WBN',
+      'IBAN: DE47 6025 0010 1000 835 126',
+      'PayPal: sales@arrow-fix.com',
+    ],
   });
 
   final String name;
@@ -29,6 +45,9 @@ class InvoiceSellerProfile {
   final String vatId;
   final String email;
   final String phone;
+  final List<String> footerLeftLines;
+  final List<String> footerCenterLines;
+  final List<String> footerRightLines;
 
   static const InvoiceSellerProfile defaultProfile = InvoiceSellerProfile(
     name: 'Arrow Ops',
@@ -89,6 +108,8 @@ class InvoiceDocumentBuildService {
       isReseller: customer.cDealer || order.oDealer == 1,
       seller: _buildSeller(sellerProfile),
       buyer: _buildBuyer(customer),
+      delivery: _buildDelivery(customer),
+      footer: _buildFooter(sellerProfile),
       lines: lines,
       totals: totals,
       note: _normalizedOrFallback(order.oNote, '-'),
@@ -115,9 +136,7 @@ class InvoiceDocumentBuildService {
   }
 
   InvoicePartyData _buildBuyer(Customer customer) {
-    final buyerName =
-        '${_normalizedOrFallback(customer.cFirstName, '').trim()} ${_normalizedOrFallback(customer.cLastName, '').trim()}'
-            .trim();
+    final buyerName = _customerName(customer);
 
     return InvoicePartyData(
       name: buyerName.isEmpty ? '-' : buyerName,
@@ -131,6 +150,36 @@ class InvoiceDocumentBuildService {
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),
     );
+  }
+
+  InvoicePartyData _buildDelivery(Customer customer) {
+    final deliveryName = _customerName(customer);
+
+    return InvoicePartyData(
+      name: deliveryName.isEmpty ? '-' : deliveryName,
+      company: _normalizedOrFallback(customer.cCompany, '-'),
+      street: _normalizedOrFallback(customer.cStreetD, '-'),
+      houseNumber: _normalizedOrFallback(customer.cHouseNumberD, '-'),
+      postalCode: _normalizedOrFallback(customer.cPostalCodeD, '-'),
+      city: _normalizedOrFallback(customer.cCityD, '-'),
+      countryCode: _normalizedOrFallback(customer.cCountryDId, '-').toUpperCase(),
+      vatId: _normalizedOrFallback(customer.cVatId, '-'),
+      email: _normalizedOrFallback(customer.cMail, '-'),
+      phone: _normalizedOrFallback(customer.cPhone, '-'),
+    );
+  }
+
+  InvoiceFooterData _buildFooter(InvoiceSellerProfile profile) {
+    return InvoiceFooterData(
+      leftLines: _normalizeLines(profile.footerLeftLines),
+      centerLines: _normalizeLines(profile.footerCenterLines),
+      rightLines: _normalizeLines(profile.footerRightLines),
+    );
+  }
+
+  String _customerName(Customer customer) {
+    return '${_normalizedOrFallback(customer.cFirstName, '').trim()} ${_normalizedOrFallback(customer.cLastName, '').trim()}'
+        .trim();
   }
 
   String _defaultInvoiceNumber(OrderRow order) {
@@ -184,5 +233,12 @@ class InvoiceDocumentBuildService {
       return fallback;
     }
     return normalized;
+  }
+
+  List<String> _normalizeLines(List<String> lines) {
+    return lines
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty && line != '-')
+        .toList(growable: false);
   }
 }
