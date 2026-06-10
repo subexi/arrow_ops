@@ -1,0 +1,188 @@
+import '../../customer/data/customer_repository.dart';
+import '../../customer/domain/customer.dart';
+import '../../order/data/invoice_calculation_service.dart';
+import '../../order/data/order_repository.dart';
+import '../../order/domain/invoice_models.dart';
+import '../../order/domain/order_models.dart';
+
+class InvoiceSellerProfile {
+  const InvoiceSellerProfile({
+    required this.name,
+    this.company = '-',
+    this.street = '-',
+    this.houseNumber = '-',
+    this.postalCode = '-',
+    this.city = '-',
+    this.countryCode = '-',
+    this.vatId = '-',
+    this.email = '-',
+    this.phone = '-',
+  });
+
+  final String name;
+  final String company;
+  final String street;
+  final String houseNumber;
+  final String postalCode;
+  final String city;
+  final String countryCode;
+  final String vatId;
+  final String email;
+  final String phone;
+
+  static const InvoiceSellerProfile defaultProfile = InvoiceSellerProfile(
+    name: 'Arrow Ops',
+    company: 'Arrow Ops',
+  );
+}
+
+class InvoiceDocumentBuildService {
+  InvoiceDocumentBuildService({
+    OrderRepository? orderRepository,
+    CustomerRepository? customerRepository,
+    InvoiceCalculationService? calculationService,
+  })  : _orderRepository = orderRepository ?? const OrderRepository(),
+        _customerRepository = customerRepository ?? const CustomerRepository(),
+        _calculationService = calculationService ?? const InvoiceCalculationService();
+
+  final OrderRepository _orderRepository;
+  final CustomerRepository _customerRepository;
+  final InvoiceCalculationService _calculationService;
+
+  Future<InvoiceDocumentData> buildFromOrder({
+    required String orderId,
+    InvoiceSellerProfile sellerProfile = InvoiceSellerProfile.defaultProfile,
+    String? invoiceNumber,
+    String? invoiceDate,
+  }) async {
+    final order = await _orderRepository.getOrderById(orderId);
+    if (order == null) {
+      throw StateError('Order not found for id: $orderId');
+    }
+
+    final customer = await _customerRepository.getById(order.oCustomerId);
+    if (customer == null) {
+      throw StateError('Customer not found for id: ${order.oCustomerId}');
+    }
+
+    final items = await _orderRepository.getItemsForOrder(order.oId);
+    final lines = _calculationService.buildLines(
+      items: items,
+      language: order.oLanguage,
+    );
+    final totals = _calculationService.calculateTotals(
+      order: order,
+      items: items,
+      customer: customer,
+    );
+
+    return InvoiceDocumentData(
+      invoiceNumber: _normalizedOrFallback(
+        invoiceNumber,
+        _defaultInvoiceNumber(order),
+      ),
+      invoiceDate: _normalizedInvoiceDate(invoiceDate, order),
+      orderId: order.oId,
+      currency: _normalizedOrFallback(order.oCurrency, 'EUR'),
+      language: _normalizedOrFallback(order.oLanguage, 'DE'),
+      priceBasis: _normalizedOrFallback(order.oPriceBasis, 'net'),
+      isReseller: customer.cDealer || order.oDealer == 1,
+      seller: _buildSeller(sellerProfile),
+      buyer: _buildBuyer(customer),
+      lines: lines,
+      totals: totals,
+      note: _normalizedOrFallback(order.oNote, '-'),
+      paymentLabel: _paymentLabel(order.oPayment),
+      payDate: _normalizedOrFallback(order.oPayDate, ''),
+      deliveryDate: _normalizedOrFallback(order.oDelivery, ''),
+      trackingCode: _normalizedOrFallback(order.oTrackingCode, '-'),
+    );
+  }
+
+  InvoicePartyData _buildSeller(InvoiceSellerProfile profile) {
+    return InvoicePartyData(
+      name: _normalizedOrFallback(profile.name, '-'),
+      company: _normalizedOrFallback(profile.company, '-'),
+      street: _normalizedOrFallback(profile.street, '-'),
+      houseNumber: _normalizedOrFallback(profile.houseNumber, '-'),
+      postalCode: _normalizedOrFallback(profile.postalCode, '-'),
+      city: _normalizedOrFallback(profile.city, '-'),
+      countryCode: _normalizedOrFallback(profile.countryCode, '-'),
+      vatId: _normalizedOrFallback(profile.vatId, '-'),
+      email: _normalizedOrFallback(profile.email, '-'),
+      phone: _normalizedOrFallback(profile.phone, '-'),
+    );
+  }
+
+  InvoicePartyData _buildBuyer(Customer customer) {
+    final buyerName =
+        '${_normalizedOrFallback(customer.cFirstName, '').trim()} ${_normalizedOrFallback(customer.cLastName, '').trim()}'
+            .trim();
+
+    return InvoicePartyData(
+      name: buyerName.isEmpty ? '-' : buyerName,
+      company: _normalizedOrFallback(customer.cCompany, '-'),
+      street: _normalizedOrFallback(customer.cStreetB, '-'),
+      houseNumber: _normalizedOrFallback(customer.cHouseNumberB, '-'),
+      postalCode: _normalizedOrFallback(customer.cPostalCodeB, '-'),
+      city: _normalizedOrFallback(customer.cCityB, '-'),
+      countryCode: _normalizedOrFallback(customer.cCountryBId, '-').toUpperCase(),
+      vatId: _normalizedOrFallback(customer.cVatId, '-'),
+      email: _normalizedOrFallback(customer.cMail, '-'),
+      phone: _normalizedOrFallback(customer.cPhone, '-'),
+    );
+  }
+
+  String _defaultInvoiceNumber(OrderRow order) {
+    final dateDigits = _digitsOnly(order.oDate);
+    final suffix = dateDigits.isEmpty ? _todayDigits() : dateDigits;
+    return 'INV-$suffix-${order.oId}';
+  }
+
+  String _normalizedInvoiceDate(String? preferredDate, OrderRow order) {
+    final explicit = _normalizedOrFallback(preferredDate, '');
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+    final fromOrder = _normalizedOrFallback(order.oDate, '');
+    if (fromOrder.isNotEmpty) {
+      return fromOrder;
+    }
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
+  String _paymentLabel(int paymentCode) {
+    switch (paymentCode) {
+      case 1:
+        return 'PayPal';
+      case 2:
+        return 'Bank transfer';
+      case 3:
+        return 'Cash';
+      default:
+        return '-';
+    }
+  }
+
+  String _digitsOnly(String value) {
+    return value.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  String _todayDigits() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}$month$day';
+  }
+
+  String _normalizedOrFallback(String? value, String fallback) {
+    final normalized = value?.trim() ?? '';
+    if (normalized.isEmpty) {
+      return fallback;
+    }
+    return normalized;
+  }
+}

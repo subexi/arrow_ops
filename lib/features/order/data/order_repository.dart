@@ -12,6 +12,20 @@ class OrderRepository {
     return rows.map(OrderRow.fromMap).toList();
   }
 
+  Future<OrderRow?> getOrderById(String orderId) async {
+    final db = await AppDatabase.instance.database;
+    final rows = await db.query(
+      '"order"',
+      where: 'o_id = ?',
+      whereArgs: [orderId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return OrderRow.fromMap(rows.first);
+  }
+
   Future<List<ItemOrderedRow>> getItemsForOrder(String orderId) async {
     final db = await AppDatabase.instance.database;
     final rows = await db.rawQuery(
