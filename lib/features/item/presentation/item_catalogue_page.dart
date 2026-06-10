@@ -2205,12 +2205,15 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
             onTap: () => _showCatalogueImageDialog(file),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.file(
-                file,
+              child: Container(
                 width: size,
                 height: size,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => _emptyImagePreview(size: size),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Image.file(
+                  file,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => _emptyImagePreview(size: size),
+                ),
               ),
             ),
           ),

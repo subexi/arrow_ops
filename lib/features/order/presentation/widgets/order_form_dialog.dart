@@ -611,7 +611,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                   ),
                   _field(
                     _paypalFeeController,
-                    'Zahlart-Gebühr',
+                    'PayPal-Gebühr',
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                 ),

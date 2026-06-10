@@ -267,16 +267,19 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
             width: double.infinity,
             child: InkWell(
               onTap: () => _showFullImagePreview(file),
-              child: Image.file(
-                file,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    alignment: Alignment.center,
-                    child: const Text('Vorschau nicht verfuegbar'),
-                  );
-                },
+              child: Container(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Image.file(
+                  file,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      alignment: Alignment.center,
+                      child: const Text('Vorschau nicht verfuegbar'),
+                    );
+                  },
+                ),
               ),
             ),
           ),

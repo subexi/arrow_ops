@@ -177,13 +177,16 @@ class _OrderPageState extends State<OrderPage> {
 
         return ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          child: Image.file(
-            file,
+          child: Container(
             width: 40,
             height: 40,
-            fit: BoxFit.cover,
-            errorBuilder: (_, error, stackTrace) =>
-                const Icon(Icons.broken_image_outlined, size: 18),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Image.file(
+              file,
+              fit: BoxFit.contain,
+              errorBuilder: (_, error, stackTrace) =>
+                  const Icon(Icons.broken_image_outlined, size: 18),
+            ),
           ),
         );
       },
@@ -254,11 +257,11 @@ class _OrderPageState extends State<OrderPage> {
         case 6:
           cmp = a.oShipping.compareTo(b.oShipping);
         case 7:
-          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
-        case 8:
-          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
-        case 9:
           cmp = a.oPayment.compareTo(b.oPayment);
+        case 8:
+          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
+        case 9:
+          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
         case 10:
           cmp = a.oPayDate.compareTo(b.oPayDate);
         case 11:
@@ -523,9 +526,9 @@ class _OrderPageState extends State<OrderPage> {
                             DataColumn(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('Brutto'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('Versand'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('Zahlart-Gebühr'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('Gesamtpreis'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('Zahlart'), onSort: _onOrderSort),
+                            DataColumn(label: const Text('PayPal-Gebühr'), numeric: true, onSort: _onOrderSort),
+                            DataColumn(label: const Text('Gesamtpreis'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('Bezahlt-Datum'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Versand-Datum'), onSort: _onOrderSort),
                           ],
@@ -533,32 +536,38 @@ class _OrderPageState extends State<OrderPage> {
                             final selected = order.oId == _selectedOrderId;
                             final hasDeliveryDate = order.oDelivery.trim().isNotEmpty;
                             final hasPayDate = order.oPayDate.trim().isNotEmpty;
-                            Future<void> handleOpenEdit() async {
+                            Future<void> handleSelectOrder() async {
                               setState(() => _selectedOrderId = order.oId);
                               await _loadItemsForSelected();
+                            }
+                            Future<void> handleOpenEdit() async {
+                              await handleSelectOrder();
                               if (!mounted) return;
                               await _showOrderForm(initialValue: order);
                             }
                             return DataRow(
                               selected: selected,
-                              onSelectChanged: (_) async {
-                                setState(() => _selectedOrderId = order.oId);
-                                await _loadItemsForSelected();
+                              onSelectChanged: (isSelected) async {
+                                if (isSelected != true) {
+                                  return;
+                                }
+                                await handleSelectOrder();
                               },
                               cells: [
                                 DataCell(
                                   Text(order.oId),
+                                  onTap: () => handleSelectOrder(),
                                   onDoubleTap: () => handleOpenEdit(),
                                 ),
-                                DataCell(Text(_customerName(order.oCustomerId)), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(order.oCurrency), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oValueGoods, 2)), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oVat, 2)), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oValueGoods + order.oVat, 2)), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oShipping, 2)), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oPaypalFee, 2)), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oTotalPrice, 2)), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_paymentLabel(order.oPayment)), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_customerName(order.oCustomerId)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(order.oCurrency), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_formatDecimal(order.oValueGoods, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_formatDecimal(order.oVat, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_formatDecimal(order.oValueGoods + order.oVat, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_formatDecimal(order.oShipping, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_paymentLabel(order.oPayment)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_formatDecimal(order.oPaypalFee, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_formatDecimal(order.oTotalPrice, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(
                                   Text(
                                     _formatDate(order.oPayDate),
@@ -566,6 +575,7 @@ class _OrderPageState extends State<OrderPage> {
                                       color: hasDeliveryDate ? Colors.black : Colors.green,
                                     ),
                                   ),
+                                  onTap: () => handleSelectOrder(),
                                   onDoubleTap: () => handleOpenEdit(),
                                 ),
                                 DataCell(
@@ -575,6 +585,7 @@ class _OrderPageState extends State<OrderPage> {
                                       color: hasPayDate ? Colors.black : Colors.red,
                                     ),
                                   ),
+                                  onTap: () => handleSelectOrder(),
                                   onDoubleTap: () => handleOpenEdit(),
                                 ),
                               ],

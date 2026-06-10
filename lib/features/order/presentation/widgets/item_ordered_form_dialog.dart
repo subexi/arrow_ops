@@ -392,12 +392,15 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
               onTap: () => _showPhotoDialog(file),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.file(
-                  file,
+                child: Container(
                   width: 72,
                   height: 72,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, error, stackTrace) => const SizedBox.shrink(),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Image.file(
+                    file,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, error, stackTrace) => const SizedBox.shrink(),
+                  ),
                 ),
               ),
             ),
