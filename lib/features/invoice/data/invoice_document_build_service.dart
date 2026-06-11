@@ -7,7 +7,7 @@ import '../../order/domain/order_models.dart';
 
 class InvoiceSellerProfile {
   const InvoiceSellerProfile({
-    required this.name,
+    this.name = '',
     this.company = '-',
     this.street = '-',
     this.houseNumber = '-',
@@ -17,6 +17,7 @@ class InvoiceSellerProfile {
     this.vatId = '-',
     this.email = '-',
     this.phone = '-',
+    this.web = '-',
     this.footerLeftLines = const <String>[
       'Sitz des Unternehmens: Fellbach',
       'Registergericht: Stuttgart',
@@ -24,7 +25,7 @@ class InvoiceSellerProfile {
       'USt-ID-Nr: DE268366503',
     ],
     this.footerCenterLines = const <String>[
-      'Geschaeftsfuehrer: Helmut Dittrich',
+      'Geschäftsführer: Helmut Dittrich',
     ],
     this.footerRightLines = const <String>[
       'Bankverbindung: Kreissparkasse Waiblingen',
@@ -45,13 +46,21 @@ class InvoiceSellerProfile {
   final String vatId;
   final String email;
   final String phone;
+  final String web;
   final List<String> footerLeftLines;
   final List<String> footerCenterLines;
   final List<String> footerRightLines;
 
   static const InvoiceSellerProfile defaultProfile = InvoiceSellerProfile(
-    name: 'Arrow Ops',
-    company: 'Arrow Ops',
+    company: 'Arrow-Engineering UG',
+    street: 'Lange Furche',
+    houseNumber: '13',
+    postalCode: '70736',
+    city: 'Fellbach',
+    countryCode: 'Germany',
+    email: 'sales@arrow-fix.com',
+    phone: '+49 171 53 86 301',
+    web: 'www.arrow-fix.com',
   );
 }
 
@@ -73,6 +82,7 @@ class InvoiceDocumentBuildService {
     InvoiceSellerProfile sellerProfile = InvoiceSellerProfile.defaultProfile,
     String? invoiceNumber,
     String? invoiceDate,
+    String? noteOverride,
   }) async {
     final order = await _orderRepository.getOrderById(orderId);
     if (order == null) {
@@ -112,7 +122,7 @@ class InvoiceDocumentBuildService {
       footer: _buildFooter(sellerProfile),
       lines: lines,
       totals: totals,
-      note: _normalizedOrFallback(order.oNote, '-'),
+      note: _normalizedOrFallback(noteOverride, _normalizedOrFallback(order.oNote, '-')),
       paymentLabel: _paymentLabel(order.oPayment),
       payDate: _normalizedOrFallback(order.oPayDate, ''),
       deliveryDate: _normalizedOrFallback(order.oDelivery, ''),
@@ -122,16 +132,17 @@ class InvoiceDocumentBuildService {
 
   InvoicePartyData _buildSeller(InvoiceSellerProfile profile) {
     return InvoicePartyData(
-      name: _normalizedOrFallback(profile.name, '-'),
+      name: _normalizedOrFallback(profile.name, ''),
       company: _normalizedOrFallback(profile.company, '-'),
-      street: _normalizedOrFallback(profile.street, '-'),
-      houseNumber: _normalizedOrFallback(profile.houseNumber, '-'),
-      postalCode: _normalizedOrFallback(profile.postalCode, '-'),
-      city: _normalizedOrFallback(profile.city, '-'),
-      countryCode: _normalizedOrFallback(profile.countryCode, '-'),
-      vatId: _normalizedOrFallback(profile.vatId, '-'),
-      email: _normalizedOrFallback(profile.email, '-'),
-      phone: _normalizedOrFallback(profile.phone, '-'),
+      street: _normalizedOrFallback(profile.street, ''),
+      houseNumber: _normalizedOrFallback(profile.houseNumber, ''),
+      postalCode: _normalizedOrFallback(profile.postalCode, ''),
+      city: _normalizedOrFallback(profile.city, ''),
+      countryCode: _normalizedOrFallback(profile.countryCode, ''),
+      vatId: _normalizedOrFallback(profile.vatId, ''),
+      email: _normalizedOrFallback(profile.email, ''),
+      phone: _normalizedOrFallback(profile.phone, ''),
+      web: _normalizedOrFallback(profile.web, ''),
     );
   }
 
@@ -149,6 +160,7 @@ class InvoiceDocumentBuildService {
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),
+      web: '-',
     );
   }
 
@@ -166,6 +178,7 @@ class InvoiceDocumentBuildService {
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),
+      web: '-',
     );
   }
 

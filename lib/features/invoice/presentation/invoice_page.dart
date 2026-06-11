@@ -6,6 +6,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../customer/data/customer_repository.dart';
+import '../../customer/domain/customer.dart';
 import '../../order/data/order_repository.dart';
 import '../../order/domain/invoice_models.dart';
 import '../../order/domain/order_models.dart';
@@ -21,23 +23,34 @@ class InvoicePage extends StatefulWidget {
 
 class _InvoicePageState extends State<InvoicePage> {
   static const _lastExportDirectoryKey = 'invoice_last_export_directory';
+  static const List<String> _noteTemplates = <String>[
+    'Versand erfolgt nach Zahlungseingang',
+    'Versand erfolgt nach Zahlungseingang per Banküberweisung',
+    'We deliver after having received the payment',
+    'We deliver after having received the payment via bank transfer Total',
+  ];
+  static const InvoiceSellerProfile _fixedSellerProfile = InvoiceSellerProfile(
+    company: 'Arrow-Engineering UG',
+    street: 'Lange Furche',
+    houseNumber: '13',
+    postalCode: '70736',
+    city: 'Fellbach',
+    countryCode: 'Germany',
+    email: 'sales@arrow-fix.com',
+    phone: '+49 171 53 86 301',
+    web: 'www.arrow-fix.com',
+  );
 
   final _orderRepository = const OrderRepository();
+  final _customerRepository = const CustomerRepository();
   final _documentBuilder = InvoiceDocumentBuildService();
   final _pdfService = const InvoicePdfService();
 
-  final _sellerNameController = TextEditingController(text: 'Arrow Ops');
-  final _sellerCompanyController = TextEditingController(text: 'Arrow Ops');
-  final _sellerStreetController = TextEditingController();
-  final _sellerHouseNumberController = TextEditingController();
-  final _sellerPostalCodeController = TextEditingController();
-  final _sellerCityController = TextEditingController();
-  final _sellerCountryController = TextEditingController(text: 'DE');
-  final _sellerVatIdController = TextEditingController();
-  final _sellerEmailController = TextEditingController();
-  final _sellerPhoneController = TextEditingController();
+  final _invoiceNoteController = TextEditingController();
 
   List<OrderRow> _orders = [];
+  Map<String, Customer> _customerById = {};
+  List<Customer> _customers = [];
   String? _selectedOrderId;
   InvoiceDocumentData? _preview;
 
@@ -69,16 +82,7 @@ class _InvoicePageState extends State<InvoicePage> {
 
   @override
   void dispose() {
-    _sellerNameController.dispose();
-    _sellerCompanyController.dispose();
-    _sellerStreetController.dispose();
-    _sellerHouseNumberController.dispose();
-    _sellerPostalCodeController.dispose();
-    _sellerCityController.dispose();
-    _sellerCountryController.dispose();
-    _sellerVatIdController.dispose();
-    _sellerEmailController.dispose();
-    _sellerPhoneController.dispose();
+    _invoiceNoteController.dispose();
     super.dispose();
   }
 
@@ -88,13 +92,23 @@ class _InvoicePageState extends State<InvoicePage> {
     });
 
     try {
-      final orders = await _orderRepository.getOrders();
+      final results = await Future.wait<dynamic>([
+        _orderRepository.getOrders(),
+        _customerRepository.getAll(),
+      ]);
+      final orders = results[0] as List<OrderRow>;
+      final customers = results[1] as List<Customer>;
+      final customerById = <String, Customer>{
+        for (final customer in customers) _normalizeIdToken(customer.cId): customer,
+      };
       if (!mounted) {
         return;
       }
 
       setState(() {
         _orders = orders;
+        _customers = customers;
+        _customerById = customerById;
         if (_selectedOrderId == null && orders.isNotEmpty) {
           _selectedOrderId = orders.first.oId;
         }
@@ -119,19 +133,152 @@ class _InvoicePageState extends State<InvoicePage> {
     }
   }
 
-  InvoiceSellerProfile _sellerProfileFromForm() {
-    return InvoiceSellerProfile(
-      name: _sellerNameController.text.trim(),
-      company: _sellerCompanyController.text.trim(),
-      street: _sellerStreetController.text.trim(),
-      houseNumber: _sellerHouseNumberController.text.trim(),
-      postalCode: _sellerPostalCodeController.text.trim(),
-      city: _sellerCityController.text.trim(),
-      countryCode: _sellerCountryController.text.trim(),
-      vatId: _sellerVatIdController.text.trim(),
-      email: _sellerEmailController.text.trim(),
-      phone: _sellerPhoneController.text.trim(),
+  String _invoiceOrderLabel(OrderRow order) {
+    final customer = _resolveCustomer(order);
+    final lastName = customer?.cLastName.trim() ?? '';
+    final token = _normalizedNameToken(lastName);
+    return '${order.oId}_${token}_in';
+  }
+
+  String _invoiceSearchText(OrderRow order) {
+    final customer = _resolveCustomer(order);
+    final lastName = customer?.cLastName.trim().toLowerCase() ?? '';
+    return '${order.oId.toLowerCase()} $lastName ${_invoiceOrderLabel(order).toLowerCase()}';
+  }
+
+  String _selectedInvoiceOrderLabel() {
+    final selectedId = _selectedOrderId;
+    if (selectedId == null) {
+      return '-';
+    }
+    final selectedOrder = _orders.cast<OrderRow?>().firstWhere(
+      (order) => order?.oId == selectedId,
+      orElse: () => null,
     );
+    if (selectedOrder == null) {
+      return selectedId;
+    }
+    return _invoiceOrderLabel(selectedOrder);
+  }
+
+  Future<OrderRow?> _showOrderPickerDialog() async {
+    if (_orders.isEmpty) {
+      return null;
+    }
+
+    return showDialog<OrderRow>(
+      context: context,
+      builder: (dialogContext) {
+        final searchController = TextEditingController();
+        var filtered = List<OrderRow>.from(_orders);
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void applyFilter(String query) {
+              final normalized = query.trim().toLowerCase();
+              setDialogState(() {
+                if (normalized.isEmpty) {
+                  filtered = List<OrderRow>.from(_orders);
+                } else {
+                  filtered = _orders
+                      .where((order) => _invoiceSearchText(order).contains(normalized))
+                      .toList(growable: false);
+                }
+              });
+            }
+
+            return AlertDialog(
+              title: const Text('Rechnung auswaehlen'),
+              content: SizedBox(
+                width: 700,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: searchController,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Suche',
+                        hintText: 'Nummer oder Kunde eingeben...',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: applyFilter,
+                    ),
+                    const SizedBox(height: 12),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final order = filtered[index];
+                          return ListTile(
+                            dense: true,
+                            title: Text(_invoiceOrderLabel(order)),
+                            subtitle: Text(order.oDate.trim().isEmpty ? '-' : order.oDate.trim()),
+                            onTap: () => Navigator.of(dialogContext).pop(order),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Abbrechen'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Customer? _resolveCustomer(OrderRow order) {
+    final normalizedOrderCustomerId = _normalizeIdToken(order.oCustomerId);
+    final direct = _customerById[normalizedOrderCustomerId];
+    if (direct != null) {
+      return direct;
+    }
+
+    final orderNumeric = _numericId(order.oCustomerId);
+    if (orderNumeric == null) {
+      return null;
+    }
+
+    for (final customer in _customers) {
+      final candidate = _numericId(customer.cId);
+      if (candidate != null && candidate == orderNumeric) {
+        return customer;
+      }
+    }
+    return null;
+  }
+
+  String _normalizeIdToken(String raw) {
+    return raw.trim().toLowerCase();
+  }
+
+  int? _numericId(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return null;
+    }
+    return int.tryParse(digits);
+  }
+
+  String _normalizedNameToken(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed == '-') {
+      return 'Unbekannt';
+    }
+    final clean = trimmed.replaceAll(RegExp(r'\s+'), '');
+    if (clean.isEmpty) {
+      return 'Unbekannt';
+    }
+    return clean;
   }
 
   Future<void> _buildPreview() async {
@@ -147,7 +294,8 @@ class _InvoicePageState extends State<InvoicePage> {
     try {
       final preview = await _documentBuilder.buildFromOrder(
         orderId: orderId,
-        sellerProfile: _sellerProfileFromForm(),
+        sellerProfile: _fixedSellerProfile,
+        noteOverride: _invoiceNoteController.text.trim(),
       );
 
       if (!mounted) {
@@ -319,28 +467,29 @@ class _InvoicePageState extends State<InvoicePage> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               SizedBox(
-                width: 280,
-                child: DropdownButtonFormField<String>(
-                  initialValue: _orders.any((o) => o.oId == _selectedOrderId)
-                      ? _selectedOrderId
-                      : null,
-                  decoration: const InputDecoration(
-                    labelText: 'Auftrag',
+                width: 520,
+                child: OutlinedButton.icon(
+                  onPressed: _orders.isEmpty
+                      ? null
+                      : () async {
+                          final selectedOrder = await _showOrderPickerDialog();
+                          if (selectedOrder == null || !mounted) {
+                            return;
+                          }
+                          setState(() {
+                            _selectedOrderId = selectedOrder.oId;
+                          });
+                          await _buildPreview();
+                        },
+                  icon: const Icon(Icons.search),
+                  label: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _selectedOrderId == null
+                          ? 'Rechnung auswaehlen'
+                          : _selectedInvoiceOrderLabel(),
+                    ),
                   ),
-                  items: _orders
-                      .map(
-                        (order) => DropdownMenuItem<String>(
-                          value: order.oId,
-                          child: Text('${order.oId} (${order.oDate})'),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) async {
-                    setState(() {
-                      _selectedOrderId = value;
-                    });
-                    await _buildPreview();
-                  },
                 ),
               ),
               FilledButton.icon(
@@ -398,29 +547,54 @@ class _InvoicePageState extends State<InvoicePage> {
         child: ListView(
           children: [
             Text(
-              'Verkaeuferprofil',
+              'Verkäuferprofil',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 10),
-            _buildTextField(_sellerNameController, 'Name'),
+            _buildLockedValue('Firma', _fixedSellerProfile.company),
             const SizedBox(height: 8),
-            _buildTextField(_sellerCompanyController, 'Firma'),
+            _buildLockedValue('Strasse', _fixedSellerProfile.street),
             const SizedBox(height: 8),
-            _buildTextField(_sellerStreetController, 'Strasse'),
+            _buildLockedValue('Hausnummer', _fixedSellerProfile.houseNumber),
             const SizedBox(height: 8),
-            _buildTextField(_sellerHouseNumberController, 'Hausnummer'),
+            _buildLockedValue('Ort', _fixedSellerProfile.city),
             const SizedBox(height: 8),
-            _buildTextField(_sellerPostalCodeController, 'PLZ'),
+            _buildLockedValue('Land', _fixedSellerProfile.countryCode),
             const SizedBox(height: 8),
-            _buildTextField(_sellerCityController, 'Ort'),
+            _buildLockedValue('Phone', _fixedSellerProfile.phone),
             const SizedBox(height: 8),
-            _buildTextField(_sellerCountryController, 'Land (Code)'),
+            _buildLockedValue('E-Mail', _fixedSellerProfile.email),
             const SizedBox(height: 8),
-            _buildTextField(_sellerVatIdController, 'VAT ID'),
+            _buildLockedValue('Web', _fixedSellerProfile.web),
+            const Divider(height: 24),
+            TextField(
+              controller: _invoiceNoteController,
+              minLines: 3,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Lieferhinweis',
+                hintText: 'Optionaler Lieferhinweis',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Optionale Hinweisbausteine',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
             const SizedBox(height: 8),
-            _buildTextField(_sellerEmailController, 'E-Mail'),
-            const SizedBox(height: 8),
-            _buildTextField(_sellerPhoneController, 'Telefon'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _noteTemplates
+                  .map(
+                    (template) => ActionChip(
+                      label: Text(template),
+                      onPressed: () => _applyNoteTemplate(template),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
           ],
         ),
       ),
@@ -443,13 +617,10 @@ class _InvoicePageState extends State<InvoicePage> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String label) {
-    return TextField(
-      controller: controller,
-      decoration: InputDecoration(labelText: label),
-      onChanged: (_) {
-        // keep preview stale-safe and force explicit regenerate to avoid expensive rebuild per key stroke
-      },
+  Widget _buildLockedValue(String label, String value) {
+    return InputDecorator(
+      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+      child: Text(value.trim().isEmpty ? '-' : value.trim()),
     );
   }
 
@@ -469,12 +640,12 @@ class _InvoicePageState extends State<InvoicePage> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 10),
-                  _kv('Rechnungsnummer', preview.invoiceNumber),
+                  _kv('Rechnungsnummer', preview.orderId),
                   _kv('Rechnungsdatum', preview.invoiceDate),
                   _kv('Auftrag', preview.orderId),
-                  _kv('Waehrung', preview.currency),
+                  _kv('Währung', preview.currency),
                   _kv('Sprache', preview.language),
-                  _kv('Preisbasis', preview.priceBasis),
+                  _kv('Preisart', _priceTypeLabel(preview.priceBasis)),
                   _kv('Kunde', _partyOneLine(preview.buyer)),
                   _kv('Positionen', preview.lines.length.toString()),
                   const Divider(height: 24),
@@ -487,7 +658,7 @@ class _InvoicePageState extends State<InvoicePage> {
                   _kv('MwSt', _money(preview.totals.vatAmount, preview.currency)),
                   _kv('Waren brutto', _money(preview.totals.itemsGross, preview.currency)),
                   _kv('Versand', _money(preview.totals.shipping, preview.currency)),
-                  _kv('PayPal-Gebuehr', _money(preview.totals.paypalFee, preview.currency)),
+                  _kv('PayPal-Gebühr', _money(preview.totals.paypalFee, preview.currency)),
                   const Divider(height: 24),
                   _kv(
                     'Gesamt',
@@ -531,5 +702,28 @@ class _InvoicePageState extends State<InvoicePage> {
 
   String _money(double value, String currency) {
     return '${value.toStringAsFixed(2).replaceAll('.', ',')} $currency';
+  }
+
+  String _priceTypeLabel(String priceBasis) {
+    final normalized = priceBasis.trim().toLowerCase();
+    if (normalized == 'gross') {
+      return 'brutto';
+    }
+    if (normalized == 'net') {
+      return 'netto';
+    }
+    return priceBasis;
+  }
+
+  void _applyNoteTemplate(String template) {
+    final current = _invoiceNoteController.text.trim();
+    if (current.isEmpty) {
+      _invoiceNoteController.text = template;
+      return;
+    }
+
+    final next = '$current\n$template';
+    _invoiceNoteController.text = next;
+    _invoiceNoteController.selection = TextSelection.collapsed(offset: next.length);
   }
 }

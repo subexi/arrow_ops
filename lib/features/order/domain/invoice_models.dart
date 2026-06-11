@@ -64,6 +64,7 @@ class InvoicePartyData {
     this.vatId = '-',
     this.email = '-',
     this.phone = '-',
+    this.web = '-',
   });
 
   final String name;
@@ -76,6 +77,7 @@ class InvoicePartyData {
   final String vatId;
   final String email;
   final String phone;
+  final String web;
 }
 
 class InvoiceLineData {

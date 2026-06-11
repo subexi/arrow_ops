@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -11,17 +12,24 @@ class InvoicePdfService {
   const InvoicePdfService();
 
   // Quick calibration knobs for near-pixel invoice matching.
+  static const String _logoAssetPath = 'lib/images/af_schrift_plus_heartbeat.png';
+  static const double _logoWidth = 188;
+  static const double _rightAlignedBlockWidth = _logoWidth;
+  static const double _logoSpacingToSender = 4;
+  static const double _senderTopOffset = 1;
+  static const double _windowAddressTopOffset = 86;
+  static const double _addressColumnsGap = 20;
   static const double _totalsBlockWidth = 244;
-  static const double _totalsHeadingIndent = 2;
   static const double _totalsLabelWidth = 130;
-  static const double _totalsValueWidth = 96;
   static const double _totalsInnerGap = 8;
+  static const double _totalsValueRightInset = 4;
 
   Future<List<int>> generatePdfBytes(InvoiceDocumentData data) async {
     final document = pw.Document();
     final baseFont = pw.Font.helvetica();
     final boldFont = pw.Font.helveticaBold();
     final useGerman = data.language.trim().toUpperCase() == 'DE';
+    final logoImage = await _loadLogoImage();
 
     document.addPage(
       pw.MultiPage(
@@ -30,8 +38,8 @@ class InvoicePdfService {
         margin: const pw.EdgeInsets.all(24),
         footer: (context) => _buildCompanyFooter(data),
         build: (context) => [
-          _buildHeader(data, useGerman),
-          pw.SizedBox(height: 10),
+          _buildHeader(data, useGerman, logoImage),
+          pw.SizedBox(height: 0),
           _buildParties(data, useGerman),
           pw.SizedBox(height: 16),
           _buildOrderMetaRow(data, useGerman),
@@ -63,33 +71,117 @@ class InvoicePdfService {
   }
 
   String buildDefaultFileName(InvoiceDocumentData data) {
-    final cleanNumber = data.invoiceNumber.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    return 'invoice_$cleanNumber.pdf';
+    final numberToken = _normalizedNumberToken(data.orderId, data.invoiceNumber);
+    final lastNameToken = _normalizedLastNameToken(data.buyer.name);
+    return '${numberToken}_${lastNameToken}_in.pdf';
   }
 
-  pw.Widget _buildHeader(InvoiceDocumentData data, bool useGerman) {
+  String _normalizedNumberToken(String orderId, String invoiceNumber) {
+    final orderDigits = orderId.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    if (orderDigits.isNotEmpty) {
+      return orderDigits;
+    }
+
+    final invoiceDigits = invoiceNumber.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    if (invoiceDigits.isNotEmpty) {
+      return invoiceDigits;
+    }
+
+    return '0000000000';
+  }
+
+  String _normalizedLastNameToken(String fullName) {
+    final parts = fullName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty && part != '-')
+        .toList(growable: false);
+    if (parts.isEmpty) {
+      return 'Unbekannt';
+    }
+
+    final lastName = parts.last.replaceAll(RegExp(r'[^A-Za-z0-9ÄÖÜäöüß_-]'), '');
+    if (lastName.isEmpty) {
+      return 'Unbekannt';
+    }
+    return lastName;
+  }
+
+  Future<pw.MemoryImage?> _loadLogoImage() async {
+    try {
+      final data = await rootBundle.load(_logoAssetPath);
+      final bytes = data.buffer.asUint8List();
+      if (bytes.isEmpty) {
+        return null;
+      }
+      return pw.MemoryImage(bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  pw.Widget _buildHeader(
+    InvoiceDocumentData data,
+    bool useGerman,
+    pw.MemoryImage? logoImage,
+  ) {
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Expanded(
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                _singleLineAddress(data.seller),
-                style: const pw.TextStyle(fontSize: 7.6, color: PdfColors.grey700),
-              ),
-            ],
+          child: pw.Padding(
+            padding: const pw.EdgeInsets.only(top: _windowAddressTopOffset),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  _singleLineAddress(data.seller),
+                  style: const pw.TextStyle(fontSize: 7.6, color: PdfColors.grey700),
+                ),
+                pw.SizedBox(height: 1),
+                _buildPartyBlock(
+                  '',
+                  data.buyer,
+                  includeContacts: false,
+                  includeVat: false,
+                  boxed: false,
+                  bodyFontSize: 10.8,
+                ),
+              ],
+            ),
           ),
         ),
         pw.SizedBox(width: 20),
-        pw.Expanded(
-          child: _buildPartyBlock(
-            useGerman ? 'Absender' : 'Seller',
-            data.seller,
-            includeContacts: true,
-            includeVat: true,
-            boxed: false,
+        pw.SizedBox(
+          width: _rightAlignedBlockWidth,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              if (logoImage != null) ...[
+                pw.Align(
+                  alignment: pw.Alignment.centerRight,
+                  child: pw.Image(
+                    logoImage,
+                    width: _logoWidth,
+                    fit: pw.BoxFit.contain,
+                  ),
+                ),
+                pw.SizedBox(height: _logoSpacingToSender),
+              ],
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(top: _senderTopOffset),
+                child: _buildPartyBlock(
+                  '',
+                  data.seller,
+                  includeContacts: true,
+                  includeVat: true,
+                  boxed: false,
+                  addGermanStreetCityGap: false,
+                  showGermanyCountry: true,
+                  addCountryGap: false,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -100,17 +192,10 @@ class InvoicePdfService {
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Expanded(
-          child: _buildPartyBlock(
-            useGerman ? 'Kundenadresse' : 'Billing address',
-            data.buyer,
-            includeContacts: false,
-            includeVat: false,
-            boxed: false,
-          ),
-        ),
-        pw.SizedBox(width: 24),
-        pw.Expanded(
+        pw.Expanded(child: pw.SizedBox()),
+        pw.SizedBox(width: _addressColumnsGap),
+        pw.SizedBox(
+          width: _rightAlignedBlockWidth,
           child: _buildPartyBlock(
             useGerman ? 'Lieferadresse' : 'Shipping address',
             data.delivery,
@@ -127,12 +212,13 @@ class InvoicePdfService {
     final leftLabel = useGerman ? 'Ihre Bestellung vom' : 'Your order from';
     final centerLabel = useGerman ? 'Unser Zeichen' : 'Reference';
     final rightLabel = useGerman ? 'Datum' : 'Date';
+    const referenceInitials = 'HD';
 
     return pw.Row(
       children: [
         pw.Expanded(child: _metaCell(leftLabel, data.invoiceDate)),
         pw.SizedBox(width: 20),
-        pw.Expanded(child: _metaCell(centerLabel, _initials(data.seller.name))),
+        pw.Expanded(child: _metaCell(centerLabel, referenceInitials)),
         pw.SizedBox(width: 20),
         pw.Expanded(child: _metaCell(rightLabel, data.invoiceDate, alignRight: true)),
       ],
@@ -144,7 +230,14 @@ class InvoicePdfService {
     return pw.Column(
       crossAxisAlignment: cross,
       children: [
-        pw.Text(label, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+        pw.Text(
+          label,
+          style: pw.TextStyle(
+            fontSize: 8,
+            color: PdfColors.grey700,
+            fontWeight: pw.FontWeight.bold,
+          ),
+        ),
         pw.SizedBox(height: 2),
         pw.Text(value, style: const pw.TextStyle(fontSize: 9)),
       ],
@@ -153,14 +246,15 @@ class InvoicePdfService {
 
   pw.Widget _buildInvoiceHeadline(InvoiceDocumentData data, bool useGerman) {
     final label = useGerman ? 'Bestellung / Rechnung-Nr.' : 'Order / Invoice no.';
+    final documentNumber = data.orderId.trim();
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Divider(color: PdfColors.grey500, height: 0.4),
         pw.SizedBox(height: 6),
         pw.Text(
-          '$label: ${data.invoiceNumber}',
-          style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold),
+          '$label: $documentNumber',
+          style: pw.TextStyle(fontSize: 12.5, fontWeight: pw.FontWeight.bold),
         ),
       ],
     );
@@ -168,7 +262,7 @@ class InvoicePdfService {
 
   pw.Widget _buildIntroSection(InvoiceDocumentData data, bool useGerman) {
     final gratitude = useGerman
-        ? 'Wir danken fuer Ihre Bestellung und berechnen wie folgt:'
+        ? 'Wir danken für Ihre Bestellung und berechnen wie folgt:'
         : 'Thank you for your order. We charge as follows:';
     final hasIntraCommunityNote = useGerman &&
         data.totals.vatRate <= 0 &&
@@ -184,7 +278,7 @@ class InvoicePdfService {
           ),
         pw.Text(
           gratitude,
-          style: pw.TextStyle(fontSize: 9.2, fontWeight: pw.FontWeight.bold),
+          style: pw.TextStyle(fontSize: 8.6, fontWeight: pw.FontWeight.bold),
         ),
       ],
     );
@@ -196,17 +290,46 @@ class InvoicePdfService {
     bool includeContacts = true,
     bool includeVat = true,
     bool boxed = true,
+    double bodyFontSize = 9.6,
+    bool addGermanStreetCityGap = true,
+    bool showGermanyCountry = false,
+    bool addCountryGap = true,
   }) {
-    final lines = <String>[
-      if (_valid(party.company)) party.company,
-      party.name,
-      '${party.street} ${party.houseNumber}'.trim(),
-      '${party.postalCode} ${party.city}'.trim(),
-      if (_valid(party.countryCode)) party.countryCode,
-      if (includeVat && _valid(party.vatId)) 'VAT ID: ${party.vatId}',
-      if (includeContacts && _valid(party.email)) party.email,
-      if (includeContacts && _valid(party.phone)) party.phone,
-    ].where(_valid).toList(growable: false);
+    final countryLine = _displayCountryForAddress(
+      party.countryCode,
+      showGermany: showGermanyCountry,
+    );
+    final isGermany = _isGermanAddress(party.countryCode);
+    final widgets = <pw.Widget>[
+      if (_valid(party.company)) _partyLine(party.company, fontSize: bodyFontSize),
+      if (_valid(party.name)) _partyLine(party.name, fontSize: bodyFontSize),
+      if (_valid(_joinValid([party.street, party.houseNumber])))
+        _partyLine(_joinValid([party.street, party.houseNumber]), fontSize: bodyFontSize),
+      if (addGermanStreetCityGap && isGermany && _valid(_joinValid([party.postalCode, party.city])))
+        pw.SizedBox(height: 10),
+      if (_valid(_joinValid([party.postalCode, party.city])))
+        _partyLine(_joinValid([party.postalCode, party.city]), fontSize: bodyFontSize),
+      if (addCountryGap && _valid(countryLine)) pw.SizedBox(height: 10),
+      if (_valid(countryLine)) _partyLine(countryLine, fontSize: bodyFontSize),
+      if (includeVat && _valid(party.vatId))
+        _partyLine('VAT ID: ${party.vatId}', fontSize: bodyFontSize),
+      if (includeContacts && _valid(party.phone))
+        _partyLine('Phone: ${party.phone.trim()}', fontSize: bodyFontSize),
+      if (includeContacts && _valid(party.email))
+        _partyLabeledLinkLine(
+          label: 'email: ',
+          linkText: party.email.trim(),
+          url: 'mailto:${party.email.trim()}',
+          fontSize: bodyFontSize,
+        ),
+      if (includeContacts && _valid(party.web))
+        _partyLabeledLinkLine(
+          label: 'web: ',
+          linkText: party.web.trim(),
+          url: _normalizeWebUrl(party.web),
+          fontSize: bodyFontSize,
+        ),
+    ];
 
     return pw.Container(
       padding: const pw.EdgeInsets.all(4),
@@ -218,43 +341,72 @@ class InvoicePdfService {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(
-            title,
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10.2),
-          ),
-          pw.SizedBox(height: 3),
-          ...lines.map(
-            (line) => pw.Text(line, style: const pw.TextStyle(fontSize: 9.6, lineSpacing: 1.15)),
-          ),
+          if (_valid(title)) ...[
+            pw.Text(
+              title,
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10.2),
+            ),
+            pw.SizedBox(height: 3),
+          ],
+          ...widgets,
         ],
       ),
     );
   }
 
+  pw.Widget _partyLine(String text, {double fontSize = 9.6}) {
+    return pw.Text(text, style: pw.TextStyle(fontSize: fontSize, lineSpacing: 1.15));
+  }
+
+  pw.Widget _partyLabeledLinkLine({
+    required String label,
+    required String linkText,
+    required String url,
+    double fontSize = 9.6,
+  }) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(label, style: pw.TextStyle(fontSize: fontSize, lineSpacing: 1.15)),
+        pw.UrlLink(
+          destination: url,
+          child: pw.Text(
+            linkText,
+            style: pw.TextStyle(
+              fontSize: fontSize,
+              lineSpacing: 1.15,
+              color: PdfColors.blue700,
+              decoration: pw.TextDecoration.underline,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   pw.Widget _buildLinesTable(InvoiceDocumentData data, bool useGerman) {
-    final headers = [
+    final showDiscountColumn = data.lines.any((line) => line.discountPercent.abs() > 0.0001);
+    final headers = <String>[
       useGerman ? 'Pos' : 'Pos.',
       useGerman ? 'Artikel' : 'ID',
       useGerman ? 'Bezeichnung' : 'Description',
       useGerman ? 'Menge' : 'Qty',
       useGerman ? 'Einzelpreis' : 'Unit price',
-      useGerman ? 'Rabatt %' : 'Discount %',
+      if (showDiscountColumn) useGerman ? 'Rabatt %' : 'Discount %',
       useGerman ? 'Gesamtpreis' : 'Total',
     ];
 
-    final rows = data.lines
-        .map(
-          (line) => [
-            line.position.toString(),
-            line.articleLabel,
-            line.description,
-            line.quantity.toString(),
-            _formatMoney(line.unitPrice, data.currency, useGerman),
-            line.discountPercent.toStringAsFixed(1),
-            _formatMoney(line.lineTotal, data.currency, useGerman),
-          ],
-        )
-        .toList(growable: false);
+    final rows = data.lines.map((line) {
+      return <String>[
+        line.position.toString(),
+        line.articleLabel,
+        line.description,
+        line.quantity.toString(),
+        _formatMoney(line.unitPrice, data.currency, useGerman),
+        if (showDiscountColumn) line.discountPercent.toStringAsFixed(1),
+        _formatMoney(line.lineTotal, data.currency, useGerman),
+      ];
+    }).toList(growable: false);
 
     const accentRed = PdfColor(0.82, 0.18, 0.16);
 
@@ -262,23 +414,29 @@ class InvoicePdfService {
       headers: headers,
       data: rows,
       headerDecoration: const pw.BoxDecoration(),
-      headerStyle: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+      headerStyle: pw.TextStyle(fontSize: 7.6, fontWeight: pw.FontWeight.bold),
       cellStyle: const pw.TextStyle(fontSize: 8.5),
       cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
       cellAlignment: pw.Alignment.centerLeft,
+      cellAlignments: <int, pw.Alignment>{
+        3: pw.Alignment.center,
+        4: pw.Alignment.centerRight,
+        if (showDiscountColumn) 5: pw.Alignment.center,
+        showDiscountColumn ? 6 : 5: pw.Alignment.centerRight,
+      },
       border: pw.TableBorder(
         top: const pw.BorderSide(color: accentRed, width: 0.9),
         bottom: const pw.BorderSide(color: PdfColors.grey400, width: 0.4),
         horizontalInside: const pw.BorderSide(color: PdfColors.grey300, width: 0.3),
         verticalInside: const pw.BorderSide(color: PdfColors.grey300, width: 0.3),
       ),
-      columnWidths: {
+      columnWidths: <int, pw.TableColumnWidth>{
         0: const pw.FixedColumnWidth(30),
         1: const pw.FixedColumnWidth(65),
         3: const pw.FixedColumnWidth(32),
         4: const pw.FixedColumnWidth(62),
-        5: const pw.FixedColumnWidth(45),
-        6: const pw.FixedColumnWidth(62),
+        if (showDiscountColumn) 5: const pw.FixedColumnWidth(45),
+        showDiscountColumn ? 6 : 5: const pw.FixedColumnWidth(62),
       },
     );
   }
@@ -306,9 +464,8 @@ class InvoicePdfService {
               child: pw.Column(
                 children: [
                   if (useGerman) ...[
-                    _totalsHeadingRow('Summe'),
                     _totalsRow(
-                      'Warenwert',
+                      'Summe Warenwert',
                       _formatMoney(_displayGoodsValue(data), data.currency, true),
                     ),
                     _totalsRow(
@@ -316,7 +473,7 @@ class InvoicePdfService {
                       _formatMoney(totals.shipping, data.currency, true),
                     ),
                     _totalsRow(
-                      'SWa PayPal',
+                      'PayPal-Gebühr',
                       _formatMoney(totals.paypalFee, data.currency, true),
                     ),
                     pw.Divider(color: PdfColors.grey600, height: 0.4),
@@ -362,22 +519,6 @@ class InvoicePdfService {
     );
   }
 
-  pw.Widget _totalsHeadingRow(String label) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(left: _totalsHeadingIndent, bottom: 1),
-      child: pw.Row(
-        children: [
-          pw.Expanded(
-            child: pw.Text(
-              label,
-              style: pw.TextStyle(fontSize: 8.8, fontWeight: pw.FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   double _displayGoodsValue(InvoiceDocumentData data) {
     final basis = data.priceBasis.trim().toLowerCase();
     if (basis == 'gross') {
@@ -387,8 +528,12 @@ class InvoicePdfService {
   }
 
   pw.Widget _totalsRow(String label, String value, {bool bold = false}) {
-    final style = pw.TextStyle(
+    final labelStyle = pw.TextStyle(
       fontSize: bold ? 10 : 9,
+      fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+    );
+    final valueStyle = pw.TextStyle(
+      fontSize: 8.5,
       fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
     );
     return pw.Padding(
@@ -397,14 +542,16 @@ class InvoicePdfService {
         children: [
           pw.SizedBox(
             width: _totalsLabelWidth,
-            child: pw.Text(label, style: style),
+            child: pw.Text(label, style: labelStyle),
           ),
           pw.SizedBox(width: _totalsInnerGap),
-          pw.SizedBox(
-            width: _totalsValueWidth,
+          pw.Expanded(
             child: pw.Align(
               alignment: pw.Alignment.centerRight,
-              child: pw.Text(value, style: style),
+              child: pw.Padding(
+                padding: const pw.EdgeInsets.only(right: _totalsValueRightInset),
+                child: pw.Text(value, style: valueStyle),
+              ),
             ),
           ),
         ],
@@ -435,7 +582,7 @@ class InvoicePdfService {
           pw.Text('$trackingTitle: ${data.trackingCode}', style: const pw.TextStyle(fontSize: 9)),
         pw.SizedBox(height: 6),
         pw.Text(
-          '${useGerman ? 'Gewicht gesamt' : 'Total weight'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
+          '${useGerman ? 'Warengewicht' : 'Total weight'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
           style: const pw.TextStyle(fontSize: 9),
         ),
       ],
@@ -481,21 +628,92 @@ class InvoicePdfService {
   }
 
   String _singleLineAddress(InvoicePartyData party) {
+    final countryLine = _displayCountryForAddress(party.countryCode);
     final parts = <String>[
       if (_valid(party.company)) party.company,
-      if (_valid(party.street)) '${party.street} ${party.houseNumber}'.trim(),
-      if (_valid(party.postalCode) || _valid(party.city)) '${party.postalCode} ${party.city}'.trim(),
-      if (_valid(party.countryCode)) party.countryCode,
+      if (_valid(_joinValid([party.street, party.houseNumber])))
+        _joinValid([party.street, party.houseNumber]),
+      if (_valid(_joinValid([party.postalCode, party.city])))
+        _joinValid([party.postalCode, party.city]),
+      if (_valid(countryLine)) countryLine,
     ];
-    return parts.join(' • ');
+    return parts.join(' | ');
   }
 
-  String _initials(String source) {
-    final parts = source.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList(growable: false);
-    if (parts.isEmpty) {
-      return '-';
+  bool _isGermanAddress(String value) {
+    final upper = value.trim().toUpperCase();
+    return upper == 'DE' ||
+        upper == 'DEU' ||
+        upper == 'GER' ||
+        upper == 'GERMANY' ||
+        upper == 'DEUTSCHLAND';
+  }
+
+  String _displayCountryForAddress(String value, {bool showGermany = false}) {
+    final normalized = value.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return '';
     }
-    return parts.take(2).map((p) => p[0].toUpperCase()).join();
+    final upper = normalized.toUpperCase();
+    if (!showGermany &&
+        (upper == 'DE' ||
+            upper == 'DEU' ||
+            upper == 'GER' ||
+            upper == 'GERMANY' ||
+            upper == 'DEUTSCHLAND')) {
+      return '';
+    }
+
+    switch (upper) {
+      case 'AT':
+        return 'Austria';
+      case 'CH':
+        return 'Switzerland';
+      case 'FR':
+        return 'France';
+      case 'IT':
+        return 'Italy';
+      case 'ES':
+        return 'Spain';
+      case 'NL':
+        return 'Netherlands';
+      case 'BE':
+        return 'Belgium';
+      case 'PL':
+        return 'Poland';
+      case 'CZ':
+        return 'Czech Republic';
+      case 'US':
+      case 'USA':
+        return 'United States';
+      case 'GB':
+      case 'UK':
+        return 'United Kingdom';
+      case 'DE':
+      case 'DEU':
+      case 'GER':
+      case 'GERMANY':
+      case 'DEUTSCHLAND':
+        return 'Germany';
+      default:
+        return normalized;
+    }
+  }
+
+  String _joinValid(List<String?> values) {
+    return values
+        .map((value) => value?.trim() ?? '')
+        .where((value) => value.isNotEmpty && value != '-')
+        .join(' ')
+        .trim();
+  }
+
+  String _normalizeWebUrl(String value) {
+    final raw = value.trim();
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      return raw;
+    }
+    return 'https://$raw';
   }
 
   String _formatMoney(double value, String currency, bool useGerman) {
