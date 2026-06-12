@@ -60,6 +60,7 @@ class InvoicePartyData {
     this.houseNumber = '-',
     this.postalCode = '-',
     this.city = '-',
+    this.state = '',
     this.countryCode = '-',
     this.vatId = '-',
     this.email = '-',
@@ -73,6 +74,7 @@ class InvoicePartyData {
   final String houseNumber;
   final String postalCode;
   final String city;
+  final String state;
   final String countryCode;
   final String vatId;
   final String email;

@@ -236,6 +236,41 @@ class _InvoicePageState extends State<InvoicePage> {
     );
   }
 
+  Future<void> _refreshOrdersForSelection() async {
+    try {
+      final results = await Future.wait<dynamic>([
+        _orderRepository.getOrders(),
+        _customerRepository.getAll(),
+      ]);
+      final orders = results[0] as List<OrderRow>;
+      final customers = results[1] as List<Customer>;
+      final customerById = <String, Customer>{
+        for (final customer in customers) _normalizeIdToken(customer.cId): customer,
+      };
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _orders = orders;
+        _customers = customers;
+        _customerById = customerById;
+        final selected = _selectedOrderId;
+        if (selected == null || !orders.any((order) => order.oId == selected)) {
+          _selectedOrderId = orders.isEmpty ? null : orders.first.oId;
+        }
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Auftraege konnten nicht aktualisiert werden: $error')),
+      );
+    }
+  }
+
   Customer? _resolveCustomer(OrderRow order) {
     final normalizedOrderCustomerId = _normalizeIdToken(order.oCustomerId);
     final direct = _customerById[normalizedOrderCustomerId];
@@ -472,6 +507,7 @@ class _InvoicePageState extends State<InvoicePage> {
                   onPressed: _orders.isEmpty
                       ? null
                       : () async {
+                          await _refreshOrdersForSelection();
                           final selectedOrder = await _showOrderPickerDialog();
                           if (selectedOrder == null || !mounted) {
                             return;

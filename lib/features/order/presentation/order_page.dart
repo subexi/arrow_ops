@@ -25,11 +25,11 @@ class _OrderPageState extends State<OrderPage> {
 
   List<OrderRow> _orders = [];
   List<ItemOrderedRow> _items = [];
-  List<ItemCatalogueRow> _selectableItems = [];
   List<Customer> _allCustomers = [];
   Map<String, Customer> _customerById = {};
 
   bool _loading = true;
+  String? _loadError;
   String? _selectedOrderId;
   int? _selectedItemOrderedId;
 
@@ -49,11 +49,13 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final orders = await _orderRepo.getOrders();
       final customers = await _customerRepo.getAll();
-      final selectableItems = await _orderRepo.getSelectableCatalogueItems();
       final customerMap = {for (final c in customers) c.cId: c};
 
       String? nextSelectedId = _selectedOrderId;
@@ -75,11 +77,19 @@ class _OrderPageState extends State<OrderPage> {
       setState(() {
         _orders = orders;
         _allCustomers = customers;
-        _selectableItems = selectableItems;
         _customerById = customerMap;
         _selectedOrderId = nextSelectedId;
         _items = items;
         _selectedItemOrderedId = nextSelectedItemId;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = 'Aufträge konnten nicht geladen werden: $error';
+        _orders = [];
+        _items = [];
+        _selectedOrderId = null;
+        _selectedItemOrderedId = null;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -92,14 +102,26 @@ class _OrderPageState extends State<OrderPage> {
       setState(() => _items = []);
       return;
     }
-    final items = await _orderRepo.getItemsForOrder(id);
-    if (!mounted) return;
-    setState(() {
-      _items = items;
-      if (_selectedItemOrderedId == null || !items.any((item) => item.ioId == _selectedItemOrderedId)) {
-        _selectedItemOrderedId = items.isEmpty ? null : items.first.ioId;
-      }
-    });
+    try {
+      final items = await _orderRepo.getItemsForOrder(id);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        if (_selectedItemOrderedId == null ||
+            !items.any((item) => item.ioId == _selectedItemOrderedId)) {
+          _selectedItemOrderedId = items.isEmpty ? null : items.first.ioId;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _items = [];
+        _selectedItemOrderedId = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Positionen konnten nicht geladen werden: $error')),
+      );
+    }
   }
 
   Future<void> _refreshSelectedOrderFromItems() async {
@@ -339,6 +361,17 @@ class _OrderPageState extends State<OrderPage> {
       return;
     }
 
+    late final List<ItemCatalogueRow> latestSelectableItems;
+    try {
+      latestSelectableItems = await _orderRepo.getSelectableCatalogueItems();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Artikel konnten nicht geladen werden: $error')),
+      );
+      return;
+    }
+
     final nextPos = initialValue?.ioPos ?? await _orderRepo.nextItemOrderedPos(order.oId);
     if (!mounted) return;
 
@@ -350,7 +383,7 @@ class _OrderPageState extends State<OrderPage> {
         orderLanguage: order.oLanguage,
         orderPriceBasis: order.oPriceBasis,
         isDealerCustomer: order.oDealer == 1,
-        availableItems: _selectableItems,
+        availableItems: latestSelectableItems,
         initialPos: nextPos,
         initialValue: initialValue,
       ),
@@ -417,17 +450,43 @@ class _OrderPageState extends State<OrderPage> {
 
   @override
   Widget build(BuildContext context) {
+    final loadError = _loadError;
     return Scaffold(
       appBar: AppBar(title: const Text('Aufträge')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : loadError != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(loadError, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: _loadData,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Erneut laden'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
           : LayoutBuilder(
               builder: (context, constraints) {
                 final totalH = constraints.maxHeight;
-                final availableH = totalH - _splitterHeight;
-                final topH = (availableH * _splitterRatio)
-                    .clamp(_minTopHeight, availableH - _minBottomHeight);
-                final bottomH = availableH - topH;
+                final availableH = (totalH - _splitterHeight).clamp(0.0, double.infinity);
+                final minCombined = _minTopHeight + _minBottomHeight;
+
+                late final double topH;
+                if (availableH <= minCombined) {
+                  topH = availableH * _splitterRatio;
+                } else {
+                  topH = (availableH * _splitterRatio)
+                      .clamp(_minTopHeight, availableH - _minBottomHeight);
+                }
+                final bottomH = (availableH - topH).clamp(0.0, double.infinity);
 
                 return Column(
                   children: [
@@ -447,12 +506,22 @@ class _OrderPageState extends State<OrderPage> {
       onVerticalDragStart: (_) => setState(() => _isDragging = true),
       onVerticalDragEnd: (_) => setState(() => _isDragging = false),
       onVerticalDragUpdate: (details) {
-        final availableH = totalH - _splitterHeight;
+        final availableH = (totalH - _splitterHeight).clamp(0.0, double.infinity);
+        final minCombined = _minTopHeight + _minBottomHeight;
+
         setState(() {
-          final newTopH =
-              (_splitterRatio * availableH + details.delta.dy)
-                  .clamp(_minTopHeight, availableH - _minBottomHeight);
-          _splitterRatio = newTopH / availableH;
+          final baseTop = _splitterRatio * availableH;
+          final targetTop = baseTop + details.delta.dy;
+
+          late final double newTopH;
+          if (availableH <= minCombined) {
+            newTopH = targetTop.clamp(0.0, availableH);
+          } else {
+            newTopH = targetTop.clamp(_minTopHeight, availableH - _minBottomHeight);
+          }
+
+          _splitterRatio = availableH <= 0 ? _splitterRatio : (newTopH / availableH);
+          _splitterRatio = _splitterRatio.clamp(0.1, 0.9);
         });
       },
       child: Container(

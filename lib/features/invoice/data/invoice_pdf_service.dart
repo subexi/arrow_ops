@@ -13,6 +13,8 @@ class InvoicePdfService {
 
   // Quick calibration knobs for near-pixel invoice matching.
   static const String _logoAssetPath = 'lib/images/af_schrift_plus_heartbeat.png';
+  static const String _pdfFontRegularAssetPath = 'lib/fonts/Roboto-Regular.ttf';
+  static const String _pdfFontBoldAssetPath = 'lib/fonts/Roboto-Bold.ttf';
   static const double _logoWidth = 188;
   static const double _rightAlignedBlockWidth = _logoWidth;
   static const double _logoSpacingToSender = 4;
@@ -23,11 +25,16 @@ class InvoicePdfService {
   static const double _totalsLabelWidth = 130;
   static const double _totalsInnerGap = 8;
   static const double _totalsValueRightInset = 4;
+  static const String _giroRecipient = 'Arrow-Engineering UG';
+  static const String _giroIban = 'DE47 6025 0010 1000 835 126';
+  static const String _paypalRecipient = 'sales@arrow-fix.com';
 
   Future<List<int>> generatePdfBytes(InvoiceDocumentData data) async {
     final document = pw.Document();
-    final baseFont = pw.Font.helvetica();
-    final boldFont = pw.Font.helveticaBold();
+    final embeddedBaseFont = await _loadPdfFont(_pdfFontRegularAssetPath);
+    final embeddedBoldFont = await _loadPdfFont(_pdfFontBoldAssetPath);
+    final baseFont = embeddedBaseFont ?? pw.Font.helvetica();
+    final boldFont = embeddedBoldFont ?? pw.Font.helveticaBold();
     final useGerman = data.language.trim().toUpperCase() == 'DE';
     final logoImage = await _loadLogoImage();
 
@@ -120,11 +127,22 @@ class InvoicePdfService {
     }
   }
 
+  Future<pw.Font?> _loadPdfFont(String assetPath) async {
+    try {
+      final data = await rootBundle.load(assetPath);
+      return pw.Font.ttf(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
   pw.Widget _buildHeader(
     InvoiceDocumentData data,
     bool useGerman,
     pw.MemoryImage? logoImage,
   ) {
+    final buyerHouseNumberFirst = !useGerman && _isHouseNumberFirstCountry(data.buyer.countryCode);
+
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -146,6 +164,7 @@ class InvoicePdfService {
                   includeVat: false,
                   boxed: false,
                   bodyFontSize: 10.8,
+                  houseNumberFirst: buyerHouseNumberFirst,
                 ),
               ],
             ),
@@ -189,6 +208,9 @@ class InvoicePdfService {
   }
 
   pw.Widget _buildParties(InvoiceDocumentData data, bool useGerman) {
+    final deliveryHouseNumberFirst =
+        !useGerman && _isHouseNumberFirstCountry(data.delivery.countryCode);
+
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -202,6 +224,7 @@ class InvoicePdfService {
             includeContacts: false,
             includeVat: false,
             boxed: false,
+            houseNumberFirst: deliveryHouseNumberFirst,
           ),
         ),
       ],
@@ -294,21 +317,26 @@ class InvoicePdfService {
     bool addGermanStreetCityGap = true,
     bool showGermanyCountry = false,
     bool addCountryGap = true,
+    bool houseNumberFirst = false,
   }) {
     final countryLine = _displayCountryForAddress(
       party.countryCode,
       showGermany: showGermanyCountry,
     );
     final isGermany = _isGermanAddress(party.countryCode);
+    final streetLine = _streetAddressLine(
+      street: party.street,
+      houseNumber: party.houseNumber,
+      houseNumberFirst: houseNumberFirst,
+    );
+    final postalCityLine = _postalCityLine(party);
     final widgets = <pw.Widget>[
       if (_valid(party.company)) _partyLine(party.company, fontSize: bodyFontSize),
       if (_valid(party.name)) _partyLine(party.name, fontSize: bodyFontSize),
-      if (_valid(_joinValid([party.street, party.houseNumber])))
-        _partyLine(_joinValid([party.street, party.houseNumber]), fontSize: bodyFontSize),
-      if (addGermanStreetCityGap && isGermany && _valid(_joinValid([party.postalCode, party.city])))
+      if (_valid(streetLine)) _partyLine(streetLine, fontSize: bodyFontSize),
+      if (addGermanStreetCityGap && isGermany && _valid(postalCityLine))
         pw.SizedBox(height: 10),
-      if (_valid(_joinValid([party.postalCode, party.city])))
-        _partyLine(_joinValid([party.postalCode, party.city]), fontSize: bodyFontSize),
+      if (_valid(postalCityLine)) _partyLine(postalCityLine, fontSize: bodyFontSize),
       if (addCountryGap && _valid(countryLine)) pw.SizedBox(height: 10),
       if (_valid(countryLine)) _partyLine(countryLine, fontSize: bodyFontSize),
       if (includeVat && _valid(party.vatId))
@@ -432,8 +460,8 @@ class InvoicePdfService {
       ),
       columnWidths: <int, pw.TableColumnWidth>{
         0: const pw.FixedColumnWidth(30),
-        1: const pw.FixedColumnWidth(65),
-        3: const pw.FixedColumnWidth(32),
+        1: const pw.FixedColumnWidth(88),
+        3: const pw.FixedColumnWidth(40),
         4: const pw.FixedColumnWidth(62),
         if (showDiscountColumn) 5: const pw.FixedColumnWidth(45),
         showDiscountColumn ? 6 : 5: const pw.FixedColumnWidth(62),
@@ -443,9 +471,12 @@ class InvoicePdfService {
 
   pw.Widget _buildTotalsSection(InvoiceDocumentData data, bool useGerman) {
     final totals = data.totals;
+    final isGrossBasis = data.priceBasis.trim().toLowerCase() == 'gross';
     final vatHint = useGerman
       ? '${totals.vatRate.toStringAsFixed(0)}% MwSt. im Warenwert enthalten'
-        : 'VAT (${totals.vatRate.toStringAsFixed(0)}%) included in goods value';
+        : isGrossBasis
+            ? 'Goods value incl. VAT (${totals.vatRate.toStringAsFixed(0)}%)'
+            : 'VAT (${totals.vatRate.toStringAsFixed(0)}%) included in goods value';
 
     return pw.Column(
       children: [
@@ -472,10 +503,11 @@ class InvoicePdfService {
                       'Versand',
                       _formatMoney(totals.shipping, data.currency, true),
                     ),
-                    _totalsRow(
-                      'PayPal-Gebühr',
-                      _formatMoney(totals.paypalFee, data.currency, true),
-                    ),
+                    if (totals.paypalFee.abs() > 0.0001)
+                      _totalsRow(
+                        'PayPal-Gebühr',
+                        _formatMoney(totals.paypalFee, data.currency, true),
+                      ),
                     pw.Divider(color: PdfColors.grey600, height: 0.4),
                     _totalsRow(
                       'Endbetrag',
@@ -483,29 +515,32 @@ class InvoicePdfService {
                       bold: true,
                     ),
                   ] else ...[
+                    if (!isGrossBasis)
+                      _totalsRow(
+                        'Goods net',
+                        _formatMoney(totals.itemsNet, data.currency, false),
+                      ),
+                    if (!isGrossBasis)
+                      _totalsRow(
+                        'VAT (${totals.vatRate.toStringAsFixed(1)}%)',
+                        _formatMoney(totals.vatAmount, data.currency, false),
+                      ),
                     _totalsRow(
-                      'Goods net',
-                      _formatMoney(totals.itemsNet, data.currency, false),
-                    ),
-                    _totalsRow(
-                      'VAT (${totals.vatRate.toStringAsFixed(1)}%)',
-                      _formatMoney(totals.vatAmount, data.currency, false),
-                    ),
-                    _totalsRow(
-                      'Goods gross',
+                      isGrossBasis ? 'Goods value' : 'Goods gross',
                       _formatMoney(totals.itemsGross, data.currency, false),
                     ),
                     _totalsRow(
                       'Shipping',
                       _formatMoney(totals.shipping, data.currency, false),
                     ),
-                    _totalsRow(
-                      'PayPal fee',
-                      _formatMoney(totals.paypalFee, data.currency, false),
-                    ),
+                    if (totals.paypalFee.abs() > 0.0001)
+                      _totalsRow(
+                        'PayPal fee',
+                        _formatMoney(totals.paypalFee, data.currency, false),
+                      ),
                     pw.Divider(color: PdfColors.grey600, height: 0.4),
                     _totalsRow(
-                      'Grand total',
+                      isGrossBasis ? 'Grand Total' : 'Grand total',
                       _formatMoney(totals.grandTotal, data.currency, false),
                       bold: true,
                     ),
@@ -566,30 +601,177 @@ class InvoicePdfService {
     final deliveryTitle = useGerman ? 'Lieferdatum' : 'Delivery date';
     final trackingTitle = useGerman ? 'Tracking' : 'Tracking';
 
+    final giroCodePayload = _buildGiroCodePayload(data);
+    final showPayPalQr = _isPayPalPayment(data.paymentLabel);
+    final paypalCodePayload = showPayPalQr ? _buildPayPalQrPayload(data) : null;
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Divider(color: PdfColors.grey500, height: 0.3),
         pw.SizedBox(height: 4),
-        if (_valid(data.note)) pw.Text('$noteTitle: ${data.note}', style: const pw.TextStyle(fontSize: 9)),
-        if (_valid(data.paymentLabel))
-          pw.Text('$paymentTitle: ${data.paymentLabel}', style: const pw.TextStyle(fontSize: 9)),
-        if (_valid(data.payDate))
-          pw.Text('$payDateTitle: ${data.payDate}', style: const pw.TextStyle(fontSize: 9)),
-        if (_valid(data.deliveryDate))
-          pw.Text('$deliveryTitle: ${data.deliveryDate}', style: const pw.TextStyle(fontSize: 9)),
-        if (_valid(data.trackingCode))
-          pw.Text('$trackingTitle: ${data.trackingCode}', style: const pw.TextStyle(fontSize: 9)),
-        pw.SizedBox(height: 6),
-        pw.Text(
-          '${useGerman ? 'Warengewicht' : 'Total weight'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
-          style: const pw.TextStyle(fontSize: 9),
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  if (_valid(data.note))
+                    pw.Text('$noteTitle: ${data.note}', style: const pw.TextStyle(fontSize: 9)),
+                  if (_valid(data.paymentLabel))
+                    pw.Text('$paymentTitle: ${data.paymentLabel}', style: const pw.TextStyle(fontSize: 9)),
+                  if (_valid(data.payDate))
+                    pw.Text('$payDateTitle: ${data.payDate}', style: const pw.TextStyle(fontSize: 9)),
+                  if (_valid(data.deliveryDate))
+                    pw.Text('$deliveryTitle: ${data.deliveryDate}', style: const pw.TextStyle(fontSize: 9)),
+                  if (_valid(data.trackingCode))
+                    pw.Text('$trackingTitle: ${data.trackingCode}', style: const pw.TextStyle(fontSize: 9)),
+                  pw.SizedBox(height: 6),
+                  pw.Text(
+                    '${useGerman ? 'Warengewicht' : 'Total weight of goods'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(width: 12),
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                if (showPayPalQr) ...[
+                  _buildPayPalCodeBox(paypalCodePayload!),
+                  pw.SizedBox(width: 8),
+                ],
+                _buildGiroCodeBox(
+                  giroCodePayload,
+                  hasPaypalFee: data.totals.paypalFee > 0.0001,
+                  useGerman: useGerman,
+                ),
+              ],
+            ),
+          ],
         ),
       ],
     );
   }
 
+  pw.Widget _buildGiroCodeBox(
+    String payload, {
+    required bool hasPaypalFee,
+    required bool useGerman,
+  }) {
+    final label = hasPaypalFee
+        ? (useGerman ? 'GiroCode\nohne PayPal-Gebühr' : 'GiroCode\nwithout PayPal fee')
+        : 'GiroCode';
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        pw.Container(
+          width: 46,
+          height: 46,
+          padding: const pw.EdgeInsets.all(2),
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(color: PdfColors.grey500, width: 0.4),
+          ),
+          child: pw.BarcodeWidget(
+            data: payload,
+            barcode: pw.Barcode.qrCode(),
+          ),
+        ),
+        pw.SizedBox(height: 2),
+        pw.Text(
+          label,
+          textAlign: pw.TextAlign.center,
+          style: const pw.TextStyle(fontSize: 7.5),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildPayPalCodeBox(String payload) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        pw.Container(
+          width: 46,
+          height: 46,
+          padding: const pw.EdgeInsets.all(2),
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(color: PdfColors.grey500, width: 0.4),
+          ),
+          child: pw.BarcodeWidget(
+            data: payload,
+            barcode: pw.Barcode.qrCode(),
+          ),
+        ),
+        pw.SizedBox(height: 2),
+        pw.Text(
+          'PayPal QR-Code',
+          textAlign: pw.TextAlign.center,
+          style: const pw.TextStyle(fontSize: 7.5),
+        ),
+      ],
+    );
+  }
+
+  String _buildGiroCodePayload(InvoiceDocumentData data) {
+    final paypalFee = data.totals.paypalFee > 0 ? data.totals.paypalFee : 0.0;
+    final effectiveAmount = data.totals.grandTotal - paypalFee;
+    final amount = effectiveAmount < 0 ? 0.0 : effectiveAmount;
+    final amountToken = amount.toStringAsFixed(2);
+    final iban = _giroIban.replaceAll(' ', '').trim();
+    final purpose = _giroPurpose(data);
+
+    return [
+      'BCD',
+      '002',
+      '1',
+      'SCT',
+      '',
+      _giroRecipient,
+      iban,
+      'EUR$amountToken',
+      '',
+      '',
+      purpose,
+      '',
+    ].join('\n');
+  }
+
+  String _giroPurpose(InvoiceDocumentData data) {
+    final invoiceReference = data.orderId.trim().isNotEmpty ? data.orderId.trim() : data.invoiceNumber.trim();
+    if (invoiceReference.length <= 140) {
+      return invoiceReference;
+    }
+    return invoiceReference.substring(0, 140);
+  }
+
+  String _buildPayPalQrPayload(InvoiceDocumentData data) {
+    final reference = _giroPurpose(data);
+    final amount = data.totals.grandTotal < 0 ? 0.0 : data.totals.grandTotal;
+    final amountToken = amount.toStringAsFixed(2);
+    final currency = data.currency.trim().isEmpty ? 'EUR' : data.currency.trim().toUpperCase();
+
+    final uri = Uri.https('www.paypal.com', '/cgi-bin/webscr', {
+      'cmd': '_xclick',
+      'business': _paypalRecipient,
+      'amount': amountToken,
+      'currency_code': currency,
+      'item_name': reference,
+      'invoice': reference,
+    });
+    return uri.toString();
+  }
+
+  bool _isPayPalPayment(String paymentLabel) {
+    return paymentLabel.trim().toLowerCase() == 'paypal';
+  }
+
   pw.Widget _buildCompanyFooter(InvoiceDocumentData data) {
+    final useGerman = data.language.trim().toUpperCase() == 'DE';
+
     return pw.Container(
       padding: const pw.EdgeInsets.only(top: 6, bottom: 2),
       decoration: const pw.BoxDecoration(
@@ -600,14 +782,40 @@ class InvoicePdfService {
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Expanded(child: _footerColumn(data.footer.leftLines)),
+          pw.Expanded(child: _footerColumn(_localizedFooterLines(data.footer.leftLines, useGerman))),
           pw.SizedBox(width: 16),
-          pw.Expanded(child: _footerColumn(data.footer.centerLines)),
+          pw.Expanded(child: _footerColumn(_localizedFooterLines(data.footer.centerLines, useGerman))),
           pw.SizedBox(width: 16),
-          pw.Expanded(child: _footerColumn(data.footer.rightLines)),
+          pw.Expanded(child: _footerColumn(_localizedFooterLines(data.footer.rightLines, useGerman))),
         ],
       ),
     );
+  }
+
+  List<String> _localizedFooterLines(List<String> lines, bool useGerman) {
+    if (useGerman) {
+      return lines;
+    }
+
+    return lines.map((line) {
+      final trimmed = line.trim();
+      if (trimmed == 'Sitz des Unternehmens: Fellbach') {
+        return 'Company Headquarters: Fellbach, Germany';
+      }
+      if (trimmed.startsWith('Registergericht:')) {
+        return trimmed.replaceFirst('Registergericht:', 'Registration:');
+      }
+      if (trimmed.startsWith('USt-ID-Nr:')) {
+        return trimmed.replaceFirst('USt-ID-Nr:', 'VAT-No:');
+      }
+      if (trimmed.startsWith('Geschäftsführer:')) {
+        return trimmed.replaceFirst('Geschäftsführer:', 'Managing Director:');
+      }
+      if (trimmed.startsWith('Bankverbindung:')) {
+        return trimmed.replaceFirst('Bankverbindung:', 'Bank Account:');
+      }
+      return line;
+    }).toList(growable: false);
   }
 
   pw.Widget _footerColumn(List<String> lines) {
@@ -629,15 +837,125 @@ class InvoicePdfService {
 
   String _singleLineAddress(InvoicePartyData party) {
     final countryLine = _displayCountryForAddress(party.countryCode);
+    final postalCityLine = _postalCityLine(party);
     final parts = <String>[
       if (_valid(party.company)) party.company,
       if (_valid(_joinValid([party.street, party.houseNumber])))
         _joinValid([party.street, party.houseNumber]),
-      if (_valid(_joinValid([party.postalCode, party.city])))
-        _joinValid([party.postalCode, party.city]),
+      if (_valid(postalCityLine)) postalCityLine,
       if (_valid(countryLine)) countryLine,
     ];
     return parts.join(' | ');
+  }
+
+  String _postalCityLine(InvoicePartyData party) {
+    final isItaly = _isItalianAddress(party.countryCode);
+    final isUsOrAustralia = _isUsOrAustraliaAddress(party.countryCode);
+    final isPostalAfterCityCountry = _isPostalAfterCityCountry(party.countryCode);
+    final city = party.city.trim();
+    final state = party.state.trim();
+    final postalCode = party.postalCode.trim();
+
+    if (isUsOrAustralia) {
+      return _joinValid([city, state, postalCode]);
+    }
+
+    if (isPostalAfterCityCountry) {
+      return _joinValid([city, state, postalCode]);
+    }
+
+    final cityToken = isItaly && city.isNotEmpty && city != '-' && state.isNotEmpty && state != '-'
+        ? '$city ($state)'
+        : city;
+
+    return _joinValid([postalCode, cityToken]);
+  }
+
+  bool _isItalianAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'IT' ||
+        upper == 'ITA' ||
+        upper == 'ITALY' ||
+        upper == 'ITALIEN' ||
+        upper == 'ITALIA';
+  }
+
+  bool _isUsOrAustraliaAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'US' ||
+        upper == 'USA' ||
+        upper == 'UNITED STATES' ||
+        upper == 'VEREINIGTE STAATEN' ||
+        upper == 'AU' ||
+        upper == 'AUS' ||
+        upper == 'AUSTRALIA' ||
+        upper == 'AUSTRALIEN';
+  }
+
+        bool _isPostalAfterCityCountry(String countryCode) {
+          final upper = countryCode.trim().toUpperCase();
+          return upper == 'GB' ||
+          upper == 'UK' ||
+          upper == 'GBR' ||
+          upper == 'UNITED KINGDOM' ||
+          upper == 'VEREINIGTES KÖNIGREICH' ||
+          upper == 'VEREINIGTES KOENIGREICH' ||
+          upper == 'CA' ||
+          upper == 'CAN' ||
+          upper == 'CANADA' ||
+          upper == 'NZ' ||
+          upper == 'NZL' ||
+          upper == 'NEW ZEALAND' ||
+          upper == 'NEUSEELAND' ||
+          upper == 'IE' ||
+          upper == 'IRL' ||
+          upper == 'IRELAND' ||
+          upper == 'IRLAND';
+        }
+
+  String _streetAddressLine({
+    required String street,
+    required String houseNumber,
+    required bool houseNumberFirst,
+  }) {
+    if (houseNumberFirst) {
+      return _joinValid([houseNumber, street]);
+    }
+    return _joinValid([street, houseNumber]);
+  }
+
+  bool _isHouseNumberFirstCountry(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'US' ||
+      upper == 'USA' ||
+      upper == 'UNITED STATES' ||
+      upper == 'VEREINIGTE STAATEN' ||
+      upper == 'CA' ||
+      upper == 'CAN' ||
+      upper == 'CANADA' ||
+      upper == 'GB' ||
+      upper == 'UK' ||
+      upper == 'GBR' ||
+      upper == 'UNITED KINGDOM' ||
+      upper == 'VEREINIGTES KÖNIGREICH' ||
+      upper == 'VEREINIGTES KOENIGREICH' ||
+      upper == 'IE' ||
+      upper == 'IRL' ||
+      upper == 'IRELAND' ||
+      upper == 'IRLAND' ||
+      upper == 'AU' ||
+      upper == 'AUS' ||
+      upper == 'AUSTRALIA' ||
+      upper == 'AUSTRALIEN' ||
+      upper == 'NZ' ||
+      upper == 'NZL' ||
+      upper == 'NEW ZEALAND' ||
+      upper == 'NEUSEELAND' ||
+      upper == 'ZA' ||
+      upper == 'ZAF' ||
+      upper == 'SOUTH AFRICA' ||
+      upper == 'SÜDAFRIKA' ||
+      upper == 'SUEDAFRIKA';
   }
 
   bool _isGermanAddress(String value) {
