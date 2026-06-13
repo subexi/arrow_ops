@@ -53,6 +53,8 @@ class _InvoicePageState extends State<InvoicePage> {
   List<Customer> _customers = [];
   String? _selectedOrderId;
   InvoiceDocumentData? _preview;
+  InvoiceDocumentKind _selectedDocumentKind = InvoiceDocumentKind.invoice;
+  InvoiceDocumentKind? _previewDocumentKind;
 
   bool _loadingOrders = true;
   bool _buildingPreview = false;
@@ -75,7 +77,9 @@ class _InvoicePageState extends State<InvoicePage> {
     }
     setState(() {
       _rememberedExportDirectory =
-          (savedDirectory == null || savedDirectory.isEmpty) ? null : savedDirectory;
+          (savedDirectory == null || savedDirectory.isEmpty)
+          ? null
+          : savedDirectory;
       _loadingRememberedExportDirectory = false;
     });
   }
@@ -99,7 +103,8 @@ class _InvoicePageState extends State<InvoicePage> {
       final orders = results[0] as List<OrderRow>;
       final customers = results[1] as List<Customer>;
       final customerById = <String, Customer>{
-        for (final customer in customers) _normalizeIdToken(customer.cId): customer,
+        for (final customer in customers)
+          _normalizeIdToken(customer.cId): customer,
       };
       if (!mounted) {
         return;
@@ -122,7 +127,9 @@ class _InvoicePageState extends State<InvoicePage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Auftraege konnten nicht geladen werden: $error')),
+        SnackBar(
+          content: Text('Auftraege konnten nicht geladen werden: $error'),
+        ),
       );
     } finally {
       if (mounted) {
@@ -137,7 +144,10 @@ class _InvoicePageState extends State<InvoicePage> {
     final customer = _resolveCustomer(order);
     final lastName = customer?.cLastName.trim() ?? '';
     final token = _normalizedNameToken(lastName);
-    return '${order.oId}_${token}_in';
+    final suffix = _selectedDocumentKind == InvoiceDocumentKind.packingList
+        ? 'pl'
+        : 'in';
+    return '${order.oId}_${token}_$suffix';
   }
 
   String _invoiceSearchText(OrderRow order) {
@@ -181,14 +191,17 @@ class _InvoicePageState extends State<InvoicePage> {
                   filtered = List<OrderRow>.from(_orders);
                 } else {
                   filtered = _orders
-                      .where((order) => _invoiceSearchText(order).contains(normalized))
+                      .where(
+                        (order) =>
+                            _invoiceSearchText(order).contains(normalized),
+                      )
                       .toList(growable: false);
                 }
               });
             }
 
             return AlertDialog(
-              title: const Text('Rechnung auswaehlen'),
+              title: const Text('Dokument auswaehlen'),
               content: SizedBox(
                 width: 700,
                 child: Column(
@@ -214,7 +227,11 @@ class _InvoicePageState extends State<InvoicePage> {
                           return ListTile(
                             dense: true,
                             title: Text(_invoiceOrderLabel(order)),
-                            subtitle: Text(order.oDate.trim().isEmpty ? '-' : order.oDate.trim()),
+                            subtitle: Text(
+                              order.oDate.trim().isEmpty
+                                  ? '-'
+                                  : order.oDate.trim(),
+                            ),
                             onTap: () => Navigator.of(dialogContext).pop(order),
                           );
                         },
@@ -245,7 +262,8 @@ class _InvoicePageState extends State<InvoicePage> {
       final orders = results[0] as List<OrderRow>;
       final customers = results[1] as List<Customer>;
       final customerById = <String, Customer>{
-        for (final customer in customers) _normalizeIdToken(customer.cId): customer,
+        for (final customer in customers)
+          _normalizeIdToken(customer.cId): customer,
       };
 
       if (!mounted) {
@@ -266,7 +284,9 @@ class _InvoicePageState extends State<InvoicePage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Auftraege konnten nicht aktualisiert werden: $error')),
+        SnackBar(
+          content: Text('Auftraege konnten nicht aktualisiert werden: $error'),
+        ),
       );
     }
   }
@@ -316,11 +336,13 @@ class _InvoicePageState extends State<InvoicePage> {
     return clean;
   }
 
-  Future<void> _buildPreview() async {
+  Future<void> _buildPreview({InvoiceDocumentKind? documentKind}) async {
     final orderId = _selectedOrderId;
     if (orderId == null || orderId.trim().isEmpty) {
       return;
     }
+
+    final targetKind = documentKind ?? _selectedDocumentKind;
 
     setState(() {
       _buildingPreview = true;
@@ -329,6 +351,7 @@ class _InvoicePageState extends State<InvoicePage> {
     try {
       final preview = await _documentBuilder.buildFromOrder(
         orderId: orderId,
+        documentKind: targetKind,
         sellerProfile: _fixedSellerProfile,
         noteOverride: _invoiceNoteController.text.trim(),
       );
@@ -339,6 +362,7 @@ class _InvoicePageState extends State<InvoicePage> {
 
       setState(() {
         _preview = preview;
+        _previewDocumentKind = targetKind;
       });
     } catch (error) {
       if (!mounted) {
@@ -357,6 +381,14 @@ class _InvoicePageState extends State<InvoicePage> {
   }
 
   Future<void> _exportPdf() async {
+    await _exportPdfForKind(_selectedDocumentKind);
+  }
+
+  Future<void> _exportPdfForKind(InvoiceDocumentKind kind) async {
+    if (_preview == null || _previewDocumentKind != kind) {
+      await _buildPreview(documentKind: kind);
+    }
+
     final preview = _preview;
     if (preview == null) {
       return;
@@ -369,29 +401,35 @@ class _InvoicePageState extends State<InvoicePage> {
     try {
       final bytes = await _pdfService.generatePdfBytes(preview);
       final fileName = _pdfService.buildDefaultFileName(preview);
-      final targetPath = await _pickExportTargetPath(fileName: fileName);
+      final targetPath = await _pickExportTargetPath(
+        fileName: fileName,
+        documentKind: kind,
+      );
       if (targetPath == null || targetPath.trim().isEmpty) {
         if (!mounted) {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Export abgebrochen: Kein Speicherort ausgewaehlt.')),
+          const SnackBar(
+            content: Text('Export abgebrochen: Kein Speicherort ausgewaehlt.'),
+          ),
         );
         return;
       }
 
-      await File(targetPath).writeAsBytes(
-        bytes,
-        flush: true,
-      );
+      await File(targetPath).writeAsBytes(bytes, flush: true);
       await _saveLastExportDirectory(targetPath);
 
       if (!mounted) {
         return;
       }
 
+      final documentName = kind == InvoiceDocumentKind.packingList
+          ? 'Lieferschein'
+          : 'Rechnung';
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rechnung gespeichert: $targetPath')),
+        SnackBar(content: Text('$documentName gespeichert: $targetPath')),
       );
     } catch (error) {
       if (!mounted) {
@@ -410,10 +448,16 @@ class _InvoicePageState extends State<InvoicePage> {
     }
   }
 
-  Future<String?> _pickExportTargetPath({required String fileName}) async {
+  Future<String?> _pickExportTargetPath({
+    required String fileName,
+    required InvoiceDocumentKind documentKind,
+  }) async {
     final initialDirectory = await _resolveInitialExportDirectory();
+    final dialogTitle = documentKind == InvoiceDocumentKind.packingList
+        ? 'Lieferschein als PDF exportieren'
+        : 'Rechnung als PDF exportieren';
     return FilePicker.saveFile(
-      dialogTitle: 'Rechnung als PDF exportieren',
+      dialogTitle: dialogTitle,
       fileName: fileName,
       initialDirectory: initialDirectory,
       allowedExtensions: const ['pdf'],
@@ -462,7 +506,9 @@ class _InvoicePageState extends State<InvoicePage> {
       _rememberedExportDirectory = null;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Gemerkter Exportordner wurde zurueckgesetzt.')),
+      const SnackBar(
+        content: Text('Gemerkter Exportordner wurde zurueckgesetzt.'),
+      ),
     );
   }
 
@@ -470,7 +516,7 @@ class _InvoicePageState extends State<InvoicePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Rechnungen'),
+        title: const Text('Rechnungen / Lieferscheine'),
         actions: [
           IconButton(
             onPressed: _resetLastExportDirectory,
@@ -522,15 +568,45 @@ class _InvoicePageState extends State<InvoicePage> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       _selectedOrderId == null
-                          ? 'Rechnung auswaehlen'
+                          ? 'Dokument auswaehlen'
                           : _selectedInvoiceOrderLabel(),
                     ),
                   ),
                 ),
               ),
+              SizedBox(
+                width: 320,
+                child: SegmentedButton<InvoiceDocumentKind>(
+                  segments: const [
+                    ButtonSegment<InvoiceDocumentKind>(
+                      value: InvoiceDocumentKind.invoice,
+                      label: Text('Rechnung'),
+                    ),
+                    ButtonSegment<InvoiceDocumentKind>(
+                      value: InvoiceDocumentKind.packingList,
+                      label: Text('Lieferschein'),
+                    ),
+                  ],
+                  selected: <InvoiceDocumentKind>{_selectedDocumentKind},
+                  onSelectionChanged: (selection) async {
+                    if (selection.isEmpty) {
+                      return;
+                    }
+                    final selected = selection.first;
+                    if (_selectedDocumentKind == selected) {
+                      return;
+                    }
+                    setState(() {
+                      _selectedDocumentKind = selected;
+                    });
+                    await _buildPreview(documentKind: selected);
+                  },
+                ),
+              ),
               FilledButton.icon(
-                onPressed:
-                    (_buildingPreview || _selectedOrderId == null) ? null : _buildPreview,
+                onPressed: (_buildingPreview || _selectedOrderId == null)
+                    ? null
+                    : _buildPreview,
                 icon: _buildingPreview
                     ? const SizedBox(
                         width: 16,
@@ -541,7 +617,9 @@ class _InvoicePageState extends State<InvoicePage> {
                 label: const Text('Vorschau aktualisieren'),
               ),
               FilledButton.icon(
-                onPressed: (_exportingPdf || _preview == null) ? null : _exportPdf,
+                onPressed: (_exportingPdf || _preview == null)
+                    ? null
+                    : _exportPdf,
                 icon: _exportingPdf
                     ? const SizedBox(
                         width: 16,
@@ -549,7 +627,11 @@ class _InvoicePageState extends State<InvoicePage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.picture_as_pdf_outlined),
-                label: const Text('PDF exportieren'),
+                label: Text(
+                  _selectedDocumentKind == InvoiceDocumentKind.packingList
+                      ? 'Lieferschein exportieren'
+                      : 'Rechnung exportieren',
+                ),
               ),
             ],
           ),
@@ -560,14 +642,9 @@ class _InvoicePageState extends State<InvoicePage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _buildSellerCard(),
-                ),
+                Expanded(child: _buildSellerCard()),
                 const SizedBox(width: 16),
-                Expanded(
-                  flex: 2,
-                  child: _buildPreviewCard(),
-                ),
+                Expanded(flex: 2, child: _buildPreviewCard()),
               ],
             ),
           ),
@@ -655,7 +732,10 @@ class _InvoicePageState extends State<InvoicePage> {
 
   Widget _buildLockedValue(String label, String value) {
     return InputDecorator(
-      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
       child: Text(value.trim().isEmpty ? '-' : value.trim()),
     );
   }
@@ -666,9 +746,7 @@ class _InvoicePageState extends State<InvoicePage> {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: preview == null
-            ? const Center(
-                child: Text('Keine Rechnungsvorschau vorhanden.'),
-              )
+            ? const Center(child: Text('Keine Dokumentvorschau vorhanden.'))
             : ListView(
                 children: [
                   Text(
@@ -676,30 +754,47 @@ class _InvoicePageState extends State<InvoicePage> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 10),
-                  _kv('Rechnungsnummer', preview.orderId),
-                  _kv('Rechnungsdatum', preview.invoiceDate),
+                  _kv('Dokumentnummer', preview.orderId),
+                  _kv('Dokumentdatum', preview.invoiceDate),
                   _kv('Auftrag', preview.orderId),
                   _kv('Währung', preview.currency),
                   _kv('Sprache', preview.language),
                   _kv('Preisart', _priceTypeLabel(preview.priceBasis)),
                   _kv('Kunde', _partyOneLine(preview.buyer)),
                   _kv('Positionen', preview.lines.length.toString()),
-                  const Divider(height: 24),
-                  Text(
-                    'Summen',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  _kv('Waren netto', _money(preview.totals.itemsNet, preview.currency)),
-                  _kv('MwSt', _money(preview.totals.vatAmount, preview.currency)),
-                  _kv('Waren brutto', _money(preview.totals.itemsGross, preview.currency)),
-                  _kv('Versand', _money(preview.totals.shipping, preview.currency)),
-                  _kv('PayPal-Gebühr', _money(preview.totals.paypalFee, preview.currency)),
-                  const Divider(height: 24),
-                  _kv(
-                    'Gesamt',
-                    _money(preview.totals.grandTotal, preview.currency),
-                  ),
+                  if (preview.documentKind == InvoiceDocumentKind.invoice) ...[
+                    const Divider(height: 24),
+                    Text(
+                      'Summen',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    _kv(
+                      'Waren netto',
+                      _money(preview.totals.itemsNet, preview.currency),
+                    ),
+                    _kv(
+                      'MwSt',
+                      _money(preview.totals.vatAmount, preview.currency),
+                    ),
+                    _kv(
+                      'Waren brutto',
+                      _money(preview.totals.itemsGross, preview.currency),
+                    ),
+                    _kv(
+                      'Versand',
+                      _money(preview.totals.shipping, preview.currency),
+                    ),
+                    _kv(
+                      'PayPal-Gebühr',
+                      _money(preview.totals.paypalFee, preview.currency),
+                    ),
+                    const Divider(height: 24),
+                    _kv(
+                      'Gesamt',
+                      _money(preview.totals.grandTotal, preview.currency),
+                    ),
+                  ],
                 ],
               ),
       ),
@@ -760,6 +855,8 @@ class _InvoicePageState extends State<InvoicePage> {
 
     final next = '$current\n$template';
     _invoiceNoteController.text = next;
-    _invoiceNoteController.selection = TextSelection.collapsed(offset: next.length);
+    _invoiceNoteController.selection = TextSelection.collapsed(
+      offset: next.length,
+    );
   }
 }

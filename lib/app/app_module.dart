@@ -54,7 +54,7 @@ class ArrowOpsModules {
     ),
     ArrowOpsModule(
       id: ArrowOpsModuleId.invoices,
-      label: 'Rechnungen',
+      label: 'Rechnungen / Lieferscheine',
       icon: Icons.receipt_long_outlined,
       selectedIcon: Icons.receipt_long,
       buildPage: (_) => const InvoicePage(),

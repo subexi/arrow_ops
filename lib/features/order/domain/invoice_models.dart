@@ -1,5 +1,8 @@
+enum InvoiceDocumentKind { invoice, packingList }
+
 class InvoiceDocumentData {
   const InvoiceDocumentData({
+    this.documentKind = InvoiceDocumentKind.invoice,
     required this.invoiceNumber,
     required this.invoiceDate,
     required this.orderId,
@@ -20,6 +23,7 @@ class InvoiceDocumentData {
     this.trackingCode = '-',
   });
 
+  final InvoiceDocumentKind documentKind;
   final String invoiceNumber;
   final String invoiceDate;
   final String orderId;

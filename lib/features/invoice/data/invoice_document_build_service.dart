@@ -24,9 +24,7 @@ class InvoiceSellerProfile {
       'HRB 732452',
       'USt-ID-Nr: DE268366503',
     ],
-    this.footerCenterLines = const <String>[
-      'Geschäftsführer: Helmut Dittrich',
-    ],
+    this.footerCenterLines = const <String>['Geschäftsführer: Helmut Dittrich'],
     this.footerRightLines = const <String>[
       'Bankverbindung: Kreissparkasse Waiblingen',
       'Kto.: 1000 835 126 | BLZ: 602 500 10',
@@ -69,9 +67,10 @@ class InvoiceDocumentBuildService {
     OrderRepository? orderRepository,
     CustomerRepository? customerRepository,
     InvoiceCalculationService? calculationService,
-  })  : _orderRepository = orderRepository ?? const OrderRepository(),
-        _customerRepository = customerRepository ?? const CustomerRepository(),
-        _calculationService = calculationService ?? const InvoiceCalculationService();
+  }) : _orderRepository = orderRepository ?? const OrderRepository(),
+       _customerRepository = customerRepository ?? const CustomerRepository(),
+       _calculationService =
+           calculationService ?? const InvoiceCalculationService();
 
   final OrderRepository _orderRepository;
   final CustomerRepository _customerRepository;
@@ -79,6 +78,7 @@ class InvoiceDocumentBuildService {
 
   Future<InvoiceDocumentData> buildFromOrder({
     required String orderId,
+    InvoiceDocumentKind documentKind = InvoiceDocumentKind.invoice,
     InvoiceSellerProfile sellerProfile = InvoiceSellerProfile.defaultProfile,
     String? invoiceNumber,
     String? invoiceDate,
@@ -106,6 +106,7 @@ class InvoiceDocumentBuildService {
     );
 
     return InvoiceDocumentData(
+      documentKind: documentKind,
       invoiceNumber: _normalizedOrFallback(
         invoiceNumber,
         _defaultInvoiceNumber(order),
@@ -118,11 +119,16 @@ class InvoiceDocumentBuildService {
       isReseller: customer.cDealer || order.oDealer == 1,
       seller: _buildSeller(sellerProfile),
       buyer: _buildBuyer(customer),
-      delivery: _buildDelivery(customer),
+      delivery: documentKind == InvoiceDocumentKind.packingList
+          ? _buildBuyer(customer)
+          : _buildDelivery(customer),
       footer: _buildFooter(sellerProfile),
       lines: lines,
       totals: totals,
-      note: _normalizedOrFallback(noteOverride, _normalizedOrFallback(order.oNote, '-')),
+      note: _normalizedOrFallback(
+        noteOverride,
+        _normalizedOrFallback(order.oNote, '-'),
+      ),
       paymentLabel: _paymentLabel(order.oPayment),
       payDate: _normalizedOrFallback(order.oPayDate, ''),
       deliveryDate: _normalizedOrFallback(order.oDelivery, ''),
@@ -158,7 +164,10 @@ class InvoiceDocumentBuildService {
       postalCode: _normalizedOrFallback(customer.cPostalCodeB, '-'),
       city: _normalizedOrFallback(customer.cCityB, '-'),
       state: _normalizedOrFallback(customer.cStateB, ''),
-      countryCode: _normalizedOrFallback(customer.cCountryBId, '-').toUpperCase(),
+      countryCode: _normalizedOrFallback(
+        customer.cCountryBId,
+        '-',
+      ).toUpperCase(),
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),
@@ -177,7 +186,10 @@ class InvoiceDocumentBuildService {
       postalCode: _normalizedOrFallback(customer.cPostalCodeD, '-'),
       city: _normalizedOrFallback(customer.cCityD, '-'),
       state: _normalizedOrFallback(customer.cStateD, ''),
-      countryCode: _normalizedOrFallback(customer.cCountryDId, '-').toUpperCase(),
+      countryCode: _normalizedOrFallback(
+        customer.cCountryDId,
+        '-',
+      ).toUpperCase(),
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),

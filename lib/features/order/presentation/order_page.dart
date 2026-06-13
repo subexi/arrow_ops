@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../customer/data/customer_repository.dart';
 import '../../item/data/item_image_storage_service.dart';
@@ -175,6 +176,47 @@ class _OrderPageState extends State<OrderPage> {
 
   String _formatDate(String raw) => raw.trim().isEmpty ? '-' : raw.trim();
 
+  Uri _trackingUri(String trackingCode) {
+    final encodedTrackingCode = Uri.encodeComponent(trackingCode.trim());
+    return Uri.parse('https://parcelsapp.com/de/tracking/$encodedTrackingCode');
+  }
+
+  Future<void> _openTrackingCode(String trackingCode) async {
+    final normalized = trackingCode.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return;
+    }
+
+    final launched = await launchUrl(
+      _trackingUri(normalized),
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tracking-Link konnte nicht geöffnet werden: $normalized')),
+      );
+    }
+  }
+
+  Widget _buildTrackingCodeCell(String trackingCode) {
+    final normalized = trackingCode.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return const Text('-');
+    }
+
+    return InkWell(
+      onTap: () => _openTrackingCode(normalized),
+      child: Text(
+        normalized,
+        style: const TextStyle(
+          color: Colors.blue,
+          decoration: TextDecoration.underline,
+        ),
+      ),
+    );
+  }
+
   String _formatDecimal(double v, int digits) =>
       v.toStringAsFixed(digits).replaceAll('.', ',');
 
@@ -279,14 +321,16 @@ class _OrderPageState extends State<OrderPage> {
         case 6:
           cmp = a.oShipping.compareTo(b.oShipping);
         case 7:
-          cmp = a.oPayment.compareTo(b.oPayment);
+          cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
         case 8:
-          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
+          cmp = a.oPayment.compareTo(b.oPayment);
         case 9:
-          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
+          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
         case 10:
-          cmp = a.oPayDate.compareTo(b.oPayDate);
+          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
         case 11:
+          cmp = a.oPayDate.compareTo(b.oPayDate);
+        case 12:
           cmp = a.oDelivery.compareTo(b.oDelivery);
         default:
           cmp = a.oId.compareTo(b.oId);
@@ -595,6 +639,7 @@ class _OrderPageState extends State<OrderPage> {
                             DataColumn(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('Brutto'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('Versand'), numeric: true, onSort: _onOrderSort),
+                            DataColumn(label: const Text('Trackingcode'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Zahlart'), onSort: _onOrderSort),
                             DataColumn(label: const Text('PayPal-Gebühr'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('Gesamtpreis'), numeric: true, onSort: _onOrderSort),
@@ -634,6 +679,7 @@ class _OrderPageState extends State<OrderPage> {
                                 DataCell(Text(_formatDecimal(order.oVat, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_formatDecimal(order.oValueGoods + order.oVat, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_formatDecimal(order.oShipping, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(_buildTrackingCodeCell(order.oTrackingCode), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_paymentLabel(order.oPayment)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_formatDecimal(order.oPaypalFee, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_formatDecimal(order.oTotalPrice, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
