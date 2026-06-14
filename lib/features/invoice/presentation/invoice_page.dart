@@ -47,6 +47,7 @@ class _InvoicePageState extends State<InvoicePage> {
   final _pdfService = const InvoicePdfService();
 
   final _invoiceNoteController = TextEditingController();
+  final _documentDateController = TextEditingController();
 
   List<OrderRow> _orders = [];
   Map<String, Customer> _customerById = {};
@@ -65,6 +66,7 @@ class _InvoicePageState extends State<InvoicePage> {
   @override
   void initState() {
     super.initState();
+    _documentDateController.text = _todayIsoDate();
     _loadRememberedExportDirectory();
     _loadOrders();
   }
@@ -87,7 +89,35 @@ class _InvoicePageState extends State<InvoicePage> {
   @override
   void dispose() {
     _invoiceNoteController.dispose();
+    _documentDateController.dispose();
     super.dispose();
+  }
+
+  String _todayIsoDate() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
+  Future<void> _pickDocumentDate() async {
+    final currentText = _documentDateController.text.trim();
+    final initialDate = DateTime.tryParse(currentText) ?? DateTime.now();
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2000, 1, 1),
+      lastDate: DateTime(2100, 12, 31),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+    final month = selected.month.toString().padLeft(2, '0');
+    final day = selected.day.toString().padLeft(2, '0');
+    setState(() {
+      _documentDateController.text = '${selected.year}-$month-$day';
+    });
+    await _buildPreview(documentKind: _selectedDocumentKind);
   }
 
   Future<void> _loadOrders() async {
@@ -353,6 +383,9 @@ class _InvoicePageState extends State<InvoicePage> {
         orderId: orderId,
         documentKind: targetKind,
         sellerProfile: _fixedSellerProfile,
+        invoiceDate: _documentDateController.text.trim().isEmpty
+            ? null
+            : _documentDateController.text.trim(),
         noteOverride: _invoiceNoteController.text.trim(),
       );
 
@@ -679,6 +712,35 @@ class _InvoicePageState extends State<InvoicePage> {
             _buildLockedValue('E-Mail', _fixedSellerProfile.email),
             const SizedBox(height: 8),
             _buildLockedValue('Web', _fixedSellerProfile.web),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _documentDateController,
+              readOnly: true,
+              decoration: InputDecoration(
+                labelText: 'Datum rechts (PDF)',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: 'Datum wählen',
+                  icon: const Icon(Icons.calendar_today_outlined),
+                  onPressed: _pickDocumentDate,
+                ),
+              ),
+              onTap: _pickDocumentDate,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () async {
+                  setState(() {
+                    _documentDateController.text = _todayIsoDate();
+                  });
+                  await _buildPreview(documentKind: _selectedDocumentKind);
+                },
+                icon: const Icon(Icons.today_outlined),
+                label: const Text('Heute setzen'),
+              ),
+            ),
             const Divider(height: 24),
             TextField(
               controller: _invoiceNoteController,
@@ -762,6 +824,7 @@ class _InvoicePageState extends State<InvoicePage> {
                   _kv('Preisart', _priceTypeLabel(preview.priceBasis)),
                   _kv('Kunde', _partyOneLine(preview.buyer)),
                   _kv('Positionen', preview.lines.length.toString()),
+                  _kv('Warengewicht', _weight(preview.totals.totalWeightInGram)),
                   if (preview.documentKind == InvoiceDocumentKind.invoice) ...[
                     const Divider(height: 24),
                     Text(
@@ -833,6 +896,14 @@ class _InvoicePageState extends State<InvoicePage> {
 
   String _money(double value, String currency) {
     return '${value.toStringAsFixed(2).replaceAll('.', ',')} $currency';
+  }
+
+  String _weight(double grams) {
+    if (grams < 1000) {
+      return '${grams.toStringAsFixed(0).replaceAll('.', ',')} g';
+    }
+    final kilograms = grams / 1000;
+    return '${kilograms.toStringAsFixed(2).replaceAll('.', ',')} kg';
   }
 
   String _priceTypeLabel(String priceBasis) {

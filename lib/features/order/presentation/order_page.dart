@@ -35,7 +35,7 @@ class _OrderPageState extends State<OrderPage> {
   int? _selectedItemOrderedId;
 
   int _orderSortColumnIndex = 0;
-  bool _orderSortAscending = true;
+  bool _orderSortAscending = false;
   double _splitterRatio = 0.55;
   bool _isDragging = false;
 

@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/sync/icloud_sync_service.dart';
 import '../data/item_image_storage_service.dart';
@@ -218,6 +219,47 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
   String _formatDecimal(double value, int fractionDigits) {
     return value.toStringAsFixed(fractionDigits).replaceAll('.', ',');
+  }
+
+  Uri _htsUri(String htsCode) {
+    final encodedHtsCode = Uri.encodeComponent(htsCode.trim());
+    return Uri.parse('https://www.zolltarifnummern.de/2026/$encodedHtsCode');
+  }
+
+  Future<void> _openHtsUrl(String htsCode) async {
+    final normalized = htsCode.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return;
+    }
+
+    final launched = await launchUrl(
+      _htsUri(normalized),
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('HTS-Link konnte nicht geöffnet werden: $normalized')),
+      );
+    }
+  }
+
+  Widget _buildHtsLink(String htsCode) {
+    final normalized = htsCode.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return const Text('-');
+    }
+
+    return InkWell(
+      onTap: () => _openHtsUrl(normalized),
+      child: Text(
+        normalized,
+        style: const TextStyle(
+          color: Colors.blue,
+          decoration: TextDecoration.underline,
+        ),
+      ),
+    );
   }
 
   String _csvEscape(String value) {
@@ -2759,7 +2801,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPriceWholesaleNet, 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPurchasePriceNet, 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(item.icWeight, 1)), item),
-                                  _catalogueDetailCell(Text(item.icHts), item),
+                                  _catalogueDetailCell(_buildHtsLink(item.icHts), item),
                                   _catalogueDetailCell(Text(item.icStock.toString()), item),
                                   _catalogueDetailCell(_buildCatalogueImagePreview(item, size: 32), item),
                                 ],
@@ -2876,7 +2918,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                                     buildIosCell(iosColumnWidths[5], Text(_formatDecimal(item.icPriceWholesaleNet, 2)), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[6], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[7], Text(_formatDecimal(item.icWeight, 1)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[8], Text(item.icHts), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[8], _buildHtsLink(item.icHts), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[9], Text(item.icStock.toString()), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[10], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
                                                   ],

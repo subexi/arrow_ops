@@ -112,6 +112,7 @@ class InvoiceDocumentBuildService {
         _defaultInvoiceNumber(order),
       ),
       invoiceDate: _normalizedInvoiceDate(invoiceDate, order),
+      orderDate: _normalizedOrFallback(order.oDate, ''),
       orderId: order.oId,
       currency: _normalizedOrFallback(order.oCurrency, 'EUR'),
       language: _normalizedOrFallback(order.oLanguage, 'DE'),

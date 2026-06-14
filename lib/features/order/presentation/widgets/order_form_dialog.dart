@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../customer/domain/customer.dart';
 import '../../../order/domain/order_models.dart';
+import '../../domain/paypal_fee_rules.dart';
 
 class OrderFormDialog extends StatefulWidget {
   const OrderFormDialog({
@@ -49,6 +50,9 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   bool _dealer = false;
   List<Customer> _filteredCustomers = [];
   bool _showCustomerDropdown = false;
+  bool _isRecalculatingPaypalFee = false;
+
+  static const int _paypalPaymentCode = 1;
 
   bool get _isEditing => widget.initialValue != null;
   bool get _canEditOrderId => !_isEditing || widget.canEditOrderId;
@@ -85,7 +89,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _currency = v?.oCurrency ?? 'EUR';
     _language = v?.oLanguage ?? 'DE';
     _priceBasis = v?.oPriceBasis ?? 'gross';
-    _payment = v?.oPayment ?? 0;
+    _payment = v?.oPayment ?? _paypalPaymentCode;
     _dealer = (v?.oDealer ?? 0) != 0;
 
     _syncPriceBasisWithCurrency();
@@ -97,6 +101,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _vatRateController.addListener(_refreshGoodsValuesForCurrentBasis);
     _shippingController.addListener(_refreshTotalPriceForCurrentBasis);
     _paypalFeeController.addListener(_refreshTotalPriceForCurrentBasis);
+    _totalPriceController.addListener(_recalculatePaypalFeeFromTotalIfApplicable);
     _noteFocusNode.addListener(_clearNotePlaceholderOnFocus);
 
     if (v != null) {
@@ -111,6 +116,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
         _applyNoVatCustomerRules();
         _setVatRateForPriceBasis();
         _refreshGoodsValuesForCurrentBasis();
+        _recalculatePaypalFeeFromTotalIfApplicable();
       }
     }
 
@@ -219,6 +225,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   bool get _isUsdCurrency => _currency.toUpperCase() == 'USD';
   bool get _isNoVatCustomer => _selectedCustomer?.cVat ?? false;
 
+  bool get _isEurCurrency => _currency.toUpperCase() == 'EUR';
+
   void _syncPriceBasisWithCurrency() {
     if (_isUsdCurrency) {
       _priceBasis = 'net';
@@ -317,10 +325,124 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     }
   }
 
+  String _deliveryCountryToken() {
+    final customer = _selectedCustomer;
+    if (customer == null) {
+      return '';
+    }
+
+    final delivery = (customer.cCountryDId ?? '').trim();
+    if (delivery.isNotEmpty && delivery != '-') {
+      return delivery.toUpperCase();
+    }
+
+    final billing = (customer.cCountryBId ?? '').trim();
+    if (billing.isNotEmpty && billing != '-') {
+      return billing.toUpperCase();
+    }
+
+    return '';
+  }
+
+  void _recalculatePaypalFeeFromTotalIfApplicable() {
+    if (_isRecalculatingPaypalFee) {
+      return;
+    }
+    if (_payment != _paypalPaymentCode || !_isEurCurrency) {
+      return;
+    }
+
+    final total = _parseDecimal(_totalPriceController);
+    if (total <= 0) {
+      return;
+    }
+
+    final fee = PayPalFeeRules.feeFromTotalEur(
+      totalEur: total,
+      countryToken: _deliveryCountryToken(),
+    );
+    final feeText = _decimalText(fee);
+
+    if (_paypalFeeController.text == feeText) {
+      return;
+    }
+
+    _isRecalculatingPaypalFee = true;
+    _paypalFeeController.text = feeText;
+    _isRecalculatingPaypalFee = false;
+  }
+
   String _customerLabel(Customer c) {
     final name = '${c.cLastName}, ${c.cFirstName}'.trim();
+    final company = c.cCompany.trim();
     final city = c.cCityB.trim();
-    return '$name${city.isEmpty ? '' : ' – $city'}';
+    final withCompany =
+        company.isEmpty || company == '-' ? name : '$name ($company)';
+    return '$withCompany${city.isEmpty ? '' : ' – $city'}';
+  }
+
+  String _normalizeSearchToken(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  List<Customer> _matchingCustomersFromInput() {
+    final input = _normalizeSearchToken(_customerSearchController.text);
+    if (input.isEmpty) {
+      return const <Customer>[];
+    }
+
+    final exactMatches = <Customer>[];
+    final partialMatches = <Customer>[];
+
+    for (final customer in widget.allCustomers) {
+      final id = _normalizeSearchToken(customer.cId);
+      final company = _normalizeSearchToken(customer.cCompany);
+      final city = _normalizeSearchToken(customer.cCityB);
+      final firstName = _normalizeSearchToken(customer.cFirstName);
+      final lastName = _normalizeSearchToken(customer.cLastName);
+      final lastFirst = _normalizeSearchToken('${customer.cLastName}, ${customer.cFirstName}');
+      final firstLast = _normalizeSearchToken('${customer.cFirstName} ${customer.cLastName}');
+      final label = _normalizeSearchToken(_customerLabel(customer));
+
+      final isExact =
+          input == id ||
+          input == company ||
+          input == city ||
+          input == firstName ||
+          input == lastName ||
+          input == lastFirst ||
+          input == firstLast ||
+          input == label;
+
+      if (isExact) {
+        exactMatches.add(customer);
+        continue;
+      }
+
+      if (id.contains(input) ||
+          company.contains(input) ||
+          city.contains(input) ||
+          firstName.contains(input) ||
+          lastName.contains(input) ||
+          lastFirst.contains(input) ||
+          firstLast.contains(input) ||
+          label.contains(input)) {
+        partialMatches.add(customer);
+      }
+    }
+
+    if (exactMatches.isNotEmpty) {
+      return exactMatches;
+    }
+    return partialMatches;
+  }
+
+  Customer? _resolveCustomerFromInput() {
+    final matches = _matchingCustomersFromInput();
+    if (matches.length == 1) {
+      return matches.first;
+    }
+    return null;
   }
 
   void _filterCustomers(String query) {
@@ -335,6 +457,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
         return c.cLastName.toLowerCase().contains(q) ||
             c.cFirstName.toLowerCase().contains(q) ||
             c.cCityB.toLowerCase().contains(q) ||
+            c.cCompany.toLowerCase().contains(q) ||
             c.cId.toLowerCase().contains(q);
       }).toList(growable: false);
     });
@@ -348,6 +471,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       _applyNoVatCustomerRules();
       _setVatRateForPriceBasis();
       _refreshGoodsValuesForCurrentBasis();
+      _recalculatePaypalFeeFromTotalIfApplicable();
       _showCustomerDropdown = false;
     });
   }
@@ -509,6 +633,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                         _applyNoVatCustomerRules();
                         _setVatRateForPriceBasis();
                         _refreshGoodsValuesForCurrentBasis();
+                        _recalculatePaypalFeeFromTotalIfApplicable();
                       });
                     },
                   ),
@@ -607,7 +732,12 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                       for (int i = 0; i < _paymentLabels.length; i++)
                         DropdownMenuItem(value: i, child: Text(_paymentLabels[i]))
                     ],
-                    onChanged: (v) => setState(() => _payment = v ?? 0),
+                    onChanged: (v) {
+                      setState(() {
+                        _payment = v ?? 0;
+                        _recalculatePaypalFeeFromTotalIfApplicable();
+                      });
+                    },
                   ),
                   _field(
                     _paypalFeeController,
@@ -664,6 +794,34 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
         ),
         FilledButton(
           onPressed: () {
+            if (_selectedCustomer == null) {
+              final matches = _matchingCustomersFromInput();
+              if (matches.length > 1) {
+                setState(() {
+                  _filteredCustomers = matches;
+                  _showCustomerDropdown = true;
+                });
+                final examples = matches
+                    .take(3)
+                    .map((customer) => _customerLabel(customer))
+                    .join(', ');
+                final suffix = matches.length > 3 ? ' ...' : '';
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Mehrere Kunden gefunden (${matches.length}). Bitte eindeutig auswählen, z.B.: $examples$suffix',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              final resolvedCustomer = _resolveCustomerFromInput();
+              if (resolvedCustomer != null) {
+                _selectCustomer(resolvedCustomer);
+              }
+            }
+
             if (!_formKey.currentState!.validate()) return;
             final result = OrderRow(
               oId: _orderIdController.text.trim(),

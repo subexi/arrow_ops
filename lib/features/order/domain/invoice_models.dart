@@ -5,6 +5,7 @@ class InvoiceDocumentData {
     this.documentKind = InvoiceDocumentKind.invoice,
     required this.invoiceNumber,
     required this.invoiceDate,
+    required this.orderDate,
     required this.orderId,
     required this.currency,
     required this.language,
@@ -26,6 +27,7 @@ class InvoiceDocumentData {
   final InvoiceDocumentKind documentKind;
   final String invoiceNumber;
   final String invoiceDate;
+  final String orderDate;
   final String orderId;
   final String currency;
   final String language;

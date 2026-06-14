@@ -156,8 +156,8 @@ class InvoicePdfService {
     bool useGerman,
     pw.MemoryImage? logoImage,
   ) {
-    final buyerHouseNumberFirst =
-        !useGerman && _isHouseNumberFirstCountry(data.buyer.countryCode);
+    final buyerHouseNumberFirst = _isDutchAddress(data.buyer.countryCode);
+    final sellerHouseNumberFirst = _isDutchAddress(data.seller.countryCode);
 
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -217,6 +217,7 @@ class InvoicePdfService {
                   addGermanStreetCityGap: false,
                   showGermanyCountry: true,
                   addCountryGap: false,
+                  houseNumberFirst: sellerHouseNumberFirst,
                 ),
               ),
             ],
@@ -227,8 +228,7 @@ class InvoicePdfService {
   }
 
   pw.Widget _buildParties(InvoiceDocumentData data, bool useGerman) {
-    final deliveryHouseNumberFirst =
-        !useGerman && _isHouseNumberFirstCountry(data.delivery.countryCode);
+    final deliveryHouseNumberFirst = _isDutchAddress(data.delivery.countryCode);
 
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -255,10 +255,13 @@ class InvoicePdfService {
     final centerLabel = useGerman ? 'Unser Zeichen' : 'Reference';
     final rightLabel = useGerman ? 'Datum' : 'Date';
     const referenceInitials = 'HD';
+    final leftDate = data.orderDate.trim().isEmpty
+        ? data.invoiceDate
+        : data.orderDate;
 
     return pw.Row(
       children: [
-        pw.Expanded(child: _metaCell(leftLabel, data.invoiceDate)),
+        pw.Expanded(child: _metaCell(leftLabel, leftDate)),
         pw.SizedBox(width: 20),
         pw.Expanded(child: _metaCell(centerLabel, referenceInitials)),
         pw.SizedBox(width: 20),
@@ -954,14 +957,34 @@ class InvoicePdfService {
   String _singleLineAddress(InvoicePartyData party) {
     final countryLine = _displayCountryForAddress(party.countryCode);
     final postalCityLine = _postalCityLine(party);
+    final houseNumberFirst = _isDutchAddress(party.countryCode);
     final parts = <String>[
       if (_valid(party.company)) party.company,
-      if (_valid(_joinValid([party.street, party.houseNumber])))
-        _joinValid([party.street, party.houseNumber]),
+      if (_valid(
+        _streetAddressLine(
+          street: party.street,
+          houseNumber: party.houseNumber,
+          houseNumberFirst: houseNumberFirst,
+        ),
+      ))
+        _streetAddressLine(
+          street: party.street,
+          houseNumber: party.houseNumber,
+          houseNumberFirst: houseNumberFirst,
+        ),
       if (_valid(postalCityLine)) postalCityLine,
       if (_valid(countryLine)) countryLine,
     ];
     return parts.join(' | ');
+  }
+
+  bool _isDutchAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'NL' ||
+        upper == 'NLD' ||
+        upper == 'NETHERLANDS' ||
+        upper == 'HOLLAND' ||
+        upper == 'NIEDERLANDE';
   }
 
   String _postalCityLine(InvoicePartyData party) {
@@ -1045,40 +1068,6 @@ class InvoicePdfService {
       return _joinValid([houseNumber, street]);
     }
     return _joinValid([street, houseNumber]);
-  }
-
-  bool _isHouseNumberFirstCountry(String countryCode) {
-    final upper = countryCode.trim().toUpperCase();
-    return upper == 'US' ||
-        upper == 'USA' ||
-        upper == 'UNITED STATES' ||
-        upper == 'VEREINIGTE STAATEN' ||
-        upper == 'CA' ||
-        upper == 'CAN' ||
-        upper == 'CANADA' ||
-        upper == 'GB' ||
-        upper == 'UK' ||
-        upper == 'GBR' ||
-        upper == 'UNITED KINGDOM' ||
-        upper == 'VEREINIGTES KÖNIGREICH' ||
-        upper == 'VEREINIGTES KOENIGREICH' ||
-        upper == 'IE' ||
-        upper == 'IRL' ||
-        upper == 'IRELAND' ||
-        upper == 'IRLAND' ||
-        upper == 'AU' ||
-        upper == 'AUS' ||
-        upper == 'AUSTRALIA' ||
-        upper == 'AUSTRALIEN' ||
-        upper == 'NZ' ||
-        upper == 'NZL' ||
-        upper == 'NEW ZEALAND' ||
-        upper == 'NEUSEELAND' ||
-        upper == 'ZA' ||
-        upper == 'ZAF' ||
-        upper == 'SOUTH AFRICA' ||
-        upper == 'SÜDAFRIKA' ||
-        upper == 'SUEDAFRIKA';
   }
 
   bool _isGermanAddress(String value) {
