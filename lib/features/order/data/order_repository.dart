@@ -46,7 +46,7 @@ class OrderRepository {
         io.io_total_price,
         io.io_item_weight,
         io.io_total_weight,
-        COALESCE(NULLIF(TRIM(io.io_photo), '-'), NULLIF(TRIM(ic.ic_image_path), ''), '-') AS io_photo
+        COALESCE(NULLIF(TRIM(ic.ic_image_path), ''), NULLIF(TRIM(io.io_photo), '-'), '-') AS io_photo
       FROM item_ordered io
       LEFT JOIN item_catalogue ic ON ic.ic_id = io.io_item_id
       WHERE io.io_order_id = ?
@@ -73,6 +73,34 @@ class OrderRepository {
         await txn.insert('"order"', order.toMap());
       }
     });
+  }
+
+  Future<void> syncItemDescriptionsFromCatalogueForOrder(String orderId) async {
+    final db = await AppDatabase.instance.database;
+    await db.rawUpdate(
+      '''
+      UPDATE item_ordered
+      SET
+        io_description_de_long = COALESCE(
+          NULLIF((
+            SELECT ic.ic_description_de_long
+            FROM item_catalogue ic
+            WHERE ic.ic_id = item_ordered.io_item_id
+          ), ''),
+          io_description_de_long
+        ),
+        io_description_en_long = COALESCE(
+          NULLIF((
+            SELECT ic.ic_description_en_long
+            FROM item_catalogue ic
+            WHERE ic.ic_id = item_ordered.io_item_id
+          ), ''),
+          io_description_en_long
+        )
+      WHERE io_order_id = ?
+      ''',
+      [orderId],
+    );
   }
 
   Future<void> deleteOrder(String orderId) async {

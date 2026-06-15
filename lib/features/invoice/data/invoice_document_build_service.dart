@@ -94,10 +94,15 @@ class InvoiceDocumentBuildService {
       throw StateError('Customer not found for id: ${order.oCustomerId}');
     }
 
+    final enforceEnglishLines = _shouldEnforceEnglishDescriptions(
+      order: order,
+      customer: customer,
+    );
     final items = await _orderRepository.getItemsForOrder(order.oId);
     final lines = _calculationService.buildLines(
       items: items,
       language: order.oLanguage,
+      forceEnglishOnly: enforceEnglishLines,
     );
     final totals = _calculationService.calculateTotals(
       order: order,
@@ -269,5 +274,67 @@ class InvoiceDocumentBuildService {
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty && line != '-')
         .toList(growable: false);
+  }
+
+  bool _shouldEnforceEnglishDescriptions({
+    required OrderRow order,
+    required Customer customer,
+  }) {
+    final isEnglish = _normalizedOrFallback(order.oLanguage, 'DE')
+            .toUpperCase() ==
+        'EN';
+    final isNet =
+        _normalizedOrFallback(order.oPriceBasis, 'net').toLowerCase() == 'net';
+    final country = _deliveryCountryToken(customer);
+    final isOutsideEu = country.isNotEmpty && !_isEuCountry(country);
+    return isEnglish && isNet && isOutsideEu;
+  }
+
+  String _deliveryCountryToken(Customer customer) {
+    final delivery = _normalizedOrFallback(customer.cCountryDId, '')
+        .toUpperCase();
+    if (delivery.isNotEmpty && delivery != '-') {
+      return delivery;
+    }
+    final billing = _normalizedOrFallback(customer.cCountryBId, '')
+        .toUpperCase();
+    if (billing.isNotEmpty && billing != '-') {
+      return billing;
+    }
+    return '';
+  }
+
+  bool _isEuCountry(String countryToken) {
+    const euCountryTokens = <String>{
+      'AT', 'AUT', 'AUSTRIA',
+      'BE', 'BEL', 'BELGIUM',
+      'BG', 'BGR', 'BULGARIA',
+      'HR', 'HRV', 'CROATIA',
+      'CY', 'CYP', 'CYPRUS',
+      'CZ', 'CZE', 'CZECH REPUBLIC',
+      'DK', 'DNK', 'DENMARK',
+      'EE', 'EST', 'ESTONIA',
+      'FI', 'FIN', 'FINLAND',
+      'FR', 'FRA', 'FRANCE',
+      'DE', 'DEU', 'GERMANY', 'DEUTSCHLAND',
+      'GR', 'GRC', 'GREECE',
+      'EL',
+      'HU', 'HUN', 'HUNGARY',
+      'IE', 'IRL', 'IRELAND',
+      'IT', 'ITA', 'ITALY', 'ITALIA',
+      'LV', 'LVA', 'LATVIA',
+      'LT', 'LTU', 'LITHUANIA',
+      'LU', 'LUX', 'LUXEMBOURG',
+      'MT', 'MLT', 'MALTA',
+      'NL', 'NLD', 'NETHERLANDS', 'HOLLAND', 'NIEDERLANDE',
+      'PL', 'POL', 'POLAND',
+      'PT', 'PRT', 'PORTUGAL',
+      'RO', 'ROU', 'ROMANIA',
+      'SK', 'SVK', 'SLOVAKIA',
+      'SI', 'SVN', 'SLOVENIA',
+      'ES', 'ESP', 'SPAIN',
+      'SE', 'SWE', 'SWEDEN',
+    };
+    return euCountryTokens.contains(countryToken.trim().toUpperCase());
   }
 }

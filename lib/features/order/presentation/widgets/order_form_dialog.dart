@@ -272,7 +272,23 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _refreshGrossGoodsValueFromInputs() {
-    final grossValue = _parseDecimal(_valueGoodsController) + _parseDecimal(_vatController);
+    final netValue = _parseDecimal(_valueGoodsController);
+    final vatRate = _parseDecimal(_vatRateController);
+    if (_priceBasis == 'net' && vatRate == 0) {
+      const vatValue = 0.0;
+      final vatText = _decimalText(vatValue);
+      if (_vatController.text != vatText) {
+        _vatController.text = vatText;
+      }
+
+      final grossText = _decimalText(netValue);
+      if (_valueGoodsGrossController.text != grossText) {
+        _valueGoodsGrossController.text = grossText;
+      }
+      return;
+    }
+
+    final grossValue = netValue + _parseDecimal(_vatController);
     final formatted = _decimalText(grossValue);
     if (_valueGoodsGrossController.text == formatted) {
       return;
@@ -311,10 +327,6 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _refreshTotalPriceForCurrentBasis() {
-    if (_priceBasis != 'gross') {
-      return;
-    }
-
     final grossValue = _parseDecimal(_valueGoodsGrossController);
     final shipping = _parseDecimal(_shippingController);
     final paymentFee = _parseDecimal(_paypalFeeController);
@@ -349,6 +361,11 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       return;
     }
     if (_payment != _paypalPaymentCode || !_isEurCurrency) {
+      return;
+    }
+
+    final existingFee = _parseDecimal(_paypalFeeController);
+    if (existingFee != 0) {
       return;
     }
 
@@ -735,7 +752,11 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     onChanged: (v) {
                       setState(() {
                         _payment = v ?? 0;
-                        _recalculatePaypalFeeFromTotalIfApplicable();
+                        if (_payment != _paypalPaymentCode) {
+                          _paypalFeeController.text = _decimalText(0);
+                        } else {
+                          _recalculatePaypalFeeFromTotalIfApplicable();
+                        }
                       });
                     },
                   ),
@@ -752,6 +773,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     _totalPriceController,
                     'Gesamtpreis',
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    readOnly: true,
                   ),
                   _field(
                     _totalWeightController,

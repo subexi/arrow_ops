@@ -156,8 +156,14 @@ class InvoicePdfService {
     bool useGerman,
     pw.MemoryImage? logoImage,
   ) {
-    final buyerHouseNumberFirst = _isDutchAddress(data.buyer.countryCode);
-    final sellerHouseNumberFirst = _isDutchAddress(data.seller.countryCode);
+    final buyerHouseNumberFirst = _shouldPlaceHouseNumberFirst(
+      countryCode: data.buyer.countryCode,
+      useGerman: useGerman,
+    );
+    final sellerHouseNumberFirst = _shouldPlaceHouseNumberFirst(
+      countryCode: data.seller.countryCode,
+      useGerman: useGerman,
+    );
 
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -179,6 +185,7 @@ class InvoicePdfService {
                 _buildPartyBlock(
                   '',
                   data.buyer,
+                  useGerman: useGerman,
                   includeContacts: false,
                   includeVat: false,
                   boxed: false,
@@ -211,6 +218,7 @@ class InvoicePdfService {
                 child: _buildPartyBlock(
                   '',
                   data.seller,
+                  useGerman: useGerman,
                   includeContacts: true,
                   includeVat: true,
                   boxed: false,
@@ -228,7 +236,10 @@ class InvoicePdfService {
   }
 
   pw.Widget _buildParties(InvoiceDocumentData data, bool useGerman) {
-    final deliveryHouseNumberFirst = _isDutchAddress(data.delivery.countryCode);
+    final deliveryHouseNumberFirst = _shouldPlaceHouseNumberFirst(
+      countryCode: data.delivery.countryCode,
+      useGerman: useGerman,
+    );
 
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -240,6 +251,7 @@ class InvoicePdfService {
           child: _buildPartyBlock(
             useGerman ? 'Lieferadresse' : 'Shipping address',
             data.delivery,
+            useGerman: useGerman,
             includeContacts: false,
             includeVat: false,
             boxed: false,
@@ -340,6 +352,7 @@ class InvoicePdfService {
   pw.Widget _buildPartyBlock(
     String title,
     InvoicePartyData party, {
+    required bool useGerman,
     bool includeContacts = true,
     bool includeVat = true,
     bool boxed = true,
@@ -359,7 +372,7 @@ class InvoicePdfService {
       houseNumber: party.houseNumber,
       houseNumberFirst: houseNumberFirst,
     );
-    final postalCityLine = _postalCityLine(party);
+    final postalCityLine = _postalCityLine(party, useGerman: useGerman);
     final widgets = <pw.Widget>[
       if (_valid(party.company))
         _partyLine(party.company, fontSize: bodyFontSize),
@@ -527,6 +540,7 @@ class InvoicePdfService {
   pw.Widget _buildTotalsSection(InvoiceDocumentData data, bool useGerman) {
     final totals = data.totals;
     final isGrossBasis = data.priceBasis.trim().toLowerCase() == 'gross';
+    final hideVatAndGoodsGross = _isEnglishNetOutsideEu(data);
     final vatHint = useGerman
         ? '${totals.vatRate.toStringAsFixed(0)}% MwSt. im Warenwert enthalten'
         : isGrossBasis
@@ -582,15 +596,16 @@ class InvoicePdfService {
                         'Goods net',
                         _formatMoney(totals.itemsNet, data.currency, false),
                       ),
-                    if (!isGrossBasis)
+                    if (!isGrossBasis && !hideVatAndGoodsGross)
                       _totalsRow(
                         'VAT (${totals.vatRate.toStringAsFixed(1)}%)',
                         _formatMoney(totals.vatAmount, data.currency, false),
                       ),
-                    _totalsRow(
-                      isGrossBasis ? 'Goods value' : 'Goods gross',
-                      _formatMoney(totals.itemsGross, data.currency, false),
-                    ),
+                    if (!hideVatAndGoodsGross)
+                      _totalsRow(
+                        isGrossBasis ? 'Goods value' : 'Goods gross',
+                        _formatMoney(totals.itemsGross, data.currency, false),
+                      ),
                     _totalsRow(
                       'Shipping',
                       _formatMoney(totals.shipping, data.currency, false),
@@ -685,6 +700,7 @@ class InvoicePdfService {
     final deliveryTitle = useGerman ? 'Lieferdatum' : 'Delivery date';
     final trackingTitle = useGerman ? 'Tracking' : 'Tracking';
 
+    final hideGiroCode = _isEnglishNetOutsideEu(data);
     final giroCodePayload = _buildGiroCodePayload(data);
     final showPayPalQr = _isPayPalPayment(data.paymentLabel);
     final paypalCodePayload = showPayPalQr ? _buildPayPalQrPayload(data) : null;
@@ -742,11 +758,12 @@ class InvoicePdfService {
                   _buildPayPalCodeBox(paypalCodePayload!),
                   pw.SizedBox(width: 8),
                 ],
-                _buildGiroCodeBox(
-                  giroCodePayload,
-                  hasPaypalFee: data.totals.paypalFee > 0.0001,
-                  useGerman: useGerman,
-                ),
+                if (!hideGiroCode)
+                  _buildGiroCodeBox(
+                    giroCodePayload,
+                    hasPaypalFee: data.totals.paypalFee > 0.0001,
+                    useGerman: useGerman,
+                  ),
               ],
             ),
           ],
@@ -868,6 +885,60 @@ class InvoicePdfService {
     return paymentLabel.trim().toLowerCase() == 'paypal';
   }
 
+  bool _isEnglishNetOutsideEu(InvoiceDocumentData data) {
+    final isEnglish = data.language.trim().toUpperCase() == 'EN';
+    final isNet = data.priceBasis.trim().toLowerCase() == 'net';
+    final country = _deliveryCountryToken(data);
+    final isOutsideEu = country.isNotEmpty && !_isEuCountry(country);
+    return isEnglish && isNet && isOutsideEu;
+  }
+
+  String _deliveryCountryToken(InvoiceDocumentData data) {
+    final delivery = data.delivery.countryCode.trim().toUpperCase();
+    if (delivery.isNotEmpty && delivery != '-') {
+      return delivery;
+    }
+    final buyer = data.buyer.countryCode.trim().toUpperCase();
+    if (buyer.isNotEmpty && buyer != '-') {
+      return buyer;
+    }
+    return '';
+  }
+
+  bool _isEuCountry(String countryToken) {
+    const euCountryTokens = <String>{
+      'AT', 'AUT', 'AUSTRIA',
+      'BE', 'BEL', 'BELGIUM',
+      'BG', 'BGR', 'BULGARIA',
+      'HR', 'HRV', 'CROATIA',
+      'CY', 'CYP', 'CYPRUS',
+      'CZ', 'CZE', 'CZECH REPUBLIC',
+      'DK', 'DNK', 'DENMARK',
+      'EE', 'EST', 'ESTONIA',
+      'FI', 'FIN', 'FINLAND',
+      'FR', 'FRA', 'FRANCE',
+      'DE', 'DEU', 'GERMANY', 'DEUTSCHLAND',
+      'GR', 'GRC', 'GREECE',
+      'EL',
+      'HU', 'HUN', 'HUNGARY',
+      'IE', 'IRL', 'IRELAND',
+      'IT', 'ITA', 'ITALY', 'ITALIA',
+      'LV', 'LVA', 'LATVIA',
+      'LT', 'LTU', 'LITHUANIA',
+      'LU', 'LUX', 'LUXEMBOURG',
+      'MT', 'MLT', 'MALTA',
+      'NL', 'NLD', 'NETHERLANDS', 'HOLLAND', 'NIEDERLANDE',
+      'PL', 'POL', 'POLAND',
+      'PT', 'PRT', 'PORTUGAL',
+      'RO', 'ROU', 'ROMANIA',
+      'SK', 'SVK', 'SLOVAKIA',
+      'SI', 'SVN', 'SLOVENIA',
+      'ES', 'ESP', 'SPAIN',
+      'SE', 'SWE', 'SWEDEN',
+    };
+    return euCountryTokens.contains(countryToken.trim().toUpperCase());
+  }
+
   pw.Widget _buildCompanyFooter(InvoiceDocumentData data) {
     final useGerman = data.language.trim().toUpperCase() == 'DE';
 
@@ -956,8 +1027,11 @@ class InvoicePdfService {
 
   String _singleLineAddress(InvoicePartyData party) {
     final countryLine = _displayCountryForAddress(party.countryCode);
-    final postalCityLine = _postalCityLine(party);
-    final houseNumberFirst = _isDutchAddress(party.countryCode);
+    final postalCityLine = _postalCityLine(party, useGerman: true);
+    final houseNumberFirst = _shouldPlaceHouseNumberFirst(
+      countryCode: party.countryCode,
+      useGerman: true,
+    );
     final parts = <String>[
       if (_valid(party.company)) party.company,
       if (_valid(
@@ -978,6 +1052,19 @@ class InvoicePdfService {
     return parts.join(' | ');
   }
 
+  bool _shouldPlaceHouseNumberFirst({
+    required String countryCode,
+    required bool useGerman,
+  }) {
+    if (_isDutchAddress(countryCode)) {
+      return true;
+    }
+    if (!useGerman && _isAustralianAddress(countryCode)) {
+      return true;
+    }
+    return false;
+  }
+
   bool _isDutchAddress(String countryCode) {
     final upper = countryCode.trim().toUpperCase();
     return upper == 'NL' ||
@@ -987,22 +1074,27 @@ class InvoicePdfService {
         upper == 'NIEDERLANDE';
   }
 
-  String _postalCityLine(InvoicePartyData party) {
+  String _postalCityLine(InvoicePartyData party, {required bool useGerman}) {
     final isItaly = _isItalianAddress(party.countryCode);
+    final isAustralianEnglish = !useGerman &&
+        _isAustralianAddress(party.countryCode);
     final isUsOrAustralia = _isUsOrAustraliaAddress(party.countryCode);
     final isPostalAfterCityCountry = _isPostalAfterCityCountry(
       party.countryCode,
     );
     final city = party.city.trim();
     final state = party.state.trim();
+    final stateToken = isAustralianEnglish
+        ? _abbreviateAustralianState(state)
+        : state;
     final postalCode = party.postalCode.trim();
 
     if (isUsOrAustralia) {
-      return _joinValid([city, state, postalCode]);
+      return _joinValid([city, stateToken, postalCode]);
     }
 
     if (isPostalAfterCityCountry) {
-      return _joinValid([city, state, postalCode]);
+      return _joinValid([city, stateToken, postalCode]);
     }
 
     final cityToken =
@@ -1038,6 +1130,85 @@ class InvoicePdfService {
         upper == 'AUSTRALIEN';
   }
 
+  bool _isAustralianAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'AU' ||
+        upper == 'AUS' ||
+        upper == 'AUSTRALIA' ||
+        upper == 'AUSTRALIEN';
+  }
+
+  String _abbreviateAustralianState(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return normalized;
+    }
+
+    final upper = normalized.toUpperCase();
+    final cleaned = upper
+        .replaceAll(RegExp(r'[_\-/(),.]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    bool hasToken(String token) {
+      return RegExp('(^| )${RegExp.escape(token)}( |\$)').hasMatch(cleaned);
+    }
+
+    if (cleaned.contains('NEW SOUTH WALES') || hasToken('NSW')) {
+      return 'NSW';
+    }
+    if (cleaned.contains('VICTORIA') || hasToken('VIC')) {
+      return 'VIC';
+    }
+    if (cleaned.contains('QUEENSLAND') || hasToken('QLD')) {
+      return 'QLD';
+    }
+    if (cleaned.contains('SOUTH AUSTRALIA') || hasToken('SA')) {
+      return 'SA';
+    }
+    if (cleaned.contains('WESTERN AUSTRALIA') || hasToken('WA')) {
+      return 'WA';
+    }
+    if (cleaned.contains('TASMANIA') || hasToken('TAS')) {
+      return 'TAS';
+    }
+    if (cleaned.contains('NORTHERN TERRITORY') || hasToken('NT')) {
+      return 'NT';
+    }
+    if (cleaned.contains('AUSTRALIAN CAPITAL TERRITORY') || hasToken('ACT')) {
+      return 'ACT';
+    }
+
+    switch (cleaned) {
+      case 'NEW SOUTH WALES':
+      case 'NSW':
+        return 'NSW';
+      case 'VICTORIA':
+      case 'VIC':
+        return 'VIC';
+      case 'QUEENSLAND':
+      case 'QLD':
+        return 'QLD';
+      case 'SOUTH AUSTRALIA':
+      case 'SA':
+        return 'SA';
+      case 'WESTERN AUSTRALIA':
+      case 'WA':
+        return 'WA';
+      case 'TASMANIA':
+      case 'TAS':
+        return 'TAS';
+      case 'NORTHERN TERRITORY':
+      case 'NT':
+        return 'NT';
+      case 'AUSTRALIAN CAPITAL TERRITORY':
+      case 'ACT':
+        return 'ACT';
+      default:
+        return cleaned;
+    }
+  }
+
   bool _isPostalAfterCityCountry(String countryCode) {
     final upper = countryCode.trim().toUpperCase();
     return upper == 'GB' ||
@@ -1064,10 +1235,22 @@ class InvoicePdfService {
     required String houseNumber,
     required bool houseNumberFirst,
   }) {
+    if (_isPoBoxStreet(street)) {
+      return _joinValid([street, houseNumber]);
+    }
+
     if (houseNumberFirst) {
       return _joinValid([houseNumber, street]);
     }
     return _joinValid([street, houseNumber]);
+  }
+
+  bool _isPoBoxStreet(String street) {
+    final normalized = street
+        .trim()
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    return normalized == 'POBOX';
   }
 
   bool _isGermanAddress(String value) {
@@ -1116,6 +1299,11 @@ class InvoicePdfService {
       case 'US':
       case 'USA':
         return 'United States';
+      case 'AU':
+      case 'AUS':
+      case 'AUSTRALIA':
+      case 'AUSTRALIEN':
+        return 'Australia';
       case 'GB':
       case 'UK':
         return 'United Kingdom';

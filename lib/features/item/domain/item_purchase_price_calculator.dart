@@ -42,3 +42,46 @@ Map<int, double> calculateDerivedPurchasePrices({
 
   return derivedByArticleId;
 }
+
+Map<int, double> calculateDerivedWeights({
+  required List<ItemCatalogueRow> catalogueRows,
+  required List<ItemBomRow> bomRows,
+}) {
+  final catalogueById = {
+    for (final item in catalogueRows) item.icId: item,
+  };
+
+  final nodeById = <int, ItemBomRow>{};
+  final childrenByParentId = <int, List<ItemBomRow>>{};
+
+  for (final row in bomRows) {
+    final id = row.ibId;
+    if (id == null) {
+      continue;
+    }
+    nodeById[id] = row;
+    final parentId = row.ibParentId;
+    if (parentId != null) {
+      childrenByParentId.putIfAbsent(parentId, () => <ItemBomRow>[]).add(row);
+    }
+  }
+
+  final derivedByArticleId = <int, double>{};
+  final parentNodeIds = childrenByParentId.keys.toList(growable: false)..sort();
+
+  for (final parentNodeId in parentNodeIds) {
+    final parentNode = nodeById[parentNodeId];
+    if (parentNode == null) {
+      continue;
+    }
+    final children = childrenByParentId[parentNodeId] ?? const <ItemBomRow>[];
+    var computedWeight = 0.0;
+    for (final child in children) {
+      final childArticleWeight = catalogueById[child.ibItemId]?.icWeight ?? 0;
+      computedWeight += childArticleWeight * child.ibQuantity;
+    }
+    derivedByArticleId[parentNode.ibItemId] = computedWeight;
+  }
+
+  return derivedByArticleId;
+}

@@ -36,6 +36,8 @@ class _OrderPageState extends State<OrderPage> {
 
   int _orderSortColumnIndex = 0;
   bool _orderSortAscending = false;
+  final TextEditingController _orderSearchController = TextEditingController();
+  String _orderSearchQuery = '';
   double _splitterRatio = 0.55;
   bool _isDragging = false;
 
@@ -95,6 +97,12 @@ class _OrderPageState extends State<OrderPage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  @override
+  void dispose() {
+    _orderSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadItemsForSelected() async {
@@ -300,8 +308,30 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
+  bool _matchesOrderSearch(OrderRow order, String normalizedQuery) {
+    if (normalizedQuery.isEmpty) {
+      return true;
+    }
+
+    final haystack = <String>[
+      order.oId,
+      _customerName(order.oCustomerId),
+      order.oCustomerId,
+      order.oTrackingCode,
+      _paymentLabel(order.oPayment),
+      order.oDate,
+      order.oPayDate,
+      order.oDelivery,
+    ].map((value) => value.trim().toLowerCase()).join(' ');
+
+    return haystack.contains(normalizedQuery);
+  }
+
   List<OrderRow> _sortedOrders() {
-    final result = List<OrderRow>.from(_orders);
+    final normalizedQuery = _orderSearchQuery.trim().toLowerCase();
+    final result = _orders
+        .where((order) => _matchesOrderSearch(order, normalizedQuery))
+        .toList(growable: false);
     result.sort((a, b) {
       int cmp;
       switch (_orderSortColumnIndex) {
@@ -371,6 +401,9 @@ class _OrderPageState extends State<OrderPage> {
     if (result is! OrderRow) return;
 
     await _orderRepo.saveOrder(result, originalOrderId: initialValue?.oId);
+    if (initialValue != null && initialValue.oLanguage != result.oLanguage) {
+      await _orderRepo.syncItemDescriptionsFromCatalogueForOrder(result.oId);
+    }
     await _loadData();
     if (!mounted) return;
     setState(() => _selectedOrderId = result.oId);
@@ -595,7 +628,9 @@ class _OrderPageState extends State<OrderPage> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
-                  'Bestellungen (${_orders.length})',
+                  _orderSearchQuery.trim().isEmpty
+                      ? 'Bestellungen (${_orders.length})'
+                      : 'Bestellungen (${sorted.length} / ${_orders.length})',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 FilledButton.icon(
@@ -618,6 +653,27 @@ class _OrderPageState extends State<OrderPage> {
                   label: const Text('Löschen'),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _orderSearchController,
+              decoration: InputDecoration(
+                labelText: 'Bestellungen suchen',
+                hintText: 'Auftrags-ID, Kunde, Trackingcode, Zahlart, Datum',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _orderSearchQuery.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Suche löschen',
+                        onPressed: () {
+                          _orderSearchController.clear();
+                          setState(() => _orderSearchQuery = '');
+                        },
+                        icon: const Icon(Icons.clear),
+                      ),
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (value) => setState(() => _orderSearchQuery = value),
             ),
             const SizedBox(height: 8),
             // ── Tabelle

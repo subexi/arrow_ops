@@ -57,6 +57,7 @@ class InvoiceCalculationService {
   List<InvoiceLineData> buildLines({
     required List<ItemOrderedRow> items,
     required String language,
+    bool forceEnglishOnly = false,
   }) {
     final useGerman = language.trim().toUpperCase() == 'DE';
 
@@ -66,7 +67,11 @@ class InvoiceCalculationService {
             position: item.ioPos,
             articleId: item.ioItemId,
             articleLabel: item.ioIdi,
-            description: _lineDescription(item, useGerman),
+            description: _lineDescription(
+              item,
+              useGerman,
+              forceEnglishOnly: forceEnglishOnly,
+            ),
             quantity: item.ioQuantity,
             unitPrice: item.ioUnitPrice,
             discountPercent: item.ioDiscount,
@@ -79,7 +84,16 @@ class InvoiceCalculationService {
         .toList(growable: false);
   }
 
-  String _lineDescription(ItemOrderedRow item, bool useGerman) {
+  String _lineDescription(
+    ItemOrderedRow item,
+    bool useGerman, {
+    required bool forceEnglishOnly,
+  }) {
+    if (forceEnglishOnly) {
+      final english = item.ioDescriptionEnLong.trim();
+      return english.isEmpty ? '-' : english;
+    }
+
     final primary = useGerman
         ? item.ioDescriptionDeLong.trim()
         : item.ioDescriptionEnLong.trim();

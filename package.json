@@ -1,0 +1,11 @@
+{
+  "name": "arrow_ops",
+  "private": true,
+  "scripts": {
+    "lint:md": "markdownlint \"docs/**/*.md\"",
+    "lint:md:fix": "markdownlint --fix \"docs/**/*.md\""
+  },
+  "devDependencies": {
+    "markdownlint-cli": "^0.41.0"
+  }
+}

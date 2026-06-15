@@ -15,6 +15,7 @@ import '../../../core/sync/icloud_sync_service.dart';
 import '../data/item_image_storage_service.dart';
 import '../data/item_repository.dart';
 import '../domain/item_models.dart';
+import '../domain/item_purchase_price_calculator.dart';
 import 'widgets/item_bom_form_dialog.dart';
 import 'widgets/item_catalogue_form_dialog.dart';
 
@@ -48,6 +49,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   List<ItemCatalogueRow> _catalogueItems = const [];
   List<ItemBomRow> _bomItems = const [];
   Map<int, ItemCatalogueRow> _catalogueById = const {};
+  Map<int, double> _derivedWeightByArticleId = const {};
   String _searchQuery = '';
   bool _loading = true;
   Set<String> _catalogueExportFieldSelection = const {};
@@ -117,6 +119,10 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       _catalogueById = {
         for (final item in _catalogueItems) item.icId: item,
       };
+      _derivedWeightByArticleId = calculateDerivedWeights(
+        catalogueRows: _catalogueItems,
+        bomRows: _bomItems,
+      );
       _selectedCatalogueId = _catalogueItems.isEmpty ? null : _catalogueItems.first.icId;
       _selectedBomId = null;
       _loading = false;
@@ -182,6 +188,10 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         _catalogueItems = catalogueItems;
         _bomItems = bomItems;
         _catalogueById = catalogueById;
+        _derivedWeightByArticleId = calculateDerivedWeights(
+          catalogueRows: catalogueItems,
+          bomRows: bomItems,
+        );
         _selectedCatalogueId = nextSelectedCatalogueId;
         _selectedBomId = nextSelectedBomId;
       });
@@ -1233,8 +1243,16 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     return a.toLowerCase().compareTo(b.toLowerCase());
   }
 
-  String _formatPdfFieldValue(_CatalogueExportField field, ItemCatalogueRow row) {
-    final rawValue = field.value(row);
+  String _formatPdfFieldValue(
+    _CatalogueExportField field,
+    ItemCatalogueRow row, {
+    Map<int, double>? derivedWeightByArticleId,
+  }) {
+    final rawValue = _catalogueExportFieldValue(
+      field,
+      row,
+      derivedWeightByArticleId: derivedWeightByArticleId,
+    );
 
     String toGermanFixed(String value, int fractionDigits) {
       final parsed = double.tryParse(value.trim().replaceAll(',', '.'));
@@ -1284,6 +1302,11 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     setState(() => _loading = true);
     try {
       final rows = await _repository.getCatalogueItems();
+      final bomRows = await _repository.getBomItems();
+      final derivedWeightByArticleId = calculateDerivedWeights(
+        catalogueRows: rows,
+        bomRows: bomRows,
+      );
       final buffer = StringBuffer();
       buffer.writeln(
         selectedFields.map((field) => _csvEscape(field.csvHeader)).join(';'),
@@ -1291,7 +1314,15 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
       for (final row in rows) {
         final values = selectedFields
-            .map((field) => _csvEscape(field.value(row)))
+            .map(
+              (field) => _csvEscape(
+                _catalogueExportFieldValue(
+                  field,
+                  row,
+                  derivedWeightByArticleId: derivedWeightByArticleId,
+                ),
+              ),
+            )
             .join(';');
         buffer.writeln(values);
       }
@@ -1339,6 +1370,11 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     setState(() => _loading = true);
     try {
       final rows = await _repository.getCatalogueItems();
+      final bomRows = await _repository.getBomItems();
+      final derivedWeightByArticleId = calculateDerivedWeights(
+        catalogueRows: rows,
+        bomRows: bomRows,
+      );
       final sortedRows = List<ItemCatalogueRow>.from(rows);
       final sortFieldKey = sortSelection.fieldKey;
       if (sortFieldKey != null) {
@@ -1349,8 +1385,16 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         if (sortField != null) {
           sortedRows.sort((a, b) {
             final compare = _compareExportValues(
-              sortField.value(a),
-              sortField.value(b),
+              _catalogueExportFieldValue(
+                sortField,
+                a,
+                derivedWeightByArticleId: derivedWeightByArticleId,
+              ),
+              _catalogueExportFieldValue(
+                sortField,
+                b,
+                derivedWeightByArticleId: derivedWeightByArticleId,
+              ),
             );
             return sortSelection.ascending ? compare : -compare;
           });
@@ -1365,7 +1409,13 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       final tableData = sortedRows
           .map(
             (row) => selectedFields
-                .map((field) => _formatPdfFieldValue(field, row))
+                .map(
+                  (field) => _formatPdfFieldValue(
+                    field,
+                    row,
+                    derivedWeightByArticleId: derivedWeightByArticleId,
+                  ),
+                )
                 .toList(growable: false),
           )
           .toList(growable: false);
@@ -1436,6 +1486,18 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  String _catalogueExportFieldValue(
+    _CatalogueExportField field,
+    ItemCatalogueRow row, {
+    Map<int, double>? derivedWeightByArticleId,
+  }) {
+    if (field.key == 'ic_weight') {
+      final weight = derivedWeightByArticleId?[row.icId] ?? _displayWeight(row);
+      return weight.toStringAsFixed(1);
+    }
+    return field.value(row);
   }
 
   Future<void> _exportBomCsv(
@@ -1599,6 +1661,10 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
   double _grossPrice(double netPrice) => netPrice * 1.19;
 
+  double _displayWeight(ItemCatalogueRow item) {
+    return _derivedWeightByArticleId[item.icId] ?? item.icWeight;
+  }
+
   Widget _leftAlignedHeader(String text) {
     return Align(
       alignment: Alignment.centerLeft,
@@ -1698,7 +1764,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case 6:
         return a.icPurchasePriceNet.compareTo(b.icPurchasePriceNet);
       case 7:
-        return a.icWeight.compareTo(b.icWeight);
+        return _displayWeight(a).compareTo(_displayWeight(b));
       case 8:
         return a.icHts.toLowerCase().compareTo(b.icHts.toLowerCase());
       case 9:
@@ -2800,7 +2866,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPriceNet, 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPriceWholesaleNet, 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPurchasePriceNet, 2)), item),
-                                  _catalogueDetailCell(Text(_formatDecimal(item.icWeight, 1)), item),
+                                  _catalogueDetailCell(Text(_formatDecimal(_displayWeight(item), 1)), item),
                                   _catalogueDetailCell(_buildHtsLink(item.icHts), item),
                                   _catalogueDetailCell(Text(item.icStock.toString()), item),
                                   _catalogueDetailCell(_buildCatalogueImagePreview(item, size: 32), item),
@@ -2917,7 +2983,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                                     buildIosCell(iosColumnWidths[4], Text(_formatDecimal(item.icPriceNet, 2)), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[5], Text(_formatDecimal(item.icPriceWholesaleNet, 2)), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[6], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[7], Text(_formatDecimal(item.icWeight, 1)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[7], Text(_formatDecimal(_displayWeight(item), 1)), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[8], _buildHtsLink(item.icHts), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[9], Text(item.icStock.toString()), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[10], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
