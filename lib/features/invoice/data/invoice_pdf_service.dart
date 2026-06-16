@@ -1069,10 +1069,23 @@ class InvoicePdfService {
     if (_isDutchAddress(countryCode)) {
       return true;
     }
+    if (_isUkAddress(countryCode)) {
+      return true;
+    }
     if (!useGerman && _isAustralianAddress(countryCode)) {
       return true;
     }
     return false;
+  }
+
+  bool _isUkAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'GB' ||
+        upper == 'UK' ||
+        upper == 'GBR' ||
+        upper == 'UNITED KINGDOM' ||
+        upper == 'VEREINIGTES KÖNIGREICH' ||
+        upper == 'VEREINIGTES KOENIGREICH';
   }
 
   bool _isDutchAddress(String countryCode) {

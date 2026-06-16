@@ -64,6 +64,7 @@ class _CustomerPageState extends State<CustomerPage> {
   String _lastFilterQuery = '';
   List<int> _lastFilteredIndices = const [];
   int _perfOpCounter = 0;
+  bool _adminUnitNormalizationRunning = false;
 
   static final RegExp _validCountryCodePattern = RegExp(r'^[a-z]{2,}$');
 
@@ -270,25 +271,12 @@ class _CustomerPageState extends State<CustomerPage> {
     }
   }
 
-  Future<void> _loadCustomers() async {
+  Future<void> _loadCustomers({bool runBackgroundNormalization = true}) async {
     final traceTag = _nextPerfTraceTag('load');
     final totalStopwatch = Stopwatch()..start();
     setState(() => _loading = true);
     try {
       final fetchStopwatch = Stopwatch()..start();
-      var normalizedAdministrativeUnits = 0;
-      Object? normalizationError;
-      try {
-        normalizedAdministrativeUnits = await _repository
-            .normalizeItalianAdministrativeUnits();
-      } catch (error) {
-        normalizationError = error;
-        if (_perfLoggingEnabled) {
-          debugPrint(
-            '⚠️ [perf][$traceTag] normalizeAdministrativeUnits failed: $error',
-          );
-        }
-      }
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
       fetchStopwatch.stop();
@@ -321,8 +309,7 @@ class _CustomerPageState extends State<CustomerPage> {
       _logPerf(
         'load/fetch',
         fetchStopwatch,
-        details:
-            'customers=${customers.length}, countries=${countries.length}, adminUnitsNormalized=$normalizedAdministrativeUnits${normalizationError == null ? '' : ', normalizeError=$normalizationError'}',
+        details: 'customers=${customers.length}, countries=${countries.length}',
         traceTag: traceTag,
       );
       _logPerf(
@@ -331,12 +318,62 @@ class _CustomerPageState extends State<CustomerPage> {
         details: 'searchEntries=${customerSearchIndex.length}',
         traceTag: traceTag,
       );
+
+      if (runBackgroundNormalization) {
+        unawaited(
+          _runAdministrativeUnitNormalizationInBackground(
+            traceTag: traceTag,
+          ),
+        );
+      }
+    } catch (error) {
+      if (_perfLoggingEnabled) {
+        debugPrint('⚠️ [perf][$traceTag] load failed: $error');
+      }
+      if (!mounted) {
+        return;
+      }
+      _showFeedback('Kunden konnten nicht geladen werden: $error');
     } finally {
       totalStopwatch.stop();
       _logPerf('load/total', totalStopwatch, traceTag: traceTag);
       if (mounted) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  Future<void> _runAdministrativeUnitNormalizationInBackground({
+    String? traceTag,
+  }) async {
+    if (_adminUnitNormalizationRunning) {
+      return;
+    }
+
+    _adminUnitNormalizationRunning = true;
+    final stopwatch = Stopwatch()..start();
+    try {
+      final normalizedCount = await _repository.normalizeItalianAdministrativeUnits();
+
+      if (_perfLoggingEnabled) {
+        debugPrint(
+          '⏱️ [perf]${traceTag == null ? '' : '[$traceTag]'} normalize/background: $normalizedCount updates',
+        );
+      }
+
+      if (normalizedCount > 0 && mounted) {
+        await _loadCustomers(runBackgroundNormalization: false);
+      }
+    } catch (error) {
+      if (_perfLoggingEnabled) {
+        debugPrint(
+          '⚠️ [perf]${traceTag == null ? '' : '[$traceTag]'} normalize/background failed: $error',
+        );
+      }
+    } finally {
+      stopwatch.stop();
+      _logPerf('normalize/background', stopwatch, traceTag: traceTag);
+      _adminUnitNormalizationRunning = false;
     }
   }
 

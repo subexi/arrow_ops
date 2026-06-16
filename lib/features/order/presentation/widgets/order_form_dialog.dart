@@ -402,7 +402,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     final city = c.cCityB.trim();
     final withCompany =
         company.isEmpty || company == '-' ? name : '$name ($company)';
-    return '$withCompany${city.isEmpty ? '' : ' – $city'}';
+    return '${c.cId} | $withCompany${city.isEmpty ? '' : ' – $city'}';
   }
 
   String _normalizeSearchToken(String value) {

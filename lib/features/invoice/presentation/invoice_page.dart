@@ -27,7 +27,7 @@ class _InvoicePageState extends State<InvoicePage> {
     'Versand erfolgt nach Zahlungseingang',
     'Versand erfolgt nach Zahlungseingang per Banküberweisung',
     'We deliver after having received the payment',
-    'We deliver after having received the payment via bank transfer Total',
+    'We deliver after having received the payment via bank transfer',
   ];
   static const InvoiceSellerProfile _fixedSellerProfile = InvoiceSellerProfile(
     company: 'Arrow-Engineering UG',
@@ -754,7 +754,7 @@ class _InvoicePageState extends State<InvoicePage> {
             ),
             const SizedBox(height: 10),
             Text(
-              'Optionale Hinweisbausteine',
+              'Optionale Hinweisbausteine (frei kombinierbar)',
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),

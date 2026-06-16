@@ -654,13 +654,16 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     final postalCode = _postalCodeDControl.text.trim();
     final city = _cityDControl.text.trim();
 
-    // Straßenname + Hausnummer kombinieren (Hausnummer voran, internationaler Standard)
-    final streetWithNumber = [
+    final streetWithNumberHouseFirst = [
       if (houseNumber.isNotEmpty && houseNumber != '-') houseNumber,
       if (street.isNotEmpty) street,
     ].join(' ');
+    final streetWithNumberStreetFirst = [
+      if (street.isNotEmpty) street,
+      if (houseNumber.isNotEmpty && houseNumber != '-') houseNumber,
+    ].join(' ');
 
-    if (streetWithNumber.trim().isEmpty && postalCode.isEmpty && city.isEmpty) {
+    if (streetWithNumberHouseFirst.trim().isEmpty && postalCode.isEmpty && city.isEmpty) {
       _showDialogSnackBar('Lieferadresse ist unvollständig.', type: _DialogSnackBarType.validation);
       return;
     }
@@ -674,7 +677,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         'limit': '1',
         'addressdetails': '0',
       };
-      if (streetWithNumber.isNotEmpty) structuredParams['street'] = streetWithNumber;
+      if (streetWithNumberHouseFirst.isNotEmpty) {
+        structuredParams['street'] = streetWithNumberHouseFirst;
+      }
       if (postalCode.isNotEmpty) structuredParams['postalcode'] = postalCode;
       if (city.isNotEmpty) structuredParams['city'] = city;
       if (countryCode.isNotEmpty) {
@@ -685,49 +690,91 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
       var results = await _nominatimSearch(structuredParams);
 
+      if (results.isEmpty &&
+          streetWithNumberStreetFirst.isNotEmpty &&
+          streetWithNumberStreetFirst != streetWithNumberHouseFirst) {
+        final structuredStreetFirst = Map<String, String>.from(
+          structuredParams,
+        )..['street'] = streetWithNumberStreetFirst;
+        results = await _nominatimSearch(structuredStreetFirst);
+      }
+
       // Bei Tippfehlern im Ortsnamen hilft oft ein Retry ohne Stadtfeld.
       if (results.isEmpty && city.isNotEmpty) {
         final structuredParamsWithoutCity = Map<String, String>.from(
           structuredParams,
         )..remove('city');
         results = await _nominatimSearch(structuredParamsWithoutCity);
+
+        if (results.isEmpty &&
+            streetWithNumberStreetFirst.isNotEmpty &&
+            streetWithNumberStreetFirst != streetWithNumberHouseFirst) {
+          final structuredStreetFirstWithoutCity = Map<String, String>.from(
+            structuredParamsWithoutCity,
+          )..['street'] = streetWithNumberStreetFirst;
+          results = await _nominatimSearch(structuredStreetFirstWithoutCity);
+        }
       }
 
       // 2. Fallback: freie Suche (besser bei unvollständigen Adressen)
       if (results.isEmpty) {
-        final freeParts = [
-          streetWithNumber,
-          if (postalCode.isNotEmpty) postalCode,
-          if (city.isNotEmpty) city,
-          if (countryCode.isEmpty && countryName.isNotEmpty) countryName,
-        ].where((s) => s.isNotEmpty).toList();
+        final freeStreetCandidates = <String>[
+          streetWithNumberHouseFirst,
+          if (streetWithNumberStreetFirst.isNotEmpty &&
+              streetWithNumberStreetFirst != streetWithNumberHouseFirst)
+            streetWithNumberStreetFirst,
+        ];
 
-        final freeParams = <String, String>{
-          'q': freeParts.join(', '),
-          'format': 'json',
-          'limit': '1',
-        };
-        if (countryCode.isNotEmpty) freeParams['countrycodes'] = countryCode;
-
-        results = await _nominatimSearch(freeParams);
-
-        if (results.isEmpty && city.isNotEmpty) {
-          final freePartsWithoutCity = [
-            streetWithNumber,
+        for (final freeStreet in freeStreetCandidates) {
+          final freeParts = [
+            freeStreet,
             if (postalCode.isNotEmpty) postalCode,
+            if (city.isNotEmpty) city,
             if (countryCode.isEmpty && countryName.isNotEmpty) countryName,
           ].where((s) => s.isNotEmpty).toList();
 
-          if (freePartsWithoutCity.isNotEmpty) {
-            final freeParamsWithoutCity = <String, String>{
-              'q': freePartsWithoutCity.join(', '),
-              'format': 'json',
-              'limit': '1',
-            };
-            if (countryCode.isNotEmpty) {
-              freeParamsWithoutCity['countrycodes'] = countryCode;
+          final freeParams = <String, String>{
+            'q': freeParts.join(', '),
+            'format': 'json',
+            'limit': '1',
+          };
+          if (countryCode.isNotEmpty) freeParams['countrycodes'] = countryCode;
+
+          results = await _nominatimSearch(freeParams);
+          if (results.isNotEmpty) {
+            break;
+          }
+        }
+
+        if (results.isEmpty && city.isNotEmpty) {
+          final freeStreetCandidatesWithoutCity = <String>[
+            streetWithNumberHouseFirst,
+            if (streetWithNumberStreetFirst.isNotEmpty &&
+                streetWithNumberStreetFirst != streetWithNumberHouseFirst)
+              streetWithNumberStreetFirst,
+          ];
+
+          for (final freeStreet in freeStreetCandidatesWithoutCity) {
+            final freePartsWithoutCity = [
+              freeStreet,
+              if (postalCode.isNotEmpty) postalCode,
+              if (countryCode.isEmpty && countryName.isNotEmpty) countryName,
+            ].where((s) => s.isNotEmpty).toList();
+
+            if (freePartsWithoutCity.isNotEmpty) {
+              final freeParamsWithoutCity = <String, String>{
+                'q': freePartsWithoutCity.join(', '),
+                'format': 'json',
+                'limit': '1',
+              };
+              if (countryCode.isNotEmpty) {
+                freeParamsWithoutCity['countrycodes'] = countryCode;
+              }
+              results = await _nominatimSearch(freeParamsWithoutCity);
+              if (results.isNotEmpty) {
+                break;
+              }
             }
-            results = await _nominatimSearch(freeParamsWithoutCity);
           }
         }
       }
@@ -735,7 +782,14 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       if (!mounted) return;
 
       if (results.isEmpty) {
-        final displayAddr = [streetWithNumber, postalCode, city, if (countryCode.isEmpty) countryName]
+        final displayAddr = [
+          streetWithNumberStreetFirst.isEmpty
+              ? streetWithNumberHouseFirst
+              : streetWithNumberStreetFirst,
+          postalCode,
+          city,
+          if (countryCode.isEmpty) countryName,
+        ]
             .where((s) => s.isNotEmpty)
             .join(', ');
         _showDialogSnackBar(

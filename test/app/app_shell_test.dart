@@ -1,6 +1,7 @@
 import 'package:arrow_ops/app/app_module.dart';
 import 'package:arrow_ops/app/app_shell.dart';
 import 'package:arrow_ops/app/app_theme.dart';
+import 'package:arrow_ops/features/order/presentation/order_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,11 +15,6 @@ void main() {
     );
 
     expect(find.text('Aufträge'), findsWidgets);
-    expect(
-      find.text(
-        'Hier entsteht die Auftragsbearbeitung mit Kunden-, Artikel- und Positionsdaten.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.byType(OrderPage), findsOneWidget);
   });
 }
