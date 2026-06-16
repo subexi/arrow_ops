@@ -174,8 +174,8 @@ class CustomerRepository {
         'c_country_d_id',
       ],
         where:
-          'LOWER(TRIM(COALESCE(c_country_b_id,\'\'))) IN (\'it\', \'italy\', \'italien\', \'us\', \'usa\', \'united states\', \'united states of america\', \'vereinigte staaten\', \'au\', \'australia\', \'australien\') '
-          'OR LOWER(TRIM(COALESCE(c_country_d_id,\'\'))) IN (\'it\', \'italy\', \'italien\', \'us\', \'usa\', \'united states\', \'united states of america\', \'vereinigte staaten\', \'au\', \'australia\', \'australien\')',
+          'LOWER(TRIM(COALESCE(c_country_b_id,\'\'))) IN (\'it\', \'italy\', \'italien\', \'us\', \'usa\', \'united states\', \'united states of america\', \'vereinigte staaten\', \'au\', \'australia\', \'australien\', \'ch\', \'switzerland\', \'schweiz\', \'suisse\', \'svizzera\') '
+          'OR LOWER(TRIM(COALESCE(c_country_d_id,\'\'))) IN (\'it\', \'italy\', \'italien\', \'us\', \'usa\', \'united states\', \'united states of america\', \'vereinigte staaten\', \'au\', \'australia\', \'australien\', \'ch\', \'switzerland\', \'schweiz\', \'suisse\', \'svizzera\')',
     );
 
     if (rows.isEmpty) {
@@ -361,6 +361,31 @@ class CustomerRepository {
       }
 
       final fetched = await _resolveAustraliaFromNominatim(
+        postalCode: postalCode,
+        city: city,
+      );
+      lookupCache[cacheKey] = fetched;
+
+      return fetched ?? resolved;
+    }
+
+    if (isSwitzerlandCountry(countryCode)) {
+      var resolved = resolveSwissCantonAdministrativeUnit(
+        countryCode: countryCode,
+        currentState: currentState,
+        city: city,
+      );
+
+      if (resolved != '-') {
+        return resolved;
+      }
+
+      final cacheKey = 'ch|${postalCode.trim().toLowerCase()}|${city.trim().toLowerCase()}';
+      if (lookupCache.containsKey(cacheKey)) {
+        return lookupCache[cacheKey] ?? resolved;
+      }
+
+      final fetched = await _resolveSwitzerlandFromNominatim(
         postalCode: postalCode,
         city: city,
       );
@@ -581,6 +606,87 @@ class CustomerRepository {
 
       final resolved = resolveAustralianStateAdministrativeUnit(
         countryCode: 'au',
+        currentState: mergedState,
+        city: normalizedCity,
+      );
+      return resolved == '-' ? null : resolved;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _resolveSwitzerlandFromNominatim({
+    required String postalCode,
+    required String city,
+  }) async {
+    final normalizedPostal = postalCode.trim();
+    final normalizedCity = city.trim();
+    if (normalizedPostal.isEmpty && normalizedCity.isEmpty) {
+      return null;
+    }
+
+    final params = <String, String>{
+      'format': 'json',
+      'limit': '1',
+      'addressdetails': '1',
+      'countrycodes': 'ch',
+    };
+    if (normalizedPostal.isNotEmpty) {
+      params['postalcode'] = normalizedPostal;
+    }
+    if (normalizedCity.isNotEmpty) {
+      params['city'] = normalizedCity;
+    }
+
+    try {
+      var uri = Uri.https('nominatim.openstreetmap.org', '/search', params);
+      var response = await http.get(
+        uri,
+        headers: {'User-Agent': 'arrow_ops/1.0'},
+      );
+      if (response.statusCode != 200) {
+        return null;
+      }
+
+      dynamic parsed = jsonDecode(response.body);
+      List<dynamic> results = parsed is List ? parsed : const [];
+
+      if (results.isEmpty && normalizedCity.isNotEmpty) {
+        final paramsWithoutCity = Map<String, String>.from(params)..remove('city');
+        uri = Uri.https('nominatim.openstreetmap.org', '/search', paramsWithoutCity);
+        response = await http.get(
+          uri,
+          headers: {'User-Agent': 'arrow_ops/1.0'},
+        );
+        if (response.statusCode == 200) {
+          parsed = jsonDecode(response.body);
+          results = parsed is List ? parsed : const [];
+        }
+      }
+
+      if (results.isEmpty) {
+        return null;
+      }
+
+      final first = results.first;
+      if (first is! Map<String, dynamic>) {
+        return null;
+      }
+      final address = first['address'];
+      if (address is! Map<String, dynamic>) {
+        return null;
+      }
+
+      final stateFull = address['state']?.toString().trim() ?? '';
+      final isoRaw = address['ISO3166-2-lvl4']?.toString().trim() ?? '';
+      final isoShort = isoRaw.contains('-') ? isoRaw.split('-').last.trim() : isoRaw;
+      final mergedState =
+          isoShort.isEmpty
+              ? stateFull
+              : (stateFull.isEmpty ? isoShort : '$isoShort - $stateFull');
+
+      final resolved = resolveSwissCantonAdministrativeUnit(
+        countryCode: 'ch',
         currentState: mergedState,
         city: normalizedCity,
       );

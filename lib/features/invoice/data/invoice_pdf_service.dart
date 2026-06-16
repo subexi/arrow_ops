@@ -86,7 +86,7 @@ class InvoicePdfService {
       data.orderId,
       data.invoiceNumber,
     );
-    final lastNameToken = _normalizedLastNameToken(data.buyer.name);
+    final lastNameToken = _normalizedLastNameToken(data.buyer.lastName);
     final suffix = data.documentKind == InvoiceDocumentKind.packingList
         ? 'pl'
         : 'in';
@@ -109,8 +109,8 @@ class InvoicePdfService {
     return '0000000000';
   }
 
-  String _normalizedLastNameToken(String fullName) {
-    final parts = fullName
+  String _normalizedLastNameToken(String rawLastName) {
+    final parts = rawLastName
         .trim()
         .split(RegExp(r'\s+'))
         .where((part) => part.isNotEmpty && part != '-')
@@ -119,14 +119,21 @@ class InvoicePdfService {
       return 'Unbekannt';
     }
 
-    final lastName = parts.last.replaceAll(
-      RegExp(r'[^A-Za-z0-9ÄÖÜäöüß_-]'),
-      '',
-    );
-    if (lastName.isEmpty) {
+    final normalizedParts = parts
+        .map(
+          (part) => part.replaceAll(
+            RegExp(r'[^A-Za-z0-9ÄÖÜäöüß_-]'),
+            '',
+          ),
+        )
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+
+    if (normalizedParts.isEmpty) {
       return 'Unbekannt';
     }
-    return lastName;
+
+    return normalizedParts.join('_');
   }
 
   Future<pw.MemoryImage?> _loadLogoImage() async {
@@ -540,6 +547,9 @@ class InvoicePdfService {
   pw.Widget _buildTotalsSection(InvoiceDocumentData data, bool useGerman) {
     final totals = data.totals;
     final isGrossBasis = data.priceBasis.trim().toLowerCase() == 'gross';
+    final germanGoodsLabel = isGrossBasis
+        ? 'Summe Warenwert'
+        : 'Summe Warenwert netto';
     final hideVatAndGoodsGross = _isEnglishNetOutsideEu(data);
     final vatHint = useGerman
         ? '${totals.vatRate.toStringAsFixed(0)}% MwSt. im Warenwert enthalten'
@@ -568,7 +578,7 @@ class InvoicePdfService {
                 children: [
                   if (useGerman) ...[
                     _totalsRow(
-                      'Summe Warenwert',
+                      germanGoodsLabel,
                       _formatMoney(
                         _displayGoodsValue(data),
                         data.currency,
@@ -1076,6 +1086,7 @@ class InvoicePdfService {
 
   String _postalCityLine(InvoicePartyData party, {required bool useGerman}) {
     final isItaly = _isItalianAddress(party.countryCode);
+    final isSwitzerland = _isSwitzerlandAddress(party.countryCode);
     final isAustralianEnglish = !useGerman &&
         _isAustralianAddress(party.countryCode);
     final isUsOrAustralia = _isUsOrAustraliaAddress(party.countryCode);
@@ -1087,7 +1098,16 @@ class InvoicePdfService {
     final stateToken = isAustralianEnglish
         ? _abbreviateAustralianState(state)
         : state;
+    final swissCantonCode = _swissCantonCodeFromAdministrativeUnit(state);
+    final cityWithSwissCanton =
+      swissCantonCode == null || city.isEmpty || city == '-'
+        ? city
+        : '$city $swissCantonCode';
     final postalCode = party.postalCode.trim();
+
+    if (isSwitzerland) {
+      return _joinValid([postalCode, cityWithSwissCanton]);
+    }
 
     if (isUsOrAustralia) {
       return _joinValid([city, stateToken, postalCode]);
@@ -1107,6 +1127,36 @@ class InvoicePdfService {
         : city;
 
     return _joinValid([postalCode, cityToken]);
+  }
+
+  bool _isSwitzerlandAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'CH' ||
+        upper == 'CHE' ||
+        upper == 'SWITZERLAND' ||
+        upper == 'SCHWEIZ' ||
+        upper == 'SUISSE' ||
+        upper == 'SVIZZERA';
+  }
+
+  String? _swissCantonCodeFromAdministrativeUnit(String administrativeUnit) {
+    final trimmed = administrativeUnit.trim();
+    if (trimmed.isEmpty || trimmed == '-') {
+      return null;
+    }
+
+    final startCodeMatch = RegExp(r'^([A-Za-z]{2})\b').firstMatch(trimmed);
+    if (startCodeMatch != null) {
+      return startCodeMatch.group(1)?.toUpperCase();
+    }
+
+    final isoMatch = RegExp(r'\bCH[-\s]?([A-Za-z]{2})\b', caseSensitive: false)
+        .firstMatch(trimmed);
+    if (isoMatch != null) {
+      return isoMatch.group(1)?.toUpperCase();
+    }
+
+    return null;
   }
 
   bool _isItalianAddress(String countryCode) {

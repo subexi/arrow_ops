@@ -170,6 +170,15 @@ bool isAustraliaCountry(String? countryCode) {
       normalizedCountry == 'australien';
 }
 
+bool isSwitzerlandCountry(String? countryCode) {
+  final normalizedCountry = countryCode?.trim().toLowerCase();
+  return normalizedCountry == 'ch' ||
+      normalizedCountry == 'switzerland' ||
+      normalizedCountry == 'schweiz' ||
+      normalizedCountry == 'suisse' ||
+      normalizedCountry == 'svizzera';
+}
+
 String resolveAustralianStateAdministrativeUnit({
   required String? countryCode,
   required String? currentState,
@@ -187,6 +196,26 @@ String resolveAustralianStateAdministrativeUnit({
   }
 
   final canonicalFromCity = _canonicalAustralianStateFromText(city ?? '');
+  return canonicalFromCity ?? '-';
+}
+
+String resolveSwissCantonAdministrativeUnit({
+  required String? countryCode,
+  required String? currentState,
+  String? city,
+}) {
+  final normalizedState = currentState?.trim();
+  final isSwitzerland = isSwitzerlandCountry(countryCode);
+  if (!isSwitzerland) {
+    return normalizedState == null || normalizedState.isEmpty ? '-' : normalizedState;
+  }
+
+  if (normalizedState != null && normalizedState.isNotEmpty && normalizedState != '-') {
+    final canonical = _canonicalSwissCantonFromText(normalizedState);
+    return canonical ?? normalizedState;
+  }
+
+  final canonicalFromCity = _canonicalSwissCantonFromText(city ?? '');
   return canonicalFromCity ?? '-';
 }
 
@@ -261,6 +290,52 @@ String? _canonicalAustralianStateFromText(String text) {
   for (final entry in _auStateNameByCode.entries) {
     final normalizedStateName = _normalizeCityToken(entry.value) ?? '';
     if (normalizedStateName == normalized) {
+      return '${entry.key}-${entry.value}';
+    }
+  }
+
+  return null;
+}
+
+String? _canonicalSwissCantonFromText(String text) {
+  final normalized = _normalizeCityToken(text);
+  if (normalized == null) {
+    return null;
+  }
+
+  final directCode = normalized.toUpperCase();
+  final directName = _chCantonNameByCode[directCode];
+  if (directName != null) {
+    return '$directCode-$directName';
+  }
+
+  final isoMatches = RegExp(r'\bch\s*([a-z]{2})\b').allMatches(normalized);
+  for (final match in isoMatches) {
+    final code = match.group(1)?.toUpperCase();
+    if (code == null) {
+      continue;
+    }
+    final name = _chCantonNameByCode[code];
+    if (name != null) {
+      return '$code-$name';
+    }
+  }
+
+  final matches = RegExp(r'\b([a-z]{2})\b').allMatches(normalized);
+  for (final match in matches) {
+    final code = match.group(1)?.toUpperCase();
+    if (code == null) {
+      continue;
+    }
+    final name = _chCantonNameByCode[code];
+    if (name != null) {
+      return '$code-$name';
+    }
+  }
+
+  for (final entry in _chCantonNameByCode.entries) {
+    final normalizedName = _normalizeCityToken(entry.value) ?? '';
+    if (normalizedName == normalized) {
       return '${entry.key}-${entry.value}';
     }
   }
@@ -546,6 +621,35 @@ const Map<String, String> _auStateNameByCode = {
   'TAS': 'Tasmania',
   'NT': 'Northern Territory',
   'ACT': 'Australian Capital Territory',
+};
+
+const Map<String, String> _chCantonNameByCode = {
+  'AG': 'Aargau',
+  'AI': 'Appenzell Innerrhoden',
+  'AR': 'Appenzell Ausserrhoden',
+  'BE': 'Bern',
+  'BL': 'Basel-Landschaft',
+  'BS': 'Basel-Stadt',
+  'FR': 'Fribourg',
+  'GE': 'Geneve',
+  'GL': 'Glarus',
+  'GR': 'Graubunden',
+  'JU': 'Jura',
+  'LU': 'Luzern',
+  'NE': 'Neuchatel',
+  'NW': 'Nidwalden',
+  'OW': 'Obwalden',
+  'SG': 'St. Gallen',
+  'SH': 'Schaffhausen',
+  'SO': 'Solothurn',
+  'SZ': 'Schwyz',
+  'TG': 'Thurgau',
+  'TI': 'Ticino',
+  'UR': 'Uri',
+  'VD': 'Vaud',
+  'VS': 'Valais',
+  'ZG': 'Zug',
+  'ZH': 'Zurich',
 };
 
 String? _provinceFromName(String normalizedName) {

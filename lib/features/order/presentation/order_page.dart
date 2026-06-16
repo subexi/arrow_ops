@@ -371,6 +371,13 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Future<void> _showOrderForm({OrderRow? initialValue}) async {
+    final latestCustomers = await _customerRepo.getAll();
+    if (!mounted) return;
+    setState(() {
+      _allCustomers = latestCustomers;
+      _customerById = {for (final c in latestCustomers) c.cId: c};
+    });
+
     var canEditOrderId = true;
     var assignedItems = const <ItemOrderedRow>[];
     if (initialValue != null) {

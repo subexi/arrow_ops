@@ -25,6 +25,7 @@ class OrderFormDialog extends StatefulWidget {
 class _OrderFormDialogState extends State<OrderFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _noteFocusNode = FocusNode();
+  final _paypalFeeFocusNode = FocusNode();
 
   late final TextEditingController _orderIdController;
   late final TextEditingController _customerSearchController;
@@ -140,6 +141,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _deliveryController.dispose();
     _trackingCodeController.dispose();
     _noteController.dispose();
+    _paypalFeeFocusNode.dispose();
     _noteFocusNode.dispose();
     super.dispose();
   }
@@ -360,6 +362,9 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     if (_isRecalculatingPaypalFee) {
       return;
     }
+    if (_paypalFeeFocusNode.hasFocus) {
+      return;
+    }
     if (_payment != _paypalPaymentCode || !_isEurCurrency) {
       return;
     }
@@ -369,13 +374,15 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       return;
     }
 
-    final total = _parseDecimal(_totalPriceController);
-    if (total <= 0) {
+    final goodsGross = _parseDecimal(_valueGoodsGrossController);
+    final shipping = _parseDecimal(_shippingController);
+    final feeBase = goodsGross + shipping;
+    if (feeBase <= 0) {
       return;
     }
 
-    final fee = PayPalFeeRules.feeFromTotalEur(
-      totalEur: total,
+    final fee = PayPalFeeRules.feeFromBaseAmountEur(
+      baseAmountEur: feeBase,
       countryToken: _deliveryCountryToken(),
     );
     final feeText = _decimalText(fee);
@@ -498,11 +505,13 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     String label, {
     TextInputType? keyboardType,
     String? Function(String?)? validator,
+    FocusNode? focusNode,
     bool readOnly = false,
     int maxLines = 1,
   }) {
     return TextFormField(
       controller: controller,
+      focusNode: focusNode,
       keyboardType: keyboardType,
       validator: validator,
       readOnly: readOnly,
@@ -763,6 +772,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                   _field(
                     _paypalFeeController,
                     'PayPal-Gebühr',
+                    focusNode: _paypalFeeFocusNode,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                 ),

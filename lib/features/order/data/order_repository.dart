@@ -44,8 +44,23 @@ class OrderRepository {
         io.io_unit_price,
         io.io_discount,
         io.io_total_price,
-        io.io_item_weight,
-        io.io_total_weight,
+        COALESCE((
+          SELECT SUM(COALESCE(component.ic_weight, 0) * COALESCE(child.ib_quantity, 0))
+          FROM item_bom parent
+          JOIN item_bom child ON child.ib_parent_id = parent.ib_id
+          LEFT JOIN item_catalogue component ON component.ic_id = child.ib_item_id
+          WHERE parent.ib_item_id = io.io_item_id
+        ), NULLIF(io.io_item_weight, 0), COALESCE(ic.ic_weight, 0)) AS io_item_weight,
+        (
+          COALESCE((
+            SELECT SUM(COALESCE(component.ic_weight, 0) * COALESCE(child.ib_quantity, 0))
+            FROM item_bom parent
+            JOIN item_bom child ON child.ib_parent_id = parent.ib_id
+            LEFT JOIN item_catalogue component ON component.ic_id = child.ib_item_id
+            WHERE parent.ib_item_id = io.io_item_id
+          ), NULLIF(io.io_item_weight, 0), COALESCE(ic.ic_weight, 0))
+          * COALESCE(io.io_quantity, 0)
+        ) AS io_total_weight,
         COALESCE(NULLIF(TRIM(ic.ic_image_path), ''), NULLIF(TRIM(io.io_photo), '-'), '-') AS io_photo
       FROM item_ordered io
       LEFT JOIN item_catalogue ic ON ic.ic_id = io.io_item_id
@@ -138,10 +153,35 @@ class OrderRepository {
 
   Future<List<ItemCatalogueRow>> getSelectableCatalogueItems() async {
     final db = await AppDatabase.instance.database;
-    final rows = await db.query(
-      'item_catalogue',
-      where: 'COALESCE(ic_ic, 0) = 0',
-      orderBy: 'ic_idi COLLATE NOCASE ASC, ic_id ASC',
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        ic.ic_id,
+        ic.ic_idi,
+        ic.ic_ide,
+        ic.ic_idv,
+        ic.ic_description_de_long,
+        ic.ic_description_en_long,
+        ic.ic_price_net,
+        ic.ic_price_wholesale_net,
+        ic.ic_purchase_price_net,
+        COALESCE((
+          SELECT SUM(COALESCE(component.ic_weight, 0) * COALESCE(child.ib_quantity, 0))
+          FROM item_bom parent
+          JOIN item_bom child ON child.ib_parent_id = parent.ib_id
+          LEFT JOIN item_catalogue component ON component.ic_id = child.ib_item_id
+          WHERE parent.ib_item_id = ic.ic_id
+        ), ic.ic_weight) AS ic_weight,
+        ic.ic_source_of_supply,
+        ic.ic_hts,
+        ic.ic_image_path,
+        ic.ic_note,
+        ic.ic_stock,
+        ic.ic_ic
+      FROM item_catalogue ic
+      WHERE COALESCE(ic.ic_ic, 0) = 0
+      ORDER BY ic.ic_idi COLLATE NOCASE ASC, ic.ic_id ASC
+      ''',
     );
     return rows.map(ItemCatalogueRow.fromMap).toList(growable: false);
   }

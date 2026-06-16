@@ -164,6 +164,7 @@ class InvoiceDocumentBuildService {
 
     return InvoicePartyData(
       name: buyerName.isEmpty ? '-' : buyerName,
+      lastName: _normalizedOrFallback(customer.cLastName, '-'),
       company: _normalizedOrFallback(customer.cCompany, '-'),
       street: _normalizedOrFallback(customer.cStreetB, '-'),
       houseNumber: _normalizedOrFallback(customer.cHouseNumberB, '-'),
@@ -186,6 +187,7 @@ class InvoiceDocumentBuildService {
 
     return InvoicePartyData(
       name: deliveryName.isEmpty ? '-' : deliveryName,
+      lastName: _normalizedOrFallback(customer.cLastName, '-'),
       company: _normalizedOrFallback(customer.cCompany, '-'),
       street: _normalizedOrFallback(customer.cStreetD, '-'),
       houseNumber: _normalizedOrFallback(customer.cHouseNumberD, '-'),

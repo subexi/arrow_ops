@@ -102,6 +102,7 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
       _photoController.text = initiallySelectedItem.icImagePath.trim().isEmpty
         ? '-'
         : initiallySelectedItem.icImagePath.trim();
+      _itemWeightController.text = _weightText(initiallySelectedItem.icWeight);
 
       _baseUnitPriceBeforeDiscount = _catalogueUnitPrice(initiallySelectedItem);
       _applyDiscountToUnitPrice();

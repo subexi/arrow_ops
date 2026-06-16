@@ -276,8 +276,19 @@ class _CustomerPageState extends State<CustomerPage> {
     setState(() => _loading = true);
     try {
       final fetchStopwatch = Stopwatch()..start();
-      final normalizedItalianStates = await _repository
-          .normalizeItalianAdministrativeUnits();
+      var normalizedAdministrativeUnits = 0;
+      Object? normalizationError;
+      try {
+        normalizedAdministrativeUnits = await _repository
+            .normalizeItalianAdministrativeUnits();
+      } catch (error) {
+        normalizationError = error;
+        if (_perfLoggingEnabled) {
+          debugPrint(
+            '⚠️ [perf][$traceTag] normalizeAdministrativeUnits failed: $error',
+          );
+        }
+      }
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
       fetchStopwatch.stop();
@@ -311,7 +322,7 @@ class _CustomerPageState extends State<CustomerPage> {
         'load/fetch',
         fetchStopwatch,
         details:
-            'customers=${customers.length}, countries=${countries.length}, italyNormalized=$normalizedItalianStates',
+            'customers=${customers.length}, countries=${countries.length}, adminUnitsNormalized=$normalizedAdministrativeUnits${normalizationError == null ? '' : ', normalizeError=$normalizationError'}',
         traceTag: traceTag,
       );
       _logPerf(

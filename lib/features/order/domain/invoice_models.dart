@@ -61,6 +61,7 @@ class InvoiceFooterData {
 class InvoicePartyData {
   const InvoicePartyData({
     required this.name,
+    this.lastName = '-',
     this.company = '-',
     this.street = '-',
     this.houseNumber = '-',
@@ -75,6 +76,7 @@ class InvoicePartyData {
   });
 
   final String name;
+  final String lastName;
   final String company;
   final String street;
   final String houseNumber;

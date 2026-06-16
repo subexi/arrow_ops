@@ -366,10 +366,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _resolveUSStateInControllers(billing: false);
     _resolveAustraliaStateInControllers(billing: true);
     _resolveAustraliaStateInControllers(billing: false);
-    if (_isItaly(_countryBId) || _isUSA(_countryBId) || _isAustralia(_countryBId)) {
+    _resolveSwissStateInControllers(billing: true);
+    _resolveSwissStateInControllers(billing: false);
+    if (_isItaly(_countryBId) || _isUSA(_countryBId) || _isAustralia(_countryBId) || _isSwitzerland(_countryBId)) {
       _updateStateFromCountryAndPostalCode(billing: true);
     }
-    if (_isItaly(_countryDId) || _isUSA(_countryDId) || _isAustralia(_countryDId)) {
+    if (_isItaly(_countryDId) || _isUSA(_countryDId) || _isAustralia(_countryDId) || _isSwitzerland(_countryDId)) {
       _updateStateFromCountryAndPostalCode(billing: false);
     }
 
@@ -481,6 +483,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     return isAustraliaCountry(countryId);
   }
 
+  bool _isSwitzerland(String? countryId) {
+    return isSwitzerlandCountry(countryId);
+  }
+
   void _resolveItalianStateInControllers({required bool billing}) {
     final countryId = billing ? _countryBId : _countryDId;
     if (!_isItaly(countryId)) {
@@ -529,6 +535,21 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     final cityControl = billing ? _cityBControl : _cityDControl;
     final stateControl = billing ? _stateBControl : _stateDControl;
     stateControl.text = resolveAustralianStateAdministrativeUnit(
+      countryCode: countryId,
+      currentState: stateControl.text,
+      city: cityControl.text,
+    );
+  }
+
+  void _resolveSwissStateInControllers({required bool billing}) {
+    final countryId = billing ? _countryBId : _countryDId;
+    if (!_isSwitzerland(countryId)) {
+      return;
+    }
+
+    final cityControl = billing ? _cityBControl : _cityDControl;
+    final stateControl = billing ? _stateBControl : _stateDControl;
+    stateControl.text = resolveSwissCantonAdministrativeUnit(
       countryCode: countryId,
       currentState: stateControl.text,
       city: cityControl.text,
@@ -827,6 +848,23 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
           resolvedState = resolvedByLookup;
         }
       }
+    } else if (_isSwitzerland(countryId)) {
+      resolvedState = resolveSwissCantonAdministrativeUnit(
+        countryCode: countryId,
+        currentState: currentState,
+        city: city,
+      );
+      final isUnresolvedSwissState =
+          resolvedState.trim().isEmpty || resolvedState.trim() == '-';
+      if (isUnresolvedSwissState) {
+        final resolvedByLookup = await _resolveSwissStateFromNominatim(
+          postalCode: postalCode,
+          city: city,
+        );
+        if (resolvedByLookup != null && resolvedByLookup.isNotEmpty) {
+          resolvedState = resolvedByLookup;
+        }
+      }
     } else if (_isItaly(countryId)) {
       resolvedState = resolveItalianBillingProvince(
         countryCode: countryId,
@@ -1041,6 +1079,64 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     return resolved;
   }
 
+  Future<String?> _resolveSwissStateFromNominatim({
+    required String postalCode,
+    required String city,
+  }) async {
+    final normalizedPostalCode = postalCode.trim();
+    final normalizedCity = city.trim();
+    if (normalizedPostalCode.isEmpty && normalizedCity.isEmpty) {
+      return null;
+    }
+
+    final params = <String, String>{
+      'format': 'json',
+      'limit': '1',
+      'addressdetails': '1',
+      'countrycodes': 'ch',
+    };
+    if (normalizedPostalCode.isNotEmpty) {
+      params['postalcode'] = normalizedPostalCode;
+    }
+    if (normalizedCity.isNotEmpty) {
+      params['city'] = normalizedCity;
+    }
+
+    var results = await _nominatimSearch(params);
+    if (results.isEmpty && normalizedCity.isNotEmpty) {
+      final paramsWithoutCity = Map<String, String>.from(params)..remove('city');
+      results = await _nominatimSearch(paramsWithoutCity);
+    }
+    if (results.isEmpty) {
+      return null;
+    }
+
+    final first = results.first;
+    if (first is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final address = first['address'];
+    if (address is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final stateFull = address['state']?.toString().trim() ?? '';
+    final isoRaw = address['ISO3166-2-lvl4']?.toString().trim() ?? '';
+    final isoShort = isoRaw.contains('-') ? isoRaw.split('-').last.trim() : isoRaw;
+    final mergedState =
+        isoShort.isEmpty
+            ? stateFull
+            : (stateFull.isEmpty ? isoShort : '$isoShort - $stateFull');
+
+    final resolved = resolveSwissCantonAdministrativeUnit(
+      countryCode: 'ch',
+      currentState: mergedState,
+      city: normalizedCity,
+    );
+    return resolved == '-' ? null : resolved;
+  }
+
   Future<bool> _validateForm() async {
     final cId = _idControl.text.trim();
     final idValidationError = _validateId(cId);
@@ -1147,6 +1243,23 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       if (billingState != null && billingState.isNotEmpty) {
         _stateBControl.text = billingState;
       }
+    } else if (_isSwitzerland(_countryBId)) {
+      final billingState = await _resolveSwissStateFromNominatim(
+        postalCode: _postalCodeBControl.text,
+        city: _cityBControl.text,
+      );
+      if (!mounted) {
+        return false;
+      }
+      if (billingState != null && billingState.isNotEmpty) {
+        _stateBControl.text = billingState;
+      } else {
+        _stateBControl.text = resolveSwissCantonAdministrativeUnit(
+          countryCode: _countryBId,
+          currentState: _stateBControl.text,
+          city: _cityBControl.text,
+        );
+      }
     } else {
       _stateBControl.text = '-';
     }
@@ -1222,6 +1335,23 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       }
       if (deliveryState != null && deliveryState.isNotEmpty) {
         _stateDControl.text = deliveryState;
+      }
+    } else if (_isSwitzerland(_countryDId)) {
+      final deliveryState = await _resolveSwissStateFromNominatim(
+        postalCode: _postalCodeDControl.text,
+        city: _cityDControl.text,
+      );
+      if (!mounted) {
+        return false;
+      }
+      if (deliveryState != null && deliveryState.isNotEmpty) {
+        _stateDControl.text = deliveryState;
+      } else {
+        _stateDControl.text = resolveSwissCantonAdministrativeUnit(
+          countryCode: _countryDId,
+          currentState: _stateDControl.text,
+          city: _cityDControl.text,
+        );
       }
     } else {
       _stateDControl.text = '-';
