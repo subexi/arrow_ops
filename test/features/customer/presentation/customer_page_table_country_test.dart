@@ -28,12 +28,14 @@ void main() {
   List<DataColumn> buildColumns() {
     return const [
       DataColumn(label: Text('ID')),
+      DataColumn(label: Text('∑ Netto €')),
       DataColumn(label: Text('Nachname')),
       DataColumn(label: Text('Vorname')),
       DataColumn(label: Text('Firma')),
       DataColumn(label: Text('Stadt')),
       DataColumn(label: Text('Land')),
       DataColumn(label: Text('E-Mail')),
+      DataColumn(label: Text('Details')),
       DataColumn(label: Text('Maps')),
     ];
   }
@@ -50,6 +52,9 @@ void main() {
         'us': 'United States',
       },
       loading: false,
+      selectedCustomerId: null,
+      onSelectCustomer: (_) {},
+      customerNetById: const {'C-1': 345.67},
       onOpenDetails: (_) {},
       onOpenMap: (_) {},
     );
@@ -70,6 +75,7 @@ void main() {
 
     expect(find.text('Deutschland'), findsOneWidget);
     expect(find.text('United States'), findsNothing);
+    expect(find.text('345,67'), findsOneWidget);
   });
 
   testWidgets('Land-Spalte faellt auf Lieferland zurueck wenn Rechnungsland leer ist', (
@@ -85,6 +91,9 @@ void main() {
         'us': 'United States',
       },
       loading: false,
+      selectedCustomerId: null,
+      onSelectCustomer: (_) {},
+      customerNetById: const {'C-1': 99.5},
       onOpenDetails: (_) {},
       onOpenMap: (_) {},
     );
@@ -104,5 +113,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('United States'), findsOneWidget);
+    expect(find.text('99,50'), findsOneWidget);
   });
 }

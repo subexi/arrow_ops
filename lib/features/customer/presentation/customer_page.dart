@@ -22,6 +22,9 @@ import '../data/customer_repository.dart';
 import '../domain/country_tld.dart';
 import '../domain/customer.dart';
 import '../../item/presentation/item_catalogue_page.dart';
+import '../../order/data/order_repository.dart';
+import '../../order/domain/order_models.dart';
+import '../../order/presentation/order_page.dart';
 import 'customer_country_display.dart';
 import 'widgets/csv_import_preview_dialog.dart';
 import 'widgets/customer_detail_dialog.dart';
@@ -43,6 +46,7 @@ class CustomerPage extends StatefulWidget {
 
 class _CustomerPageState extends State<CustomerPage> {
   final CustomerRepository _repository = const CustomerRepository();
+  final OrderRepository _orderRepository = const OrderRepository();
   final CustomerCsvService _csvService = CustomerCsvService();
   final CountryCsvService _countryCsvService = CountryCsvService();
 
@@ -65,6 +69,11 @@ class _CustomerPageState extends State<CustomerPage> {
   List<int> _lastFilteredIndices = const [];
   int _perfOpCounter = 0;
   bool _adminUnitNormalizationRunning = false;
+  Map<String, double> _customerNetById = const {};
+  String? _selectedCustomerId;
+  String? _selectedOrderId;
+  List<OrderRow> _selectedCustomerOrders = const [];
+  List<ItemOrderedRow> _selectedOrderItems = const [];
 
   static final RegExp _validCountryCodePattern = RegExp(r'^[a-z]{2,}$');
 
@@ -279,7 +288,17 @@ class _CustomerPageState extends State<CustomerPage> {
       final fetchStopwatch = Stopwatch()..start();
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
+      final orders = await _orderRepository.getOrders();
       fetchStopwatch.stop();
+
+      final customerNetById = <String, double>{};
+      for (final order in orders) {
+        customerNetById.update(
+          order.oCustomerId,
+          (value) => value + order.oValueGoods,
+          ifAbsent: () => order.oValueGoods,
+        );
+      }
 
       final indexStopwatch = Stopwatch()..start();
       final countryNameByCode = <String, String>{
@@ -296,6 +315,7 @@ class _CustomerPageState extends State<CustomerPage> {
       }
       setState(() {
         _customers = customers;
+        _customerNetById = customerNetById;
         _customerSearchIndex = customerSearchIndex;
         _countryNameByCode = countryNameByCode;
         _lastFilterQuery = '';
@@ -309,7 +329,8 @@ class _CustomerPageState extends State<CustomerPage> {
       _logPerf(
         'load/fetch',
         fetchStopwatch,
-        details: 'customers=${customers.length}, countries=${countries.length}',
+        details:
+            'customers=${customers.length}, countries=${countries.length}, orders=${orders.length}',
         traceTag: traceTag,
       );
       _logPerf(
@@ -519,20 +540,197 @@ class _CustomerPageState extends State<CustomerPage> {
   void _sortFilteredCustomers(
     int columnIndex,
     bool ascending,
-    String Function(Customer customer) selector,
   ) {
-    final sorted = List<Customer>.from(_filteredCustomers)
-      ..sort((a, b) {
-        final aValue = selector(a);
-        final bValue = selector(b);
-        return ascending ? aValue.compareTo(bValue) : bValue.compareTo(aValue);
-      });
+    final sorted = List<Customer>.from(_filteredCustomers);
+    _sortColumnIndex = columnIndex;
+    _sortAscending = ascending;
+    _applyCurrentSort(sorted);
 
     setState(() {
-      _sortColumnIndex = columnIndex;
-      _sortAscending = ascending;
       _filteredCustomers = sorted;
     });
+  }
+
+  String _formatMoney(double value) {
+    return value.toStringAsFixed(2).replaceAll('.', ',');
+  }
+
+  String _formatDate(String raw) {
+    final value = raw.trim();
+    return value.isEmpty ? '-' : value;
+  }
+
+  double _itemNetTotal(ItemOrderedRow item) {
+    final selectedOrderId = _selectedOrderId;
+    if (selectedOrderId == null) {
+      return item.ioTotalPrice;
+    }
+
+    OrderRow? order;
+    for (final candidate in _selectedCustomerOrders) {
+      if (candidate.oId == selectedOrderId) {
+        order = candidate;
+        break;
+      }
+    }
+
+    if (order == null) {
+      return item.ioTotalPrice;
+    }
+
+    final isGrossBasis = order.oPriceBasis.trim().toLowerCase() == 'gross';
+    if (!isGrossBasis) {
+      return item.ioTotalPrice;
+    }
+
+    final divisor = 1 + (order.oVatRate / 100);
+    if (divisor <= 0) {
+      return item.ioTotalPrice;
+    }
+
+    return item.ioTotalPrice / divisor;
+  }
+
+  Future<void> _selectCustomer(Customer customer) async {
+    setState(() {
+      _selectedCustomerId = customer.cId;
+      _selectedOrderId = null;
+      _selectedCustomerOrders = const [];
+      _selectedOrderItems = const [];
+    });
+
+    try {
+      final orders = await _orderRepository.getOrders();
+      final customerOrders = orders
+          .where((order) => order.oCustomerId == customer.cId)
+          .toList(growable: false)
+        ..sort((a, b) => b.oId.compareTo(a.oId));
+
+      if (!mounted || _selectedCustomerId != customer.cId) {
+        return;
+      }
+
+      setState(() {
+        _selectedCustomerOrders = customerOrders;
+      });
+    } catch (error) {
+      if (!mounted || _selectedCustomerId != customer.cId) {
+        return;
+      }
+      _showFeedback('Aufträge konnten nicht geladen werden: $error');
+    }
+  }
+
+  Future<void> _selectOrder(OrderRow order) async {
+    setState(() {
+      _selectedOrderId = order.oId;
+      _selectedOrderItems = const [];
+    });
+
+    try {
+      final items = await _orderRepository.getItemsForOrder(order.oId);
+      if (!mounted || _selectedOrderId != order.oId) {
+        return;
+      }
+      setState(() {
+        _selectedOrderItems = items;
+      });
+    } catch (error) {
+      if (!mounted || _selectedOrderId != order.oId) {
+        return;
+      }
+      _showFeedback('Auftragspositionen konnten nicht geladen werden: $error');
+    }
+  }
+
+  Future<void> _jumpToCustomerOrder(OrderRow order) async {
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OrderPage(initialOrderId: order.oId),
+      ),
+    );
+  }
+
+  Widget _buildCustomerOrdersTable() {
+    if (_selectedCustomerId == null) {
+      return const Center(child: Text('Kunde auswählen, um Aufträge zu sehen.'));
+    }
+    if (_selectedCustomerOrders.isEmpty) {
+      return const Center(child: Text('Keine Aufträge für diesen Kunden vorhanden.'));
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        showCheckboxColumn: false,
+        columns: const [
+          DataColumn(label: Text('ID')),
+          DataColumn(label: Text('Datum')),
+          DataColumn(label: Text('Netto €'), numeric: true),
+          DataColumn(label: Text('Pos.'), numeric: true),
+          DataColumn(label: Text('Go')),
+        ],
+        rows: _selectedCustomerOrders.map((order) {
+          final isSelected = _selectedOrderId == order.oId;
+          final itemCount = _selectedOrderId == order.oId
+              ? _selectedOrderItems.length
+              : null;
+          return DataRow(
+            selected: isSelected,
+            onSelectChanged: (_) => _selectOrder(order),
+            cells: [
+              DataCell(Text(order.oId)),
+              DataCell(Text(_formatDate(order.oDate))),
+              DataCell(Text(_formatMoney(order.oValueGoods))),
+              DataCell(Text(itemCount?.toString() ?? '-')),
+              DataCell(
+                IconButton(
+                  tooltip: 'Zu diesem Auftrag springen',
+                  icon: const Icon(CupertinoIcons.arrow_turn_down_right),
+                  onPressed: () => _jumpToCustomerOrder(order),
+                ),
+              ),
+            ],
+          );
+        }).toList(growable: false),
+      ),
+    );
+  }
+
+  Widget _buildOrderItemsTable() {
+    if (_selectedOrderId == null) {
+      return const Center(child: Text('Auftrag auswählen, um Positionen zu sehen.'));
+    }
+    if (_selectedOrderItems.isEmpty) {
+      return const Center(child: Text('Keine Positionen für diesen Auftrag vorhanden.'));
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columns: const [
+          DataColumn(label: Text('Pos.')),
+          DataColumn(label: Text('Art.-ID')),
+          DataColumn(label: Text('Bez.')),
+          DataColumn(label: Text('Menge'), numeric: true),
+          DataColumn(label: Text('∑ Netto €'), numeric: true),
+        ],
+        rows: _selectedOrderItems.map((item) {
+          return DataRow(
+            cells: [
+              DataCell(Text(item.ioPos.toString().padLeft(2, '0'))),
+              DataCell(Text(item.ioItemId.toString())),
+              DataCell(Text(item.ioIdi)),
+              DataCell(Text(item.ioQuantity.toString())),
+              DataCell(Text(_formatMoney(_itemNetTotal(item)))),
+            ],
+          );
+        }).toList(growable: false),
+      ),
+    );
   }
 
   void _applyCurrentSort(List<Customer> customers) {
@@ -545,13 +743,22 @@ class _CustomerPageState extends State<CustomerPage> {
         );
         break;
       case 1:
+        customers.sort((a, b) => _sortAscending
+            ? (_customerNetById[a.cId] ?? a.cTotalValueEur).compareTo(
+                _customerNetById[b.cId] ?? b.cTotalValueEur,
+              )
+            : (_customerNetById[b.cId] ?? b.cTotalValueEur).compareTo(
+                _customerNetById[a.cId] ?? a.cTotalValueEur,
+              ));
+        break;
+      case 2:
         customers.sort(
           (a, b) => _sortAscending
               ? a.cLastName.toLowerCase().compareTo(b.cLastName.toLowerCase())
               : b.cLastName.toLowerCase().compareTo(a.cLastName.toLowerCase()),
         );
         break;
-      case 2:
+      case 3:
         customers.sort(
           (a, b) => _sortAscending
               ? a.cFirstName.toLowerCase().compareTo(b.cFirstName.toLowerCase())
@@ -560,21 +767,21 @@ class _CustomerPageState extends State<CustomerPage> {
                 ),
         );
         break;
-      case 3:
+      case 4:
         customers.sort(
           (a, b) => _sortAscending
               ? a.cCompany.toLowerCase().compareTo(b.cCompany.toLowerCase())
               : b.cCompany.toLowerCase().compareTo(a.cCompany.toLowerCase()),
         );
         break;
-      case 4:
+      case 5:
         customers.sort(
           (a, b) => _sortAscending
               ? a.cCityB.toLowerCase().compareTo(b.cCityB.toLowerCase())
               : b.cCityB.toLowerCase().compareTo(a.cCityB.toLowerCase()),
         );
         break;
-      case 5:
+      case 6:
         customers.sort((a, b) {
           final aVal = resolveDisplayCountry(
             customer: a,
@@ -587,7 +794,7 @@ class _CustomerPageState extends State<CustomerPage> {
           return _sortAscending ? aVal.compareTo(bVal) : bVal.compareTo(aVal);
         });
         break;
-      case 6:
+      case 7:
         customers.sort(
           (a, b) => _sortAscending
               ? a.cMail.toLowerCase().compareTo(b.cMail.toLowerCase())
@@ -1912,19 +2119,76 @@ class _CustomerPageState extends State<CustomerPage> {
                         if (constraints.maxWidth < 600) {
                           return _buildMobileCustomerList();
                         }
-                        return CustomerPaginatedTable(
-                          customers: _filteredCustomers,
-                          countryNameByCode: _countryNameByCode,
-                          loading: _loading,
-                          sortColumnIndex: _sortColumnIndex,
-                          sortAscending: _sortAscending,
-                          rowsPerPage: _rowsPerPage,
-                          onRowsPerPageChanged: (value) =>
-                              setState(() => _rowsPerPage = value),
-                          onSort: _sortFilteredCustomers,
-                          onEditCustomer: _editCustomer,
-                          onDeleteCustomer: _deleteCustomer,
-                          onOpenMap: _showMapDialog,
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              flex: 5,
+                              child: CustomerPaginatedTable(
+                                customers: _filteredCustomers,
+                                countryNameByCode: _countryNameByCode,
+                                loading: _loading,
+                                sortColumnIndex: _sortColumnIndex,
+                                sortAscending: _sortAscending,
+                                rowsPerPage: _rowsPerPage,
+                                onRowsPerPageChanged: (value) =>
+                                    setState(() => _rowsPerPage = value),
+                                onSort: _sortFilteredCustomers,
+                                onEditCustomer: _editCustomer,
+                                onDeleteCustomer: _deleteCustomer,
+                                onOpenMap: _showMapDialog,
+                                selectedCustomerId: _selectedCustomerId,
+                                onSelectCustomer: _selectCustomer,
+                                customerNetById: _customerNetById,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              flex: 3,
+                              child: Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Aufträge zum Kunden',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Expanded(child: _buildCustomerOrdersTable()),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              flex: 3,
+                              child: Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Positionen zum Auftrag',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Expanded(child: _buildOrderItemsTable()),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         );
                       },
                     ),

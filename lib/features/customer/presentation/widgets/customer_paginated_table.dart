@@ -6,12 +6,7 @@ import '../../domain/customer.dart';
 import '../customer_country_display.dart';
 import 'customer_detail_dialog.dart';
 
-typedef CustomerSortCallback =
-    void Function(
-      int columnIndex,
-      bool ascending,
-      String Function(Customer customer) selector,
-    );
+typedef CustomerSortCallback = void Function(int columnIndex, bool ascending);
 
 class CustomerPaginatedTable extends StatelessWidget {
   const CustomerPaginatedTable({
@@ -27,6 +22,9 @@ class CustomerPaginatedTable extends StatelessWidget {
     required this.onEditCustomer,
     required this.onDeleteCustomer,
     required this.onOpenMap,
+    required this.selectedCustomerId,
+    required this.onSelectCustomer,
+    required this.customerNetById,
   });
 
   final List<Customer> customers;
@@ -40,6 +38,9 @@ class CustomerPaginatedTable extends StatelessWidget {
   final ValueChanged<Customer> onEditCustomer;
   final ValueChanged<Customer> onDeleteCustomer;
   final ValueChanged<Customer> onOpenMap;
+  final String? selectedCustomerId;
+  final ValueChanged<Customer> onSelectCustomer;
+  final Map<String, double> customerNetById;
 
   @override
   Widget build(BuildContext context) {
@@ -59,52 +60,48 @@ class CustomerPaginatedTable extends StatelessWidget {
       columns: [
         DataColumn(
           label: const Text('ID'),
-          onSort: (columnIndex, ascending) =>
-              onSort(columnIndex, ascending, (c) => c.cId.toLowerCase()),
+          onSort: onSort,
+        ),
+        DataColumn(
+          label: const Text('∑ Netto €'),
+          numeric: true,
+          onSort: onSort,
         ),
         DataColumn2(
           fixedWidth: 190,
           label: const Text('Nachname'),
-          onSort: (columnIndex, ascending) =>
-              onSort(columnIndex, ascending, (c) => c.cLastName.toLowerCase()),
+          onSort: onSort,
         ),
         DataColumn(
           label: const Text('Vorname'),
-          onSort: (columnIndex, ascending) =>
-              onSort(columnIndex, ascending, (c) => c.cFirstName.toLowerCase()),
+          onSort: onSort,
         ),
         DataColumn(
           label: const Text('Firma'),
-          onSort: (columnIndex, ascending) =>
-              onSort(columnIndex, ascending, (c) => c.cCompany.toLowerCase()),
+          onSort: onSort,
         ),
         DataColumn(
           label: const Text('Stadt'),
-          onSort: (columnIndex, ascending) =>
-              onSort(columnIndex, ascending, (c) => c.cCityB.toLowerCase()),
+          onSort: onSort,
         ),
         DataColumn(
           label: const Text('Land'),
-          onSort: (columnIndex, ascending) => onSort(
-            columnIndex,
-            ascending,
-            (c) => resolveDisplayCountry(
-              customer: c,
-              countryNameByCode: countryNameByCode,
-            ).toLowerCase(),
-          ),
+          onSort: onSort,
         ),
         DataColumn(
           label: const Text('E-Mail'),
-          onSort: (columnIndex, ascending) =>
-              onSort(columnIndex, ascending, (c) => c.cMail.toLowerCase()),
+          onSort: onSort,
         ),
+        const DataColumn(label: Text('Details')),
         const DataColumn(label: Text('Maps')),
       ],
       source: CustomerDataTableSource(
         customers: customers,
         countryNameByCode: countryNameByCode,
         loading: loading,
+        selectedCustomerId: selectedCustomerId,
+        onSelectCustomer: onSelectCustomer,
+        customerNetById: customerNetById,
         onOpenDetails: (customer) {
           showCupertinoDialog<void>(
             context: context,
@@ -127,6 +124,9 @@ class CustomerDataTableSource extends DataTableSource {
     required this.customers,
     required this.countryNameByCode,
     required this.loading,
+    required this.selectedCustomerId,
+    required this.onSelectCustomer,
+    required this.customerNetById,
     required this.onOpenDetails,
     required this.onOpenMap,
   });
@@ -134,8 +134,19 @@ class CustomerDataTableSource extends DataTableSource {
   final List<Customer> customers;
   final Map<String, String> countryNameByCode;
   final bool loading;
+  final String? selectedCustomerId;
+  final ValueChanged<Customer> onSelectCustomer;
+  final Map<String, double> customerNetById;
   final ValueChanged<Customer> onOpenDetails;
   final ValueChanged<Customer> onOpenMap;
+
+  String _formatMoney(double value) {
+    return value.toStringAsFixed(2).replaceAll('.', ',');
+  }
+
+  double _customerNetValue(Customer customer) {
+    return customerNetById[customer.cId] ?? customer.cTotalValueEur;
+  }
 
   @override
   DataRow? getRow(int index) {
@@ -152,10 +163,18 @@ class CustomerDataTableSource extends DataTableSource {
 
     return DataRow.byIndex(
       index: index,
-      onSelectChanged: loading ? null : (_) => onOpenDetails(customer),
+      selected: selectedCustomerId != null && selectedCustomerId == customer.cId,
+      onSelectChanged: loading ? null : (_) => onSelectCustomer(customer),
       cells: [
         DataCell(
           Text(customer.cId, softWrap: false, overflow: TextOverflow.ellipsis),
+        ),
+        DataCell(
+          Text(
+            _formatMoney(_customerNetValue(customer)),
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
         DataCell(
           Text(
@@ -193,6 +212,13 @@ class CustomerDataTableSource extends DataTableSource {
             customer.cMail,
             softWrap: false,
             overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        DataCell(
+          IconButton(
+            tooltip: 'Details anzeigen',
+            icon: const Icon(CupertinoIcons.info),
+            onPressed: loading ? null : () => onOpenDetails(customer),
           ),
         ),
         DataCell(

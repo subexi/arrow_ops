@@ -13,7 +13,9 @@ import 'widgets/item_ordered_form_dialog.dart';
 import 'widgets/order_form_dialog.dart';
 
 class OrderPage extends StatefulWidget {
-  const OrderPage({super.key});
+  const OrderPage({super.key, this.initialOrderId});
+
+  final String? initialOrderId;
 
   @override
   State<OrderPage> createState() => _OrderPageState();
@@ -40,6 +42,7 @@ class _OrderPageState extends State<OrderPage> {
   String _orderSearchQuery = '';
   double _splitterRatio = 0.55;
   bool _isDragging = false;
+  String? _pendingInitialOrderId;
 
   static const double _splitterHeight = 28.0;
   static const double _minTopHeight = 200.0;
@@ -48,6 +51,10 @@ class _OrderPageState extends State<OrderPage> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialOrderId?.trim();
+    _pendingInitialOrderId = (initial == null || initial.isEmpty)
+        ? null
+        : initial;
     _loadData();
   }
 
@@ -62,9 +69,15 @@ class _OrderPageState extends State<OrderPage> {
       final customerMap = {for (final c in customers) c.cId: c};
 
       String? nextSelectedId = _selectedOrderId;
+      final pendingInitialId = _pendingInitialOrderId;
+      if (pendingInitialId != null &&
+          orders.any((order) => order.oId == pendingInitialId)) {
+        nextSelectedId = pendingInitialId;
+      }
       if (nextSelectedId == null || !orders.any((o) => o.oId == nextSelectedId)) {
         nextSelectedId = orders.isEmpty ? null : orders.first.oId;
       }
+      _pendingInitialOrderId = null;
 
       List<ItemOrderedRow> items = [];
       if (nextSelectedId != null) {
