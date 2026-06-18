@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 10;
+  static const int _currentVersion = 11;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -29,6 +29,7 @@ class AppDatabase {
     DatabaseMigration(version: 8, run: _migrationV8),
     DatabaseMigration(version: 9, run: _migrationV9),
     DatabaseMigration(version: 10, run: _migrationV10),
+    DatabaseMigration(version: 11, run: _migrationV11),
   ];
 
   Future<Database> get database async {
@@ -62,6 +63,15 @@ class AppDatabase {
     );
 
     return _database!;
+  }
+
+  Future<void> close() async {
+    final db = _database;
+    if (db != null) {
+      await db.close();
+    }
+    _database = null;
+    _activeDatabasePath = null;
   }
 
   Future<String> _resolveDatabasePath() async {
@@ -582,5 +592,35 @@ class AppDatabase {
         "ALTER TABLE item_ordered ADD COLUMN io_hts TEXT NOT NULL DEFAULT '-'",
       );
     }
+  }
+
+  static Future<void> _migrationV11(Database db) async {
+    final customerColumns = await db.rawQuery('PRAGMA table_info(customer)');
+    final hasTotalValueEur = customerColumns.any(
+      (column) => column['name'] == 'c_total_value_eur',
+    );
+    final hasTotalValueUsd = customerColumns.any(
+      (column) => column['name'] == 'c_total_value_usd',
+    );
+
+    if (!hasTotalValueEur) {
+      await db.execute(
+        'ALTER TABLE customer ADD COLUMN c_total_value_eur REAL NOT NULL DEFAULT 0',
+      );
+    }
+    if (!hasTotalValueUsd) {
+      await db.execute(
+        'ALTER TABLE customer ADD COLUMN c_total_value_usd REAL NOT NULL DEFAULT 0',
+      );
+    }
+
+    await db.execute('''
+      UPDATE customer
+      SET c_total_value_eur = COALESCE((
+        SELECT SUM(o.o_value_goods)
+        FROM "order" o
+        WHERE o.o_customer_id = customer.c_id
+      ), 0)
+    ''');
   }
 }

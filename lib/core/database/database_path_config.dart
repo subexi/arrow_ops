@@ -9,13 +9,25 @@ class DatabasePathConfig {
     static const String _macOsDatabaseDirectoryPath =
             '/Users/mba_hd/Development/Flutter/Projects/Data';
 
+    static String? _preferredDatabaseDirectoryPathOverride;
+
   static const String databaseFileName = 'arrow_ops.db';
 
     static String? get preferredDatabaseDirectoryPath {
+        final override = _preferredDatabaseDirectoryPathOverride;
+        if (override != null && override.trim().isNotEmpty) {
+            return override;
+        }
         if (Platform.isMacOS) {
             return _macOsDatabaseDirectoryPath;
         }
         return null;
+    }
+
+    static void setPreferredDatabaseDirectoryPathOverride(String? directoryPath) {
+        final normalized = directoryPath?.trim();
+        _preferredDatabaseDirectoryPathOverride =
+                (normalized == null || normalized.isEmpty) ? null : normalized;
     }
 
     static String? get preferredDatabasePath {

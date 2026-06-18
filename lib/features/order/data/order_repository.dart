@@ -78,6 +78,19 @@ class OrderRepository {
       final lookupId = (originalOrderId != null && originalOrderId.trim().isNotEmpty)
           ? originalOrderId.trim()
           : order.oId;
+
+      String? previousCustomerId;
+      final existingRows = await txn.query(
+        '"order"',
+        columns: ['o_customer_id'],
+        where: 'o_id = ?',
+        whereArgs: [lookupId],
+        limit: 1,
+      );
+      if (existingRows.isNotEmpty) {
+        previousCustomerId = existingRows.first['o_customer_id']?.toString();
+      }
+
       final updated = await txn.update(
         '"order"',
         order.toMap(),
@@ -87,6 +100,15 @@ class OrderRepository {
       if (updated == 0) {
         await txn.insert('"order"', order.toMap());
       }
+
+      await _syncCustomerNetRevenueInTransaction(
+        txn,
+        <String>{
+          order.oCustomerId,
+          if (previousCustomerId != null && previousCustomerId.trim().isNotEmpty)
+            previousCustomerId,
+        },
+      );
     });
   }
 
@@ -121,6 +143,17 @@ class OrderRepository {
   Future<void> deleteOrder(String orderId) async {
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {
+      final existingRows = await txn.query(
+        '"order"',
+        columns: ['o_customer_id'],
+        where: 'o_id = ?',
+        whereArgs: [orderId],
+        limit: 1,
+      );
+      final customerId = existingRows.isEmpty
+          ? null
+          : existingRows.first['o_customer_id']?.toString();
+
       await txn.delete(
         'item_ordered',
         where: 'io_order_id = ?',
@@ -130,6 +163,11 @@ class OrderRepository {
         '"order"',
         where: 'o_id = ?',
         whereArgs: [orderId],
+      );
+
+      await _syncCustomerNetRevenueInTransaction(
+        txn,
+        <String>{if (customerId != null && customerId.trim().isNotEmpty) customerId},
       );
     });
   }
@@ -236,5 +274,30 @@ class OrderRepository {
       'SELECT COALESCE(MAX(io_id), 0) + 1 AS next_id FROM item_ordered',
     );
     return int.tryParse(rows.first['next_id']?.toString() ?? '') ?? 1;
+  }
+
+  Future<void> _syncCustomerNetRevenueInTransaction(
+    Transaction txn,
+    Set<String> customerIds,
+  ) async {
+    for (final customerId in customerIds) {
+      final normalizedId = customerId.trim();
+      if (normalizedId.isEmpty) {
+        continue;
+      }
+
+      await txn.rawUpdate(
+        '''
+        UPDATE customer
+        SET c_total_value_eur = COALESCE((
+          SELECT SUM(o_value_goods)
+          FROM "order"
+          WHERE o_customer_id = ?
+        ), 0)
+        WHERE c_id = ?
+        ''',
+        [normalizedId, normalizedId],
+      );
+    }
   }
 }

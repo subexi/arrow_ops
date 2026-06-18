@@ -795,8 +795,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
 
                 // ── Bezahldatum & Auslieferungsdatum
                 _row2(
-                  _field(_payDateController, 'Bezahldatum (JJJJ-MM-TT)'),
-                  _field(_deliveryController, 'Auslieferungsdatum (JJJJ-MM-TT)'),
+                  _field(_payDateController, 'Bezahlt-Datum (JJJJ-MM-TT)'),
+                  _field(_deliveryController, 'Versand-Datum (JJJJ-MM-TT)'),
                 ),
                 const SizedBox(height: 12),
 

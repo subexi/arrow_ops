@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:data_table_2/data_table_2.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -18,6 +20,73 @@ import '../domain/item_models.dart';
 import '../domain/item_purchase_price_calculator.dart';
 import 'widgets/item_bom_form_dialog.dart';
 import 'widgets/item_catalogue_form_dialog.dart';
+
+const Set<String> cataloguePdfHardNoWrapFieldKeys = {
+  'ic_id',
+  'ic_ide',
+  'ic_idv',
+  'ic_hts',
+  'ic_source_of_supply',
+  'ic_price_net',
+  'ic_price_gross_19',
+  'ic_price_wholesale_net',
+  'ic_purchase_price_net',
+};
+
+double cataloguePdfCellFontSizeForFieldKeys(Iterable<String> selectedFieldKeys) {
+  final keys = selectedFieldKeys.toSet();
+  final hasHardNoWrap = keys.any(cataloguePdfHardNoWrapFieldKeys.contains);
+  if (!hasHardNoWrap) {
+    return 6.5;
+  }
+  if (keys.length >= 12) {
+    return 5.8;
+  }
+  if (keys.length >= 9) {
+    return 6.1;
+  }
+  return 6.3;
+}
+
+double cataloguePdfColumnFlexForFieldKey(String fieldKey) {
+  switch (fieldKey) {
+    // Short technical keys / numeric columns - very compact.
+    case 'ic_id':
+    case 'ic_ic':
+    case 'ic_stock':
+      return 0.5;
+    case 'ic_weight':
+    case 'ic_hts':
+      return 0.6;
+
+    // Price columns - compact.
+    case 'ic_price_net':
+    case 'ic_price_gross_19':
+    case 'ic_price_wholesale_net':
+    case 'ic_purchase_price_net':
+      return 0.7;
+
+    // German description heavily prioritized: maximum width.
+    case 'ic_description_de_long':
+      return 1.8;
+
+    // Text columns - moderately compact.
+    case 'ic_description_en_long':
+    case 'ic_note':
+    case 'ic_image_path':
+    case 'ic_source_of_supply':
+      return 1.2;
+
+    // Typical short text identifiers - compact.
+    case 'ic_idi':
+    case 'ic_ide':
+    case 'ic_idv':
+      return 0.9;
+
+    default:
+      return 0.85;
+  }
+}
 
 class ItemCataloguePage extends StatefulWidget {
   const ItemCataloguePage({
@@ -1262,17 +1331,145 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       return parsed.toStringAsFixed(fractionDigits).replaceAll('.', ',');
     }
 
+    String formatted;
     switch (field.key) {
       case 'ic_price_net':
       case 'ic_price_gross_19':
       case 'ic_price_wholesale_net':
       case 'ic_purchase_price_net':
-        return toGermanFixed(rawValue, 2);
+        formatted = toGermanFixed(rawValue, 2);
+        break;
       case 'ic_weight':
-        return toGermanFixed(rawValue, 1);
+        formatted = toGermanFixed(rawValue, 1);
+        break;
       default:
-        return rawValue;
+        formatted = rawValue;
     }
+
+    // Sanitize symbols for PDF compatibility
+    return _sanitizeSymbols(formatted);
+  }
+
+  String _truncateCataloguePdfValue(
+    String fieldKey,
+    String value, {
+    int? maxCharsOverride,
+  }) {
+    final trimmed = value.trim();
+    final maxChars = maxCharsOverride ?? _cataloguePdfMaxChars(fieldKey);
+    if (maxChars <= 0 || trimmed.length <= maxChars) {
+      return trimmed;
+    }
+    final hardNoWrap = cataloguePdfHardNoWrapFieldKeys.contains(fieldKey);
+    if (maxChars <= 1) {
+      return hardNoWrap ? trimmed.substring(0, 1) : '…';
+    }
+    if (hardNoWrap) {
+      return trimmed.substring(0, maxChars);
+    }
+    return '${trimmed.substring(0, maxChars - 1)}…';
+  }
+
+  Map<String, int> _buildCataloguePdfDynamicMaxChars(
+    List<_CatalogueExportField> selectedFields,
+    List<ItemCatalogueRow> rows, {
+    required Map<int, double> derivedWeightByArticleId,
+  }) {
+    if (selectedFields.isEmpty) {
+      return const {};
+    }
+
+    const rowCharBudget = 260.0;
+    final totalFlex = selectedFields
+        .map((field) => _cataloguePdfColumnFlex(field.key))
+        .fold<double>(0, (sum, value) => sum + value);
+
+    final result = <String, int>{};
+
+    for (final field in selectedFields) {
+      final flex = _cataloguePdfColumnFlex(field.key);
+      final proportionalCap = ((rowCharBudget * (flex / totalFlex)).round())
+          .clamp(6, 64);
+
+      final lengths = rows
+          .map(
+            (row) => _formatPdfFieldValue(
+              field,
+              row,
+              derivedWeightByArticleId: derivedWeightByArticleId,
+            ).trim().length,
+          )
+          .where((length) => length > 0)
+          .toList(growable: false)
+        ..sort();
+
+      final percentileLength = lengths.isEmpty
+          ? _cataloguePdfMaxChars(field.key)
+          : lengths[((lengths.length - 1) * 0.85).floor()];
+
+      final baselineMin = _cataloguePdfBaselineMinChars(field.key);
+        final adjustedCap = cataloguePdfHardNoWrapFieldKeys.contains(field.key)
+          ? (proportionalCap - 2).clamp(6, 64)
+          : proportionalCap;
+      result[field.key] = percentileLength.clamp(baselineMin, adjustedCap);
+    }
+
+    return result;
+  }
+
+  int _cataloguePdfBaselineMinChars(String fieldKey) {
+    switch (fieldKey) {
+      case 'ic_description_de_long':
+        return 18;
+      case 'ic_description_en_long':
+      case 'ic_note':
+      case 'ic_image_path':
+      case 'ic_source_of_supply':
+        return 20;
+      case 'ic_idi':
+      case 'ic_ide':
+      case 'ic_idv':
+        return 14;
+      default:
+        return 6;
+    }
+  }
+
+  int _cataloguePdfMaxChars(String fieldKey) {
+    switch (fieldKey) {
+      case 'ic_id':
+        return 8;
+      case 'ic_ic':
+      case 'ic_stock':
+      case 'ic_weight':
+        return 6;
+      case 'ic_hts':
+        return 16;
+      case 'ic_price_net':
+      case 'ic_price_gross_19':
+      case 'ic_price_wholesale_net':
+      case 'ic_purchase_price_net':
+        return 14;
+      case 'ic_idi':
+      case 'ic_ide':
+      case 'ic_idv':
+        return 28;
+      case 'ic_description_de_long':
+        return 26;
+      case 'ic_description_en_long':
+      case 'ic_note':
+      case 'ic_image_path':
+      case 'ic_source_of_supply':
+        return 42;
+      default:
+        return 32;
+    }
+  }
+
+  double _cataloguePdfCellFontSize(List<_CatalogueExportField> selectedFields) {
+    return cataloguePdfCellFontSizeForFieldKeys(
+      selectedFields.map((field) => field.key),
+    );
   }
 
   String _formatBomPdfFieldValue(_BomExportField field, _BomExportRow row) {
@@ -1286,15 +1483,21 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       return parsed.toStringAsFixed(fractionDigits).replaceAll('.', ',');
     }
 
+    String formatted;
     switch (field.key) {
       case 'ib_quantity':
       case 'ib_order':
-        return toGermanFixed(rawValue, 0);
+        formatted = toGermanFixed(rawValue, 0);
+        break;
       case 'net_purchase_total':
-        return toGermanFixed(rawValue, 2);
+        formatted = toGermanFixed(rawValue, 2);
+        break;
       default:
-        return rawValue;
+        formatted = rawValue;
     }
+
+    // Sanitize symbols for PDF compatibility
+    return _sanitizeSymbols(formatted);
   }
 
   Future<void> _exportCatalogueCsv(List<_CatalogueExportField> selectedFields) async {
@@ -1341,7 +1544,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         }
         return;
       }
-      await File(targetPath).writeAsString(buffer.toString());
+      final csvWithBom = '\uFEFF${buffer.toString()}';
+      await File(targetPath).writeAsString(csvWithBom, encoding: utf8);
 
       if (!mounted) {
         return;
@@ -1402,19 +1606,37 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       }
 
       final document = pw.Document();
-      final pdfBaseFont = pw.Font.helvetica();
-      final pdfBoldFont = pw.Font.helveticaBold();
+      final fonts = await _loadPdfFonts();
 
       final headers = selectedFields.map((field) => field.label).toList(growable: false);
+      final cellFontSize = _cataloguePdfCellFontSize(selectedFields);
+      final columnWidths = <int, pw.TableColumnWidth>{
+        for (var index = 0; index < selectedFields.length; index++)
+          index: pw.FlexColumnWidth(
+            _cataloguePdfColumnFlex(selectedFields[index].key),
+          ),
+      };
+      final dynamicMaxCharsByField = _buildCataloguePdfDynamicMaxChars(
+        selectedFields,
+        sortedRows,
+        derivedWeightByArticleId: derivedWeightByArticleId,
+      );
       final tableData = sortedRows
           .map(
             (row) => selectedFields
                 .map(
-                  (field) => _formatPdfFieldValue(
-                    field,
-                    row,
-                    derivedWeightByArticleId: derivedWeightByArticleId,
-                  ),
+                  (field) {
+                    final rawValue = _formatPdfFieldValue(
+                      field,
+                      row,
+                      derivedWeightByArticleId: derivedWeightByArticleId,
+                    );
+                    return _truncateCataloguePdfValue(
+                      field.key,
+                      rawValue,
+                      maxCharsOverride: dynamicMaxCharsByField[field.key],
+                    );
+                  },
                 )
                 .toList(growable: false),
           )
@@ -1423,8 +1645,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       document.addPage(
         pw.MultiPage(
           theme: pw.ThemeData.withFont(
-            base: pdfBaseFont,
-            bold: pdfBoldFont,
+            base: fonts.base,
+            bold: fonts.bold,
           ),
           pageFormat: PdfPageFormat.a3.landscape,
           build: (context) => [
@@ -1439,12 +1661,13 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
             pw.TableHelper.fromTextArray(
               headers: headers,
               data: tableData,
+              columnWidths: columnWidths,
               headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
               headerStyle: pw.TextStyle(
                 fontSize: 8,
                 fontWeight: pw.FontWeight.bold,
               ),
-              cellStyle: const pw.TextStyle(fontSize: 7),
+              cellStyle: pw.TextStyle(fontSize: cellFontSize),
               cellAlignment: pw.Alignment.centerLeft,
               cellPadding: const pw.EdgeInsets.all(3),
             ),
@@ -1528,7 +1751,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         }
         return;
       }
-      await File(targetPath).writeAsString(buffer.toString());
+      final csvWithBom = '\uFEFF${buffer.toString()}';
+      await File(targetPath).writeAsString(csvWithBom, encoding: utf8);
 
       if (!mounted) {
         return;
@@ -1576,8 +1800,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       }
 
       final document = pw.Document();
-      final pdfBaseFont = pw.Font.helvetica();
-      final pdfBoldFont = pw.Font.helveticaBold();
+      final fonts = await _loadPdfFonts();
       final headers = selectedFields.map((field) => field.label).toList(growable: false);
       final tableData = sortedRows
           .map(
@@ -1589,7 +1812,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
       document.addPage(
         pw.MultiPage(
-          theme: pw.ThemeData.withFont(base: pdfBaseFont, bold: pdfBoldFont),
+          theme: pw.ThemeData.withFont(base: fonts.base, bold: fonts.bold),
           pageFormat: PdfPageFormat.a3.landscape,
           build: (context) => [
             pw.Text(
@@ -1659,6 +1882,56 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     }
   }
 
+  Future<_PdfFonts> _loadPdfFonts() async {
+    try {
+      // Try to load Noto Sans (better symbol support)
+      try {
+        final notoData = await rootBundle.load('lib/fonts/NotoSans-Regular.ttf');
+        final notoBoldData = await rootBundle.load('lib/fonts/NotoSans-Bold.ttf');
+        return _PdfFonts(
+          base: pw.Font.ttf(notoData),
+          bold: pw.Font.ttf(notoBoldData),
+        );
+      } catch (_) {
+        // Fallback to Roboto if Noto Sans not found
+      }
+
+      final baseData = await rootBundle.load('lib/fonts/Roboto-Regular.ttf');
+      final boldData = await rootBundle.load('lib/fonts/Roboto-Bold.ttf');
+      return _PdfFonts(
+        base: pw.Font.ttf(baseData),
+        bold: pw.Font.ttf(boldData),
+      );
+    } catch (e) {
+      // Ultimate fallback to built-in font
+      return _PdfFonts(
+        base: pw.Font.helvetica(),
+        bold: pw.Font.helveticaBold(),
+      );
+    }
+  }
+
+  String _sanitizeSymbols(String text) {
+    // Common symbol mappings for better PDF compatibility
+    return text
+        .replaceAll('→', '->')
+        .replaceAll('←', '<-')
+        .replaceAll('↔', '<->')
+        .replaceAll('•', '•')
+        .replaceAll('°', 'deg')
+        .replaceAll('×', 'x')
+        .replaceAll('÷', '/')
+        .replaceAll('√', 'sqrt')
+        .replaceAll('±', '+/-')
+        .replaceAll('™', '(TM)')
+        .replaceAll('®', '(R)')
+        .replaceAll('©', '(C)');
+  }
+
+  double _cataloguePdfColumnFlex(String fieldKey) {
+    return cataloguePdfColumnFlexForFieldKey(fieldKey);
+  }
+
   double _grossPrice(double netPrice) => netPrice * 1.19;
 
   double _displayWeight(ItemCatalogueRow item) {
@@ -1691,6 +1964,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     }
     final text = [
       item.icIdi,
+      item.icIdv,
       item.icDescriptionDeLong,
       item.icDescriptionEnLong,
       item.icNote,
@@ -2605,7 +2879,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
               controller: _searchController,
               decoration: InputDecoration(
                 labelText: 'Artikel suchen',
-                hintText: 'Bezeichnung, Beschreibung/Description, Notiz ...',
+                hintText: 'Bezeichnung, Variante, Beschreibung/Description, Notiz ...',
                 prefixIcon: const Icon(Icons.search),
                 isDense: useCompactControls,
                 contentPadding: useCompactControls
@@ -3671,6 +3945,13 @@ class _CatalogueExportField {
   final String label;
   final String csvHeader;
   final String Function(ItemCatalogueRow row) value;
+}
+
+class _PdfFonts {
+  const _PdfFonts({required this.base, required this.bold});
+
+  final pw.Font base;
+  final pw.Font bold;
 }
 
 class _CataloguePdfSortSelection {

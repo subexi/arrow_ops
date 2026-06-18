@@ -74,6 +74,7 @@ class _CustomerPageState extends State<CustomerPage> {
   String? _selectedOrderId;
   List<OrderRow> _selectedCustomerOrders = const [];
   List<ItemOrderedRow> _selectedOrderItems = const [];
+  bool _wasVisibleInBuild = false;
 
   static final RegExp _validCountryCodePattern = RegExp(r'^[a-z]{2,}$');
 
@@ -277,6 +278,8 @@ class _CustomerPageState extends State<CustomerPage> {
             'SQLite-Initialisierung fehlgeschlagen: $error'
             '${preferredPath == null ? '' : '\nBevorzugter Pfad: $preferredPath'}';
       });
+      // Continue with loading, even if DB init failed
+      await _loadCustomers();
     }
   }
 
@@ -288,7 +291,14 @@ class _CustomerPageState extends State<CustomerPage> {
       final fetchStopwatch = Stopwatch()..start();
       final customers = await _repository.getAll();
       final countries = await _repository.getAllCountries();
-      final orders = await _orderRepository.getOrders();
+      List<OrderRow> orders = [];
+      try {
+        orders = await _orderRepository.getOrders();
+      } catch (orderError) {
+        if (_perfLoggingEnabled) {
+          debugPrint('⚠️ [perf][$traceTag] orders for netto-sum failed: $orderError');
+        }
+      }
       fetchStopwatch.stop();
 
       final customerNetById = <String, double>{};
@@ -2038,6 +2048,13 @@ class _CustomerPageState extends State<CustomerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tickerMode = TickerMode.valuesOf(context);
+    final isVisibleInShell = tickerMode.enabled;
+    if (isVisibleInShell && !_wasVisibleInBuild && !_loading) {
+      unawaited(_loadCustomers(runBackgroundNormalization: false));
+    }
+    _wasVisibleInBuild = isVisibleInShell;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Arrow Ops'),
@@ -2119,76 +2136,78 @@ class _CustomerPageState extends State<CustomerPage> {
                         if (constraints.maxWidth < 600) {
                           return _buildMobileCustomerList();
                         }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              flex: 5,
-                              child: CustomerPaginatedTable(
-                                customers: _filteredCustomers,
-                                countryNameByCode: _countryNameByCode,
-                                loading: _loading,
-                                sortColumnIndex: _sortColumnIndex,
-                                sortAscending: _sortAscending,
-                                rowsPerPage: _rowsPerPage,
-                                onRowsPerPageChanged: (value) =>
-                                    setState(() => _rowsPerPage = value),
-                                onSort: _sortFilteredCustomers,
-                                onEditCustomer: _editCustomer,
-                                onDeleteCustomer: _deleteCustomer,
-                                onOpenMap: _showMapDialog,
-                                selectedCustomerId: _selectedCustomerId,
-                                onSelectCustomer: _selectCustomer,
-                                customerNetById: _customerNetById,
+                        return SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SizedBox(
+                                height: constraints.maxHeight * 0.5,
+                                child: CustomerPaginatedTable(
+                                  customers: _filteredCustomers,
+                                  countryNameByCode: _countryNameByCode,
+                                  loading: _loading,
+                                  sortColumnIndex: _sortColumnIndex,
+                                  sortAscending: _sortAscending,
+                                  rowsPerPage: _rowsPerPage,
+                                  onRowsPerPageChanged: (value) =>
+                                      setState(() => _rowsPerPage = value),
+                                  onSort: _sortFilteredCustomers,
+                                  onEditCustomer: _editCustomer,
+                                  onDeleteCustomer: _deleteCustomer,
+                                  onOpenMap: _showMapDialog,
+                                  selectedCustomerId: _selectedCustomerId,
+                                  onSelectCustomer: _selectCustomer,
+                                  customerNetById: _customerNetById,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            Expanded(
-                              flex: 3,
-                              child: Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Text(
-                                        'Aufträge zum Kunden',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Expanded(child: _buildCustomerOrdersTable()),
-                                    ],
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: constraints.maxHeight * 0.25,
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Text(
+                                          'Aufträge zum Kunden',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Expanded(child: _buildCustomerOrdersTable()),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            Expanded(
-                              flex: 3,
-                              child: Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Text(
-                                        'Positionen zum Auftrag',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Expanded(child: _buildOrderItemsTable()),
-                                    ],
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: constraints.maxHeight * 0.25,
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Text(
+                                          'Positionen zum Auftrag',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Expanded(child: _buildOrderItemsTable()),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         );
                       },
                     ),

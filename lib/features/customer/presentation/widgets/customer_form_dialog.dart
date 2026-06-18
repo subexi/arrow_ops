@@ -96,6 +96,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   late final TextEditingController _latControl;
   late final TextEditingController _longControl;
   late final TextEditingController _noteControl;
+  late final TextEditingController _totalValueEurControl;
   late final TextEditingController _countryBControl;
   late final TextEditingController _countryDControl;
   late final FocusNode _careofBFocusNode;
@@ -227,6 +228,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _latControl = TextEditingController(text: c != null ? c.cLat.toString() : '0');
     _longControl = TextEditingController(text: c != null ? c.cLon.toString() : '0');
     _noteControl = TextEditingController(text: c?.cNote ?? '-');
+    _totalValueEurControl = TextEditingController(
+      text: (c?.cTotalValueEur ?? 0).toStringAsFixed(2).replaceAll('.', ','),
+    );
     _dealer = c?.cDealer ?? false;
     _vat = c?.cVat ?? false;
 
@@ -408,6 +412,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _latControl.dispose();
     _longControl.dispose();
     _noteControl.dispose();
+    _totalValueEurControl.dispose();
     _countryBControl.dispose();
     _countryDControl.dispose();
     _careofBFocusNode.dispose();
@@ -1453,6 +1458,8 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       cLat: double.tryParse(_latControl.text.trim()) ?? 0,
       cLon: double.tryParse(_longControl.text.trim()) ?? 0,
       cNote: _noteControl.text.trim().isEmpty ? '-' : _noteControl.text.trim(),
+      cTotalValueEur: widget.customer?.cTotalValueEur ?? 0,
+      cTotalValueUsd: widget.customer?.cTotalValueUsd ?? 0,
       cLastModified: now,
     );
   }
@@ -1848,6 +1855,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                       label: 'Social Media',
                       controller: _socialMediaControl,
                       focusNode: _socialMediaFocusNode,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildCupertinoField(
+                      label: 'Netto-Umsatz (EUR)',
+                      controller: _totalValueEurControl,
+                      enabled: false,
                     ),
                     const SizedBox(height: 16),
                     const Divider(),
