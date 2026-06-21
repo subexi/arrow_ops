@@ -40,6 +40,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   late final TextEditingController _payDateController;
   late final TextEditingController _paypalFeeController;
   late final TextEditingController _deliveryController;
+  late final TextEditingController _tradeShowController;
   late final TextEditingController _trackingCodeController;
   late final TextEditingController _noteController;
 
@@ -48,15 +49,18 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   String _language = 'DE';
   String _priceBasis = 'gross';
   int _payment = 0;
+  bool _putt = false;
   bool _dealer = false;
   List<Customer> _filteredCustomers = [];
   bool _showCustomerDropdown = false;
   bool _isRecalculatingPaypalFee = false;
 
   static const int _paypalPaymentCode = 1;
+  static const int _cashPaymentCode = 4;
 
   bool get _isEditing => widget.initialValue != null;
   bool get _canEditOrderId => !_isEditing || widget.canEditOrderId;
+  bool get _isPuttCashOrder => _putt && _payment == _cashPaymentCode;
 
   static const List<String> _paymentLabels = [
     'Sonstiges',
@@ -84,6 +88,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _payDateController = TextEditingController(text: v?.oPayDate ?? '');
     _paypalFeeController = TextEditingController(text: _decimalText(v?.oPaypalFee ?? 0));
     _deliveryController = TextEditingController(text: v?.oDelivery ?? '');
+    _tradeShowController = TextEditingController(text: v?.oTradeShow ?? '');
     _trackingCodeController = TextEditingController(text: v?.oTrackingCode ?? '');
     _noteController = TextEditingController(text: v?.oNote ?? '-');
 
@@ -91,6 +96,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _language = v?.oLanguage ?? 'DE';
     _priceBasis = v?.oPriceBasis ?? 'gross';
     _payment = v?.oPayment ?? _paypalPaymentCode;
+    _putt = (v?.oPutt ?? 0) != 0;
     _dealer = (v?.oDealer ?? 0) != 0;
 
     _syncPriceBasisWithCurrency();
@@ -139,6 +145,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _payDateController.dispose();
     _paypalFeeController.dispose();
     _deliveryController.dispose();
+    _tradeShowController.dispose();
     _trackingCodeController.dispose();
     _noteController.dispose();
     _paypalFeeFocusNode.dispose();
@@ -244,6 +251,10 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _setVatRateForPriceBasis() {
+    if (_isPuttCashOrder) {
+      _vatRateController.text = _decimalText(0);
+      return;
+    }
     final vatRate = (_priceBasis == 'gross' && !_isNoVatCustomer) ? 19.0 : 0.0;
     _vatRateController.text = _decimalText(vatRate);
   }
@@ -299,6 +310,25 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _refreshGoodsValuesForCurrentBasis() {
+    if (_isPuttCashOrder) {
+      final grossValue = _assignedItemsGrossTotal();
+      final grossText = _decimalText(grossValue);
+      final vatText = _decimalText(0);
+
+      if (_valueGoodsGrossController.text != grossText) {
+        _valueGoodsGrossController.text = grossText;
+      }
+      if (_vatController.text != vatText) {
+        _vatController.text = vatText;
+      }
+      if (_valueGoodsController.text != grossText) {
+        _valueGoodsController.text = grossText;
+      }
+
+      _refreshTotalPriceForCurrentBasis();
+      return;
+    }
+
     if (_priceBasis != 'gross') {
       _refreshGrossGoodsValueFromInputs();
       _refreshTotalPriceForCurrentBasis();
@@ -329,6 +359,15 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _refreshTotalPriceForCurrentBasis() {
+    if (_isPuttCashOrder) {
+      final grossValue = _parseDecimal(_valueGoodsGrossController);
+      final totalText = _decimalText(grossValue);
+      if (_totalPriceController.text != totalText) {
+        _totalPriceController.text = totalText;
+      }
+      return;
+    }
+
     final grossValue = _parseDecimal(_valueGoodsGrossController);
     final shipping = _parseDecimal(_shippingController);
     final paymentFee = _parseDecimal(_paypalFeeController);
@@ -359,6 +398,9 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _recalculatePaypalFeeFromTotalIfApplicable() {
+    if (_isPuttCashOrder) {
+      return;
+    }
     if (_isRecalculatingPaypalFee) {
       return;
     }
@@ -766,6 +808,9 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                         } else {
                           _recalculatePaypalFeeFromTotalIfApplicable();
                         }
+
+                        _setVatRateForPriceBasis();
+                        _refreshGoodsValuesForCurrentBasis();
                       });
                     },
                   ),
@@ -800,8 +845,24 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                 ),
                 const SizedBox(height: 12),
 
-                // ── Trackingcode
-                _field(_trackingCodeController, 'Trackingcode'),
+                // ── Trackingcode, Trade Show & Putt
+                _row2(
+                  _field(_trackingCodeController, 'Trackingcode'),
+                  _field(_tradeShowController, 'Trade Show'),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile.adaptive(
+                  title: const Text('Putt'),
+                  value: _putt,
+                  onChanged: (value) {
+                    setState(() {
+                      _putt = value;
+                      _setVatRateForPriceBasis();
+                      _refreshGoodsValuesForCurrentBasis();
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
+                ),
                 const SizedBox(height: 12),
 
                 // ── Notiz
@@ -873,6 +934,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
               oPayment: _payment,
               oPaypalFee: _parseDecimal(_paypalFeeController),
               oDelivery: _normalizeDateForStorage(_deliveryController.text),
+              oTradeShow: _tradeShowController.text.trim(),
+              oPutt: _putt ? 1 : 0,
               oTrackingCode: _trackingCodeController.text.trim(),
               oNote: _noteController.text.trim().isEmpty ? '-' : _noteController.text.trim(),
             );

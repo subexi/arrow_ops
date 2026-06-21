@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -332,28 +333,61 @@ class InvoicePdfService {
   }
 
   pw.Widget _buildIntroSection(InvoiceDocumentData data, bool useGerman) {
-    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
-    final gratitude = useGerman
-        ? 'Wir danken für Ihre Bestellung und berechnen wie folgt:'
-        : 'Thank you for your order. We charge as follows:';
-    final hasIntraCommunityNote =
-        useGerman && data.totals.vatRate <= 0 && _valid(data.buyer.vatId);
+    final introLines = debugBuildIntroLines(data, useGerman);
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        if (hasIntraCommunityNote)
+        for (final line in introLines)
           pw.Text(
-            'Innergemeinschaftliche Lieferung, Ihre USt.-ID: ${data.buyer.vatId}',
-            style: const pw.TextStyle(fontSize: 9),
-          ),
-        if (!isPackingList)
-          pw.Text(
-            gratitude,
-            style: pw.TextStyle(fontSize: 8.6, fontWeight: pw.FontWeight.bold),
+            line.text,
+            style: pw.TextStyle(
+              fontSize: line.bold ? 9 : 8.6,
+              fontWeight: line.bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
           ),
       ],
     );
+  }
+
+  @visibleForTesting
+  List<({String text, bool bold})> debugBuildIntroLines(
+    InvoiceDocumentData data,
+    bool useGerman,
+  ) {
+    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    final gratitude = useGerman
+        ? 'Wir danken für Ihre Bestellung und berechnen wie folgt:'
+        : 'Thank you for your order. We charge as follows:';
+    final lines = <({String text, bool bold})>[];
+
+    final hasIntraCommunityNote =
+        useGerman && data.totals.vatRate <= 0 && _valid(data.buyer.vatId);
+    if (hasIntraCommunityNote) {
+      lines.add((
+        text: 'Innergemeinschaftliche Lieferung, Ihre USt.-ID: ${data.buyer.vatId}',
+        bold: false,
+      ));
+    }
+
+    final hasEnglishTaxFreeIntraCommunityNote =
+        !useGerman &&
+        !isPackingList &&
+        data.isReseller &&
+        data.isNoVatCustomer &&
+        _valid(data.buyer.vatId);
+    if (hasEnglishTaxFreeIntraCommunityNote) {
+      lines.add((
+        text: 'Taxfree intra-Community delivery VAT#: ${data.buyer.vatId}',
+        bold: true,
+      ));
+    }
+
+    if (!isPackingList) {
+      lines.add((text: gratitude, bold: true));
+    }
+
+    return lines;
   }
 
   pw.Widget _buildPartyBlock(
@@ -473,6 +507,7 @@ class InvoicePdfService {
 
   pw.Widget _buildLinesTable(InvoiceDocumentData data, bool useGerman) {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    final isNetBasis = data.priceBasis.trim().toLowerCase() == 'net';
     final showDiscountColumn =
         !isPackingList &&
         data.lines.any((line) => line.discountPercent.abs() > 0.0001);
@@ -482,9 +517,15 @@ class InvoicePdfService {
       useGerman ? 'Artikel' : 'ID',
       useGerman ? 'Bezeichnung' : 'Description',
       useGerman ? 'Menge' : 'Qty',
-      if (!isPackingList) useGerman ? 'Einzelpreis' : 'Unit price',
+      if (!isPackingList)
+        useGerman
+            ? (isNetBasis ? 'Einzelpreis netto' : 'Einzelpreis')
+            : (isNetBasis ? 'Unit price (net)' : 'Unit price'),
       if (showDiscountColumn) useGerman ? 'Rabatt %' : 'Discount %',
-      if (!isPackingList) useGerman ? 'Gesamtpreis' : 'Total',
+      if (!isPackingList)
+        useGerman
+            ? (isNetBasis ? 'Gesamtpreis netto' : 'Gesamtpreis')
+            : (isNetBasis ? 'Total (net)' : 'Total'),
     ];
 
     final rows = data.lines

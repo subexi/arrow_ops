@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 11;
+  static const int _currentVersion = 12;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -30,6 +30,7 @@ class AppDatabase {
     DatabaseMigration(version: 9, run: _migrationV9),
     DatabaseMigration(version: 10, run: _migrationV10),
     DatabaseMigration(version: 11, run: _migrationV11),
+    DatabaseMigration(version: 12, run: _migrationV12),
   ];
 
   Future<Database> get database async {
@@ -622,5 +623,26 @@ class AppDatabase {
         WHERE o.o_customer_id = customer.c_id
       ), 0)
     ''');
+  }
+
+  static Future<void> _migrationV12(Database db) async {
+    final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    final hasTradeShowColumn = orderColumns.any(
+      (column) => column['name'] == 'o_trade_show',
+    );
+    final hasPuttColumn = orderColumns.any(
+      (column) => column['name'] == 'o_putt',
+    );
+
+    if (!hasTradeShowColumn) {
+      await db.execute(
+        "ALTER TABLE \"order\" ADD COLUMN o_trade_show TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (!hasPuttColumn) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_putt INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 }

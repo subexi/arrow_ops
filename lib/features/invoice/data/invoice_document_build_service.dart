@@ -109,6 +109,11 @@ class InvoiceDocumentBuildService {
       items: items,
       customer: customer,
     );
+    final isReseller = customer.cDealer || order.oDealer == 1;
+    final effectivePriceBasis =
+        (isReseller && customer.cVat)
+            ? 'net'
+            : _normalizedOrFallback(order.oPriceBasis, 'net');
 
     return InvoiceDocumentData(
       documentKind: documentKind,
@@ -121,8 +126,9 @@ class InvoiceDocumentBuildService {
       orderId: order.oId,
       currency: _normalizedOrFallback(order.oCurrency, 'EUR'),
       language: _normalizedOrFallback(order.oLanguage, 'DE'),
-      priceBasis: _normalizedOrFallback(order.oPriceBasis, 'net'),
-      isReseller: customer.cDealer || order.oDealer == 1,
+        priceBasis: effectivePriceBasis,
+        isReseller: isReseller,
+      isNoVatCustomer: customer.cVat,
       seller: _buildSeller(sellerProfile),
       buyer: _buildBuyer(customer),
       delivery: documentKind == InvoiceDocumentKind.packingList

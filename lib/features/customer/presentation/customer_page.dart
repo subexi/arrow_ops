@@ -51,6 +51,7 @@ class _CustomerPageState extends State<CustomerPage> {
   final CountryCsvService _countryCsvService = CountryCsvService();
 
   late final TextEditingController _searchController;
+  late final FocusNode _searchFocusNode;
   Timer? _searchDebounce;
 
   bool _loading = false;
@@ -228,6 +229,7 @@ class _CustomerPageState extends State<CustomerPage> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
+    _searchFocusNode = FocusNode(debugLabel: 'customerSearch');
     _searchController.addListener(_onSearchChanged);
     _loadDatabasePath();
     _loadCustomers();
@@ -236,6 +238,7 @@ class _CustomerPageState extends State<CustomerPage> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -2105,6 +2108,8 @@ class _CustomerPageState extends State<CustomerPage> {
               preferredDatabasePath: _preferredDatabasePath,
               databaseStatusMessage: _databaseStatusMessage,
               searchController: _searchController,
+              searchFocusNode: _searchFocusNode,
+              onSearchChanged: (_) => _onSearchChanged(),
               onCreateCustomer: _createCustomer,
               onRefresh: _loadCustomers,
             ),

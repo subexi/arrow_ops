@@ -178,7 +178,9 @@ class ItemRepository {
       await _ensureBomIdsInTransaction(txn);
       final bomRows = await _fetchBomRows(txn);
 
-      final anchorRows = bomRows.where((row) => row.ibItemId == sourceCatalogueId).toList(growable: false);
+        final anchorRows = bomRows
+          .where((row) => row.ibItemId == sourceCatalogueId && row.ibParentId == null)
+          .toList(growable: false);
       if (anchorRows.isEmpty) {
         return DuplicateCatalogueResult(
           newCatalogueId: newCatalogueId,

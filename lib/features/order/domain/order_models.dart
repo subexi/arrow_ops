@@ -17,6 +17,8 @@ class OrderRow {
     this.oPayment = 0,
     this.oPaypalFee = 0,
     this.oDelivery = '',
+    this.oTradeShow = '',
+    this.oPutt = 0,
     this.oTrackingCode = '',
     this.oNote = '-',
   });
@@ -38,6 +40,8 @@ class OrderRow {
   final int oPayment;
   final double oPaypalFee;
   final String oDelivery;
+  final String oTradeShow;
+  final int oPutt;
   final String oTrackingCode;
   final String oNote;
 
@@ -60,6 +64,8 @@ class OrderRow {
       oPayment: _int(map['o_payment']),
       oPaypalFee: _double(map['o_paypal_fee']),
       oDelivery: _str(map['o_delivery']),
+      oTradeShow: _str(map['o_trade_show']),
+      oPutt: _int(map['o_putt']),
       oTrackingCode: _str(map['o_tracking_code']),
       oNote: _str(map['o_note'], fallback: '-'),
     );
@@ -83,6 +89,8 @@ class OrderRow {
         'o_payment': oPayment,
         'o_paypal_fee': oPaypalFee,
         'o_delivery': oDelivery,
+        'o_trade_show': oTradeShow,
+        'o_putt': oPutt,
         'o_tracking_code': oTrackingCode,
         'o_note': oNote,
       };
@@ -105,6 +113,8 @@ class OrderRow {
     int? oPayment,
     double? oPaypalFee,
     String? oDelivery,
+    String? oTradeShow,
+    int? oPutt,
     String? oTrackingCode,
     String? oNote,
   }) =>
@@ -126,6 +136,8 @@ class OrderRow {
         oPayment: oPayment ?? this.oPayment,
         oPaypalFee: oPaypalFee ?? this.oPaypalFee,
         oDelivery: oDelivery ?? this.oDelivery,
+        oTradeShow: oTradeShow ?? this.oTradeShow,
+        oPutt: oPutt ?? this.oPutt,
         oTrackingCode: oTrackingCode ?? this.oTrackingCode,
         oNote: oNote ?? this.oNote,
       );

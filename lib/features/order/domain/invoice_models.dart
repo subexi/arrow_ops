@@ -11,6 +11,7 @@ class InvoiceDocumentData {
     required this.language,
     required this.priceBasis,
     required this.isReseller,
+    required this.isNoVatCustomer,
     required this.seller,
     required this.buyer,
     required this.delivery,
@@ -33,6 +34,7 @@ class InvoiceDocumentData {
   final String language;
   final String priceBasis;
   final bool isReseller;
+  final bool isNoVatCustomer;
   final InvoicePartyData seller;
   final InvoicePartyData buyer;
   final InvoicePartyData delivery;

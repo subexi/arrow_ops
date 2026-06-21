@@ -47,6 +47,7 @@ class _OrderPageState extends State<OrderPage> {
   static const double _splitterHeight = 28.0;
   static const double _minTopHeight = 200.0;
   static const double _minBottomHeight = 140.0;
+  static const int _cashPaymentCode = 4;
 
   @override
   void initState() {
@@ -167,7 +168,10 @@ class _OrderPageState extends State<OrderPage> {
 
     final double valueGoods;
     final double vat;
-    if (isGrossBasis) {
+    if (order.oPutt != 0 && order.oPayment == _cashPaymentCode) {
+      valueGoods = summedItemsValue;
+      vat = 0;
+    } else if (isGrossBasis) {
       final divisor = 1 + (vatRate / 100);
       valueGoods = divisor <= 0 ? summedItemsValue : summedItemsValue / divisor;
       vat = summedItemsValue - valueGoods;
@@ -176,7 +180,9 @@ class _OrderPageState extends State<OrderPage> {
       vat = vatRate <= 0 ? 0 : valueGoods * (vatRate / 100);
     }
 
-    final totalPrice = valueGoods + vat + order.oShipping + order.oPaypalFee;
+    final totalPrice = (order.oPutt != 0 && order.oPayment == _cashPaymentCode)
+        ? summedItemsValue
+        : valueGoods + vat + order.oShipping + order.oPaypalFee;
 
     final updatedOrder = order.copyWith(
       oValueGoods: valueGoods,
@@ -194,6 +200,20 @@ class _OrderPageState extends State<OrderPage> {
     if (c == null) return customerId;
     return '${c.cLastName}, ${c.cFirstName}';
   }
+
+  String _customerCompany(String customerId) {
+    final c = _customerById[customerId];
+    if (c == null) {
+      return '';
+    }
+    final company = c.cCompany.trim();
+    if (company.isEmpty || company == '-') {
+      return '';
+    }
+    return company;
+  }
+
+  String _puttLabel(int value) => value != 0 ? 'Ja' : '-';
 
   String _formatDate(String raw) => raw.trim().isEmpty ? '-' : raw.trim();
 
@@ -329,7 +349,10 @@ class _OrderPageState extends State<OrderPage> {
     final haystack = <String>[
       order.oId,
       _customerName(order.oCustomerId),
+      _customerCompany(order.oCustomerId),
       order.oCustomerId,
+      order.oTradeShow,
+      _puttLabel(order.oPutt),
       order.oTrackingCode,
       _paymentLabel(order.oPayment),
       order.oDate,
@@ -354,26 +377,30 @@ class _OrderPageState extends State<OrderPage> {
           cmp = _customerName(a.oCustomerId)
               .compareTo(_customerName(b.oCustomerId));
         case 2:
-          cmp = a.oCurrency.compareTo(b.oCurrency);
+          cmp = a.oTradeShow.compareTo(b.oTradeShow);
         case 3:
-          cmp = a.oValueGoods.compareTo(b.oValueGoods);
+          cmp = a.oPutt.compareTo(b.oPutt);
         case 4:
-          cmp = a.oVat.compareTo(b.oVat);
+          cmp = a.oCurrency.compareTo(b.oCurrency);
         case 5:
-          cmp = (a.oValueGoods + a.oVat).compareTo(b.oValueGoods + b.oVat);
+          cmp = a.oValueGoods.compareTo(b.oValueGoods);
         case 6:
-          cmp = a.oShipping.compareTo(b.oShipping);
+          cmp = a.oVat.compareTo(b.oVat);
         case 7:
-          cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
+          cmp = (a.oValueGoods + a.oVat).compareTo(b.oValueGoods + b.oVat);
         case 8:
-          cmp = a.oPayment.compareTo(b.oPayment);
+          cmp = a.oShipping.compareTo(b.oShipping);
         case 9:
-          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
+          cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
         case 10:
-          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
+          cmp = a.oPayment.compareTo(b.oPayment);
         case 11:
-          cmp = a.oPayDate.compareTo(b.oPayDate);
+          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
         case 12:
+          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
+        case 13:
+          cmp = a.oPayDate.compareTo(b.oPayDate);
+        case 14:
           cmp = a.oDelivery.compareTo(b.oDelivery);
         default:
           cmp = a.oId.compareTo(b.oId);
@@ -679,7 +706,7 @@ class _OrderPageState extends State<OrderPage> {
               controller: _orderSearchController,
               decoration: InputDecoration(
                 labelText: 'Bestellungen suchen',
-                hintText: 'Auftrags-ID, Kunde, Trackingcode, Zahlart, Datum',
+                hintText: 'Auftrags-ID, Kunde, Firma, Trade Show, Trackingcode, Zahlart, Datum',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _orderSearchQuery.trim().isEmpty
                     ? null
@@ -710,6 +737,8 @@ class _OrderPageState extends State<OrderPage> {
                           columns: [
                             DataColumn(label: const Text('Auftrags-ID'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Kunde'), onSort: _onOrderSort),
+                            DataColumn(label: const Text('Trade Show'), onSort: _onOrderSort),
+                            DataColumn(label: const Text('Putt'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Währung'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Netto'), numeric: true, onSort: _onOrderSort),
                             DataColumn(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort),
@@ -750,6 +779,8 @@ class _OrderPageState extends State<OrderPage> {
                                   onDoubleTap: () => handleOpenEdit(),
                                 ),
                                 DataCell(Text(_customerName(order.oCustomerId)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(order.oTradeShow.trim().isEmpty ? '-' : order.oTradeShow), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_puttLabel(order.oPutt)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(order.oCurrency), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_formatDecimal(order.oValueGoods, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_formatDecimal(order.oVat, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),

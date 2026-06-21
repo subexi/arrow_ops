@@ -10,6 +10,8 @@ class CustomerPageActions extends StatelessWidget {
     this.preferredDatabasePath,
     this.databaseStatusMessage,
     required this.searchController,
+    required this.searchFocusNode,
+    required this.onSearchChanged,
     required this.onCreateCustomer,
     required this.onRefresh,
   });
@@ -20,6 +22,8 @@ class CustomerPageActions extends StatelessWidget {
   final String? preferredDatabasePath;
   final String? databaseStatusMessage;
   final TextEditingController searchController;
+  final FocusNode searchFocusNode;
+  final ValueChanged<String> onSearchChanged;
   final VoidCallback onCreateCustomer;
   final VoidCallback onRefresh;
 
@@ -120,9 +124,29 @@ class CustomerPageActions extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
-        CupertinoSearchTextField(
-          controller: searchController,
-          placeholder: 'Kundendaten durchsuchen...',
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            if (!searchFocusNode.hasFocus) {
+              searchFocusNode.requestFocus();
+            }
+          },
+          child: TextField(
+            controller: searchController,
+            focusNode: searchFocusNode,
+            readOnly: false,
+            enabled: true,
+            onChanged: onSearchChanged,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Kundendaten durchsuchen...',
+              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
         ),
       ],
     );
