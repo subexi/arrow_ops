@@ -131,9 +131,7 @@ class InvoiceDocumentBuildService {
       isNoVatCustomer: customer.cVat,
       seller: _buildSeller(sellerProfile),
       buyer: _buildBuyer(customer),
-      delivery: documentKind == InvoiceDocumentKind.packingList
-          ? _buildBuyer(customer)
-          : _buildDelivery(customer),
+        delivery: _buildDelivery(customer),
       footer: _buildFooter(sellerProfile),
       lines: lines,
       totals: totals,
@@ -189,12 +187,12 @@ class InvoiceDocumentBuildService {
   }
 
   InvoicePartyData _buildDelivery(Customer customer) {
-    final deliveryName = _customerName(customer);
+    final deliveryName = _deliveryName(customer);
 
     return InvoicePartyData(
       name: deliveryName.isEmpty ? '-' : deliveryName,
       lastName: _normalizedOrFallback(customer.cLastName, '-'),
-      company: _normalizedOrFallback(customer.cCompany, '-'),
+      company: '-',
       street: _normalizedOrFallback(customer.cStreetD, '-'),
       houseNumber: _normalizedOrFallback(customer.cHouseNumberD, '-'),
       postalCode: _normalizedOrFallback(customer.cPostalCodeD, '-'),
@@ -209,6 +207,14 @@ class InvoiceDocumentBuildService {
       phone: _normalizedOrFallback(customer.cPhone, '-'),
       web: '-',
     );
+  }
+
+  String _deliveryName(Customer customer) {
+    final explicitDeliveryName = _normalizedOrFallback(customer.cCareofD, '').trim();
+    if (explicitDeliveryName.isNotEmpty && explicitDeliveryName != '-') {
+      return explicitDeliveryName;
+    }
+    return _customerName(customer);
   }
 
   InvoiceFooterData _buildFooter(InvoiceSellerProfile profile) {

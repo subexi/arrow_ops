@@ -1542,7 +1542,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         ),
         const SizedBox(height: 12),
         _buildCupertinoField(
-          label: '℅',
+          label: billing ? '℅' : 'Name',
           controller: billing ? _careofBControl : _careofDControl,
           focusNode: billing ? _careofBFocusNode : _careofDFocusNode,
         ),

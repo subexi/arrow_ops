@@ -35,8 +35,8 @@ void main() {
           'Beschreibung',
           'Menge ohne BOM',
           'EK netto (EUR)',
-          'Wert netto (EUR)',
-          'Verkauf netto (EUR)',
+          'Σ EK netto (EUR)',
+          'Σ Verkauf netto (EUR)',
           'Marge EUR',
         ]),
       );

@@ -72,6 +72,104 @@ void main() {
       expect(lines[1].bold, isTrue);
     });
   });
+
+  group('InvoicePdfService.debugBuildLineHeaders', () {
+    const service = InvoicePdfService();
+
+    test('uses legacy DE headers for reseller invoice with VAT-ID', () {
+      final data = _documentData(
+        language: 'DE',
+        isReseller: true,
+        isNoVatCustomer: true,
+        buyerVatId: 'DE123456789',
+      );
+
+      final headers = service.debugBuildLineHeaders(
+        data: data,
+        useGerman: true,
+        showDiscountColumn: false,
+      );
+
+      expect(headers.contains('Einzelpreis'), isTrue);
+      expect(headers.contains('Gesamtpreis'), isTrue);
+      expect(headers.contains('Einzelpreis netto'), isFalse);
+      expect(headers.contains('Gesamtpreis netto'), isFalse);
+    });
+
+    test('keeps DE netto headers for non-reseller net invoice', () {
+      final data = _documentData(
+        language: 'DE',
+        isReseller: false,
+        isNoVatCustomer: true,
+        buyerVatId: 'DE123456789',
+      );
+
+      final headers = service.debugBuildLineHeaders(
+        data: data,
+        useGerman: true,
+        showDiscountColumn: false,
+      );
+
+      expect(headers.contains('Einzelpreis'), isTrue);
+      expect(headers.contains('Gesamtpreis'), isTrue);
+      expect(headers.contains('Einzelpreis netto'), isFalse);
+      expect(headers.contains('Gesamtpreis netto'), isFalse);
+    });
+  });
+
+  group('InvoicePdfService.buildDefaultFileName', () {
+    const service = InvoicePdfService();
+
+    test('strips special characters from last name token', () {
+      final data = _documentData(lastName: 'Muller/Jager-Muller-Muller');
+
+      final fileName = service.buildDefaultFileName(data);
+
+      expect(fileName, equals('1001_Muller_Jager-Muller-Muller_in.pdf'));
+    });
+
+    test('falls back to Unbekannt when last name has no usable token', () {
+      final data = _documentData(lastName: '***');
+
+      final fileName = service.buildDefaultFileName(data);
+
+      expect(fileName, equals('1001_Unbekannt_in.pdf'));
+    });
+  });
+
+  group('InvoicePdfService.debugSanitizePdfText', () {
+    const service = InvoicePdfService();
+
+    test('converts escaped newline sequences to real line breaks when enabled', () {
+      final text = service.debugSanitizePdfText(
+        'Zeile 1\\nZeile 2',
+        preserveLineBreaks: true,
+      );
+
+      expect(text, equals('Zeile 1\nZeile 2'));
+    });
+
+    test('flattens line breaks to spaces in normal text mode', () {
+      final text = service.debugSanitizePdfText('Zeile 1\\nZeile 2');
+
+      expect(text, equals('Zeile 1 Zeile 2'));
+    });
+
+    test('converts visible return symbols to real line breaks', () {
+      final text = service.debugSanitizePdfText(
+        'Zeile 1↵Zeile 2⏎Zeile 3',
+        preserveLineBreaks: true,
+      );
+
+      expect(text, equals('Zeile 1\nZeile 2\nZeile 3'));
+    });
+
+    test('keeps bullet character instead of replacing it with star', () {
+      final text = service.debugSanitizePdfText('• Punkt A');
+
+      expect(text, equals('• Punkt A'));
+    });
+  });
 }
 
 InvoiceDocumentData _documentData({
@@ -79,6 +177,7 @@ InvoiceDocumentData _documentData({
   bool isReseller = false,
   bool isNoVatCustomer = false,
   String buyerVatId = '-',
+  String lastName = 'BuyerLastName',
   InvoiceDocumentKind kind = InvoiceDocumentKind.invoice,
 }) {
   return InvoiceDocumentData(
@@ -93,7 +192,11 @@ InvoiceDocumentData _documentData({
     isReseller: isReseller,
     isNoVatCustomer: isNoVatCustomer,
     seller: const InvoicePartyData(name: 'Seller'),
-    buyer: InvoicePartyData(name: 'Buyer', vatId: buyerVatId),
+    buyer: InvoicePartyData(
+      name: 'Buyer',
+      lastName: lastName,
+      vatId: buyerVatId,
+    ),
     delivery: const InvoicePartyData(name: 'Delivery'),
     footer: const InvoiceFooterData(),
     lines: const <InvoiceLineData>[],

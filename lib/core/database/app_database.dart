@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 12;
+  static const int _currentVersion = 16;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -31,6 +31,10 @@ class AppDatabase {
     DatabaseMigration(version: 10, run: _migrationV10),
     DatabaseMigration(version: 11, run: _migrationV11),
     DatabaseMigration(version: 12, run: _migrationV12),
+    DatabaseMigration(version: 13, run: _migrationV13),
+    DatabaseMigration(version: 14, run: _migrationV14),
+    DatabaseMigration(version: 15, run: _migrationV15),
+    DatabaseMigration(version: 16, run: _migrationV16),
   ];
 
   Future<Database> get database async {
@@ -643,6 +647,118 @@ class AppDatabase {
       await db.execute(
         'ALTER TABLE "order" ADD COLUMN o_putt INTEGER NOT NULL DEFAULT 0',
       );
+    }
+  }
+
+  static Future<void> _migrationV13(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS parts_procurement (
+        pp_id INTEGER NOT NULL PRIMARY KEY,
+        pp_idi TEXT NOT NULL DEFAULT '',
+        pp_purchase_date TEXT NOT NULL DEFAULT '',
+        pp_quantity INTEGER NOT NULL DEFAULT 0,
+        pp_price_net REAL NOT NULL DEFAULT 0,
+        pp_total_price_net REAL NOT NULL DEFAULT 0,
+        pp_description_de_long TEXT NOT NULL DEFAULT '',
+        pp_point_of_use TEXT NOT NULL DEFAULT '',
+        pp_part_source TEXT NOT NULL DEFAULT '',
+        pp_material TEXT NOT NULL DEFAULT '',
+        pp_note TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+  }
+
+  static Future<void> _migrationV14(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(parts_procurement)');
+    final hasDrawingColumn = columns.any(
+      (column) => column['name'] == 'pp_drawing',
+    );
+
+    if (!hasDrawingColumn) {
+      await db.execute(
+        "ALTER TABLE parts_procurement ADD COLUMN pp_drawing TEXT NOT NULL DEFAULT ''",
+      );
+    }
+  }
+
+  static Future<void> _migrationV15(Database db) async {
+    // Ensure pp_drawing column exists (added in V14)
+    final columns = await db.rawQuery('PRAGMA table_info(parts_procurement)');
+    final hasDrawingColumn = columns.any(
+      (column) => column['name'] == 'pp_drawing',
+    );
+
+    if (!hasDrawingColumn) {
+      await db.execute(
+        "ALTER TABLE parts_procurement ADD COLUMN pp_drawing TEXT NOT NULL DEFAULT ''",
+      );
+    }
+  }
+
+  static Future<void> _migrationV16(Database db) async {
+    // Remove Foreign Key constraint from parts_procurement table
+    // FK to ic_idi doesn't work because ic_idi is not unique
+    final columns = await db.rawQuery('PRAGMA table_info(parts_procurement)');
+    if (columns.isEmpty) {
+      return; // Table doesn't exist
+    }
+
+    // Temporarily disable FK checks to rebuild table
+    await db.execute('PRAGMA foreign_keys = OFF');
+    try {
+      // Check if we need to rebuild (table might already be correct)
+      final tableInfo = await db.rawQuery(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='parts_procurement'",
+      );
+      final tableSql = tableInfo.isNotEmpty ? tableInfo.first['sql']?.toString() ?? '' : '';
+      
+      // If table still has FOREIGN KEY constraint, rebuild it without FK
+      if (tableSql.contains('FOREIGN KEY')) {
+        // Save existing data
+        final existingRows = await db.query('parts_procurement');
+
+        // Drop old table
+        await db.execute('DROP TABLE parts_procurement');
+
+        // Create new table without Foreign Key
+        await db.execute('''
+          CREATE TABLE parts_procurement (
+            pp_id INTEGER NOT NULL PRIMARY KEY,
+            pp_idi TEXT NOT NULL DEFAULT '',
+            pp_purchase_date TEXT NOT NULL DEFAULT '',
+            pp_quantity INTEGER NOT NULL DEFAULT 0,
+            pp_price_net REAL NOT NULL DEFAULT 0,
+            pp_total_price_net REAL NOT NULL DEFAULT 0,
+            pp_description_de_long TEXT NOT NULL DEFAULT '',
+            pp_point_of_use TEXT NOT NULL DEFAULT '',
+            pp_part_source TEXT NOT NULL DEFAULT '',
+            pp_material TEXT NOT NULL DEFAULT '',
+            pp_note TEXT NOT NULL DEFAULT '',
+            pp_drawing TEXT NOT NULL DEFAULT ''
+          )
+        ''');
+
+        // Restore all data
+        for (final row in existingRows) {
+          await db.insert('parts_procurement', {
+            'pp_id': row['pp_id'],
+            'pp_idi': row['pp_idi'] ?? '',
+            'pp_purchase_date': row['pp_purchase_date'] ?? '',
+            'pp_quantity': row['pp_quantity'] ?? 0,
+            'pp_price_net': row['pp_price_net'] ?? 0,
+            'pp_total_price_net': row['pp_total_price_net'] ?? 0,
+            'pp_description_de_long': row['pp_description_de_long'] ?? '',
+            'pp_point_of_use': row['pp_point_of_use'] ?? '',
+            'pp_part_source': row['pp_part_source'] ?? '',
+            'pp_material': row['pp_material'] ?? '',
+            'pp_note': row['pp_note'] ?? '',
+            'pp_drawing': row['pp_drawing'] ?? '',
+          });
+        }
+      }
+    } finally {
+      // Re-enable Foreign Keys
+      await db.execute('PRAGMA foreign_keys = ON');
     }
   }
 }

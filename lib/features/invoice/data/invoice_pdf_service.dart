@@ -27,6 +27,9 @@ class InvoicePdfService {
   static const double _totalsLabelWidth = 130;
   static const double _totalsInnerGap = 8;
   static const double _totalsValueRightInset = 4;
+  static const double _invoiceTableHeaderFontSize = 7.0;
+  static const double _invoiceTablePriceColumnWidth = 58;
+  static const double _invoiceTableArticleColumnWidth = 80;
   static const String _giroRecipient = 'Arrow-Engineering UG';
   static const String _giroIban = 'DE47 6025 0010 1000 835 126';
   static const String _paypalRecipient = 'sales@arrow-fix.com';
@@ -121,12 +124,7 @@ class InvoicePdfService {
     }
 
     final normalizedParts = parts
-        .map(
-          (part) => part.replaceAll(
-            RegExp(r'[^A-Za-z0-9ÄÖÜäöüß_-]'),
-            '',
-          ),
-        )
+        .map(_sanitizeFileNameToken)
         .where((part) => part.isNotEmpty)
         .toList(growable: false);
 
@@ -135,6 +133,41 @@ class InvoicePdfService {
     }
 
     return normalizedParts.join('_');
+  }
+
+  String _sanitizeFileNameToken(String raw) {
+    final ascii = _replaceGermanChars(raw)
+        .replaceAll('\u00A0', ' ')
+        .replaceAll('\u2007', ' ')
+        .replaceAll('\u202F', ' ')
+        .replaceAll('\u2013', '-')
+        .replaceAll('\u2014', '-')
+        .replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+
+    if (ascii.isEmpty) {
+      return '';
+    }
+
+    return ascii;
+  }
+
+  String _replaceGermanChars(String value) {
+    return value
+        .replaceAll('Ae', 'Ae')
+        .replaceAll('Oe', 'Oe')
+        .replaceAll('Ue', 'Ue')
+        .replaceAll('ae', 'ae')
+        .replaceAll('oe', 'oe')
+        .replaceAll('ue', 'ue')
+        .replaceAll('Ä', 'Ae')
+        .replaceAll('Ö', 'Oe')
+        .replaceAll('Ü', 'Ue')
+        .replaceAll('ä', 'ae')
+        .replaceAll('ö', 'oe')
+        .replaceAll('ü', 'ue')
+        .replaceAll('ß', 'ss');
   }
 
   Future<pw.MemoryImage?> _loadLogoImage() async {
@@ -300,7 +333,7 @@ class InvoicePdfService {
       crossAxisAlignment: cross,
       children: [
         pw.Text(
-          label,
+          _sanitizePdfText(label),
           style: pw.TextStyle(
             fontSize: 8,
             color: PdfColors.grey700,
@@ -308,7 +341,7 @@ class InvoicePdfService {
           ),
         ),
         pw.SizedBox(height: 2),
-        pw.Text(value, style: const pw.TextStyle(fontSize: 9)),
+        pw.Text(_sanitizePdfText(value), style: const pw.TextStyle(fontSize: 9)),
       ],
     );
   }
@@ -325,7 +358,7 @@ class InvoicePdfService {
         pw.Divider(color: PdfColors.grey500, height: 0.4),
         pw.SizedBox(height: 6),
         pw.Text(
-          '$label: $documentNumber',
+          _sanitizePdfText('$label: $documentNumber'),
           style: pw.TextStyle(fontSize: 12.5, fontWeight: pw.FontWeight.bold),
         ),
       ],
@@ -334,15 +367,19 @@ class InvoicePdfService {
 
   pw.Widget _buildIntroSection(InvoiceDocumentData data, bool useGerman) {
     final introLines = debugBuildIntroLines(data, useGerman);
+    final useLegacyGermanResellerLayout = _useLegacyGermanResellerLayout(
+      data,
+      useGerman,
+    );
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         for (final line in introLines)
           pw.Text(
-            line.text,
+            _sanitizePdfText(line.text),
             style: pw.TextStyle(
-              fontSize: line.bold ? 9 : 8.6,
+              fontSize: useLegacyGermanResellerLayout ? 9 : (line.bold ? 9 : 8.6),
               fontWeight: line.bold ? pw.FontWeight.bold : pw.FontWeight.normal,
             ),
           ),
@@ -471,7 +508,7 @@ class InvoicePdfService {
 
   pw.Widget _partyLine(String text, {double fontSize = 9.6}) {
     return pw.Text(
-      text,
+      _sanitizePdfText(text),
       style: pw.TextStyle(fontSize: fontSize, lineSpacing: 1.15),
     );
   }
@@ -486,13 +523,13 @@ class InvoicePdfService {
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Text(
-          label,
+          _sanitizePdfText(label),
           style: pw.TextStyle(fontSize: fontSize, lineSpacing: 1.15),
         ),
         pw.UrlLink(
           destination: url,
           child: pw.Text(
-            linkText,
+            _sanitizePdfText(linkText),
             style: pw.TextStyle(
               fontSize: fontSize,
               lineSpacing: 1.15,
@@ -507,33 +544,21 @@ class InvoicePdfService {
 
   pw.Widget _buildLinesTable(InvoiceDocumentData data, bool useGerman) {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
-    final isNetBasis = data.priceBasis.trim().toLowerCase() == 'net';
     final showDiscountColumn =
         !isPackingList &&
         data.lines.any((line) => line.discountPercent.abs() > 0.0001);
-
-    final headers = <String>[
-      useGerman ? 'Pos' : 'Pos.',
-      useGerman ? 'Artikel' : 'ID',
-      useGerman ? 'Bezeichnung' : 'Description',
-      useGerman ? 'Menge' : 'Qty',
-      if (!isPackingList)
-        useGerman
-            ? (isNetBasis ? 'Einzelpreis netto' : 'Einzelpreis')
-            : (isNetBasis ? 'Unit price (net)' : 'Unit price'),
-      if (showDiscountColumn) useGerman ? 'Rabatt %' : 'Discount %',
-      if (!isPackingList)
-        useGerman
-            ? (isNetBasis ? 'Gesamtpreis netto' : 'Gesamtpreis')
-            : (isNetBasis ? 'Total (net)' : 'Total'),
-    ];
+    final headers = _lineTableHeaders(
+      data: data,
+      useGerman: useGerman,
+      showDiscountColumn: showDiscountColumn,
+    );
 
     final rows = data.lines
         .map((line) {
           return <String>[
             line.position.toString(),
-            line.articleLabel,
-            line.description,
+            _sanitizePdfText(line.articleLabel),
+            _sanitizePdfText(line.description, preserveLineBreaks: true),
             line.quantity.toString(),
             if (!isPackingList)
               _formatMoney(line.unitPrice, data.currency, useGerman),
@@ -547,12 +572,15 @@ class InvoicePdfService {
     const accentRed = PdfColor(0.82, 0.18, 0.16);
 
     return pw.TableHelper.fromTextArray(
-      headers: headers,
+      headers: headers.map(_noWrapHeaderText).toList(growable: false),
       data: rows,
       headerDecoration: const pw.BoxDecoration(),
-      headerStyle: pw.TextStyle(fontSize: 7.6, fontWeight: pw.FontWeight.bold),
+      headerStyle: pw.TextStyle(
+        fontSize: _invoiceTableHeaderFontSize,
+        fontWeight: pw.FontWeight.bold,
+      ),
       cellStyle: const pw.TextStyle(fontSize: 8.5),
-      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 3),
       cellAlignment: pw.Alignment.centerLeft,
       cellAlignments: <int, pw.Alignment>{
         3: pw.Alignment.center,
@@ -575,14 +603,59 @@ class InvoicePdfService {
       ),
       columnWidths: <int, pw.TableColumnWidth>{
         0: const pw.FixedColumnWidth(30),
-        1: const pw.FixedColumnWidth(88),
+        1: const pw.FixedColumnWidth(_invoiceTableArticleColumnWidth),
         3: const pw.FixedColumnWidth(40),
-        if (!isPackingList) 4: const pw.FixedColumnWidth(62),
+        if (!isPackingList)
+          4: const pw.FixedColumnWidth(_invoiceTablePriceColumnWidth),
         if (showDiscountColumn) 5: const pw.FixedColumnWidth(45),
         if (!isPackingList)
-          (showDiscountColumn ? 6 : 5): const pw.FixedColumnWidth(62),
+          (showDiscountColumn ? 6 : 5):
+              const pw.FixedColumnWidth(_invoiceTablePriceColumnWidth),
       },
     );
+  }
+
+  @visibleForTesting
+  List<String> debugBuildLineHeaders({
+    required InvoiceDocumentData data,
+    required bool useGerman,
+    required bool showDiscountColumn,
+  }) {
+    return _lineTableHeaders(
+      data: data,
+      useGerman: useGerman,
+      showDiscountColumn: showDiscountColumn,
+    );
+  }
+
+  @visibleForTesting
+  String debugSanitizePdfText(String text, {bool preserveLineBreaks = false}) {
+    return _sanitizePdfText(text, preserveLineBreaks: preserveLineBreaks);
+  }
+
+  List<String> _lineTableHeaders({
+    required InvoiceDocumentData data,
+    required bool useGerman,
+    required bool showDiscountColumn,
+  }) {
+    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    final isNetBasis = data.priceBasis.trim().toLowerCase() == 'net';
+
+    return <String>[
+      useGerman ? 'Pos' : 'Pos.',
+      useGerman ? 'Artikel' : 'ID',
+      useGerman ? 'Bezeichnung' : 'Description',
+      useGerman ? 'Menge' : 'Qty',
+      if (!isPackingList)
+        useGerman
+            ? 'Einzelpreis'
+            : (isNetBasis ? 'Unit price (net)' : 'Unit price'),
+      if (showDiscountColumn) useGerman ? 'Rabatt %' : 'Discount %',
+      if (!isPackingList)
+        useGerman
+            ? 'Gesamtpreis'
+            : (isNetBasis ? 'Total (net)' : 'Total'),
+    ];
   }
 
   pw.Widget _buildTotalsSection(InvoiceDocumentData data, bool useGerman) {
@@ -1067,7 +1140,7 @@ class InvoicePdfService {
             (line) => pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 1.2),
               child: pw.Text(
-                line,
+                _sanitizePdfText(line),
                 style: const pw.TextStyle(fontSize: 7.8, lineSpacing: 1.1),
               ),
             ),
@@ -1100,7 +1173,7 @@ class InvoicePdfService {
       if (_valid(postalCityLine)) postalCityLine,
       if (_valid(countryLine)) countryLine,
     ];
-    return parts.join(' | ');
+    return _sanitizePdfText(parts.join(' | '));
   }
 
   bool _shouldPlaceHouseNumberFirst({
@@ -1447,6 +1520,62 @@ class InvoicePdfService {
   String _formatWeight(double gram, bool useGerman) {
     final fixed = gram.toStringAsFixed(1);
     return useGerman ? '${fixed.replaceAll('.', ',')} g' : '$fixed g';
+  }
+
+  bool _useLegacyGermanResellerLayout(InvoiceDocumentData data, bool useGerman) {
+    return useGerman &&
+        data.documentKind == InvoiceDocumentKind.invoice &&
+        data.isReseller &&
+        _valid(data.buyer.vatId);
+  }
+
+  String _sanitizePdfText(String text, {bool preserveLineBreaks = false}) {
+    if (text.isEmpty) {
+      return text;
+    }
+
+    final normalizedLineBreaks = text
+        .replaceAll('\\r\\n', '\n')
+        .replaceAll('\\n', '\n')
+        .replaceAll('\\r', '\n')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .replaceAll('\u21B5', '\n')
+        .replaceAll('\u21B2', '\n')
+        .replaceAll('\u23CE', '\n');
+
+    final sanitized = normalizedLineBreaks
+        .replaceAll('\u00A0', ' ')
+        .replaceAll('\u2007', ' ')
+        .replaceAll('\u202F', ' ')
+        .replaceAll('\u2018', "'")
+        .replaceAll('\u2019', "'")
+        .replaceAll('\u201A', ',')
+        .replaceAll('\u201C', '"')
+        .replaceAll('\u201D', '"')
+        .replaceAll('\u201E', '"')
+        .replaceAll('\u2013', '-')
+        .replaceAll('\u2014', '-')
+        .replaceAll('\u2026', '...');
+
+    final withoutControls = sanitized.replaceAll(
+      RegExp(r'[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]'),
+      '',
+    );
+
+    if (preserveLineBreaks) {
+      return withoutControls;
+    }
+
+    return withoutControls
+        .replaceAll('\r\n', ' ')
+        .replaceAll('\r', ' ')
+        .replaceAll('\n', ' ');
+  }
+
+  String _noWrapHeaderText(String text) {
+    final sanitized = _sanitizePdfText(text);
+    return sanitized.replaceAll(' ', '\u00A0');
   }
 
   bool _valid(String? value) {

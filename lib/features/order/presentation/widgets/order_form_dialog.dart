@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../customer/domain/customer.dart';
@@ -24,8 +26,12 @@ class OrderFormDialog extends StatefulWidget {
 
 class _OrderFormDialogState extends State<OrderFormDialog> {
   final _formKey = GlobalKey<FormState>();
+  final _orderIdFocusNode = FocusNode();
   final _noteFocusNode = FocusNode();
   final _paypalFeeFocusNode = FocusNode();
+  Timer? _customerSearchDebounce;
+
+  static const int _maxCustomerSearchResults = 100;
 
   late final TextEditingController _orderIdController;
   late final TextEditingController _customerSearchController;
@@ -54,6 +60,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   List<Customer> _filteredCustomers = [];
   bool _showCustomerDropdown = false;
   bool _isRecalculatingPaypalFee = false;
+  bool _isUpdatingDateFromOrderId = false;
 
   static const int _paypalPaymentCode = 1;
   static const int _cashPaymentCode = 4;
@@ -101,6 +108,12 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
 
     _syncPriceBasisWithCurrency();
     _setVatRateForPriceBasis();
+    _orderIdController.addListener(_syncDateFromOrderId);
+    _orderIdFocusNode.addListener(() {
+      if (!_orderIdFocusNode.hasFocus) {
+        _syncDateFromOrderId();
+      }
+    });
     _refreshTotalWeightFromAssignedItems();
     _refreshGoodsValuesForCurrentBasis();
     _valueGoodsController.addListener(_refreshGoodsValuesForCurrentBasis);
@@ -132,6 +145,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
 
   @override
   void dispose() {
+    _customerSearchDebounce?.cancel();
     _orderIdController.dispose();
     _customerSearchController.dispose();
     _dateController.dispose();
@@ -148,9 +162,27 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _tradeShowController.dispose();
     _trackingCodeController.dispose();
     _noteController.dispose();
+    _orderIdFocusNode.dispose();
     _paypalFeeFocusNode.dispose();
     _noteFocusNode.dispose();
     super.dispose();
+  }
+
+  void _syncDateFromOrderId() {
+    if (_isUpdatingDateFromOrderId) {
+      return;
+    }
+    final derived = _deriveDateFromOrderId(_orderIdController.text);
+    if (derived == null || _dateController.text == derived) {
+      return;
+    }
+
+    _isUpdatingDateFromOrderId = true;
+    _dateController.value = TextEditingValue(
+      text: derived,
+      selection: TextSelection.collapsed(offset: derived.length),
+    );
+    _isUpdatingDateFromOrderId = false;
   }
 
   void _clearNotePlaceholderOnFocus() {
@@ -168,6 +200,30 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   String _generateOrderId() {
     final now = DateTime.now();
     return '${(now.year % 100).toString().padLeft(2, '0')}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+  }
+
+  String? _deriveDateFromOrderId(String orderId) {
+    final digits = orderId.replaceAll(RegExp(r'\D'), '');
+    final match = RegExp(r'^(\d{2})(\d{2})(\d{2})(\d{0,})$').firstMatch(digits);
+    if (match == null) {
+      return null;
+    }
+
+    final year2 = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final day = int.tryParse(match.group(3) ?? '');
+    if (year2 == null || month == null || day == null) {
+      return null;
+    }
+
+    final year = year2 >= 70 ? 1900 + year2 : 2000 + year2;
+    final date = DateTime.tryParse(
+      '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
+    );
+    if (date == null) {
+      return null;
+    }
+    return _formatIsoDate(date);
   }
 
   String _todayString() {
@@ -512,6 +568,16 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _filterCustomers(String query) {
+    _customerSearchDebounce?.cancel();
+    _customerSearchDebounce = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) {
+        return;
+      }
+      _filterCustomersNow(query);
+    });
+  }
+
+  void _filterCustomersNow(String query) {
     final q = query.trim().toLowerCase();
     setState(() {
       _showCustomerDropdown = q.isNotEmpty;
@@ -519,13 +585,22 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
         _filteredCustomers = widget.allCustomers;
         return;
       }
-      _filteredCustomers = widget.allCustomers.where((c) {
-        return c.cLastName.toLowerCase().contains(q) ||
+      final matches = <Customer>[];
+      for (final c in widget.allCustomers) {
+        final isMatch = c.cLastName.toLowerCase().contains(q) ||
             c.cFirstName.toLowerCase().contains(q) ||
             c.cCityB.toLowerCase().contains(q) ||
             c.cCompany.toLowerCase().contains(q) ||
             c.cId.toLowerCase().contains(q);
-      }).toList(growable: false);
+        if (!isMatch) {
+          continue;
+        }
+        matches.add(c);
+        if (matches.length >= _maxCustomerSearchResults) {
+          break;
+        }
+      }
+      _filteredCustomers = matches;
     });
   }
 
@@ -593,7 +668,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                 _field(
                   _orderIdController,
                   'Auftrags-ID',
-                  readOnly: !_canEditOrderId,
+                  focusNode: _orderIdFocusNode,
+                  readOnly: _isEditing && !_canEditOrderId,
                   validator: (v) {
                     final value = v?.trim() ?? '';
                     if (value.isEmpty) {
@@ -604,6 +680,13 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     }
                     return null;
                   },
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Hinweis: Format JJMMTTHHMM. Das Bestelldatum wird daraus automatisch abgeleitet.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 12),
 

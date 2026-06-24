@@ -40,8 +40,8 @@ List<String> wareinsatzExportHeaders(WareinsatzScope scope) {
         'Beschreibung',
         'Menge ohne BOM',
         'EK netto (EUR)',
-        'Wert netto (EUR)',
-        'Verkauf netto (EUR)',
+        'Σ EK netto (EUR)',
+        'Σ Verkauf netto (EUR)',
         'Marge EUR',
       ],
   };
@@ -357,8 +357,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               if (showGesamtmengeColumn)
                 _summaryChip('Gesamtmenge', _formatQuantity(totalGesamtmenge)),
               if (showFinancialColumns) ...[
-                _summaryChip('Wert (EUR netto)', _formatMoney(totalValue)),
-                _summaryChip('Verkauf (EUR netto)', _formatMoney(totalSalesNet)),
+                _summaryChip('Σ Wert EK (EUR)', _formatMoney(totalValue)),
+                _summaryChip('Σ Verkauf (EUR)', _formatMoney(totalSalesNet)),
                 _summaryChip(
                   _selectedMarginDisplay == _MarginDisplay.percent
                       ? 'Marge % auf EK'
@@ -438,13 +438,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                             ),
                             DataColumn(
                               numeric: true,
-                              label: const Text('Wert netto (EUR)'),
+                              label: const Text('Σ EK netto (EUR)'),
                               onSort: (columnIndex, ascending) =>
                                   _onWareneinsatzSortChanged(columnIndex, ascending),
                             ),
                             DataColumn(
                               numeric: true,
-                              label: const Text('Verkauf netto (EUR)'),
+                              label: const Text('Σ Verkauf netto (EUR)'),
                               onSort: (columnIndex, ascending) =>
                                   _onWareneinsatzSortChanged(columnIndex, ascending),
                             ),

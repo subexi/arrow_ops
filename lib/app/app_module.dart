@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../features/analytics/presentation/analytics_page.dart';
 import '../features/customer/presentation/customer_page.dart';
+import '../features/inventory/presentation/parts_procurement_page.dart';
 import '../features/invoice/presentation/invoice_page.dart';
 import '../features/item/presentation/item_catalogue_page.dart';
 import '../features/order/presentation/order_page.dart';
@@ -9,7 +10,15 @@ import '../features/sync/presentation/sync_page.dart';
 
 typedef ArrowOpsPageBuilder = Widget Function(BuildContext context);
 
-enum ArrowOpsModuleId { customers, items, orders, invoices, analytics, sync }
+enum ArrowOpsModuleId {
+  customers,
+  items,
+  orders,
+  inventory,
+  invoices,
+  analytics,
+  sync,
+}
 
 class ArrowOpsModule {
   const ArrowOpsModule({
@@ -51,6 +60,13 @@ class ArrowOpsModules {
       icon: Icons.assignment_outlined,
       selectedIcon: Icons.assignment,
       buildPage: (_) => const OrderPage(),
+    ),
+    ArrowOpsModule(
+      id: ArrowOpsModuleId.inventory,
+      label: 'Bestandsführung',
+      icon: Icons.inventory_outlined,
+      selectedIcon: Icons.inventory,
+      buildPage: (_) => const PartsProcurementPage(),
     ),
     ArrowOpsModule(
       id: ArrowOpsModuleId.invoices,

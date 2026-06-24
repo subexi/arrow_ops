@@ -98,7 +98,7 @@ class CustomerDetailDialog extends StatelessWidget {
     ]);
 
     final deliverySection = _buildSection('Lieferadresse', [
-      _buildField('℅', customer.cCareofD),
+      _buildField('Name', customer.cCareofD),
       _buildField(
         'Straße',
         _buildStreetLine(
