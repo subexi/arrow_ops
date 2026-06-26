@@ -42,6 +42,7 @@ class InvoicePdfService {
     final boldFont = embeddedBoldFont ?? pw.Font.helveticaBold();
     final useGerman = data.language.trim().toUpperCase() == 'DE';
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    final showDeliveryAddressRubric = _shouldShowDeliveryAddressRubric(data);
     final logoImage = await _loadLogoImage();
 
     document.addPage(
@@ -53,7 +54,10 @@ class InvoicePdfService {
         build: (context) => [
           _buildHeader(data, useGerman, logoImage),
           pw.SizedBox(height: 0),
-          _buildParties(data, useGerman),
+          if (showDeliveryAddressRubric)
+            _buildParties(data, useGerman)
+          else
+            pw.Opacity(opacity: 0, child: _buildParties(data, useGerman)),
           pw.SizedBox(height: 16),
           _buildOrderMetaRow(data, useGerman),
           pw.SizedBox(height: 8),
@@ -90,11 +94,99 @@ class InvoicePdfService {
       data.orderId,
       data.invoiceNumber,
     );
-    final lastNameToken = _normalizedLastNameToken(data.buyer.lastName);
-    final suffix = data.documentKind == InvoiceDocumentKind.packingList
-        ? 'pl'
-        : 'in';
-    return '${numberToken}_${lastNameToken}_$suffix.pdf';
+    final customerLastNameToken = _normalizedLastNameToken(data.buyer.lastName);
+    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    if (isPackingList && _isDeliveryAddressDifferent(data)) {
+      final endCustomerLastNameToken = _normalizedEndCustomerLastNameToken(
+        data.delivery.name,
+      );
+      return '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_pl.pdf';
+    }
+
+    final suffix = isPackingList ? 'pl' : 'in';
+    return '${numberToken}_${customerLastNameToken}_$suffix.pdf';
+  }
+
+  String _normalizedEndCustomerLastNameToken(String rawDeliveryName) {
+    final parts = rawDeliveryName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty && part != '-')
+        .toList(growable: false);
+    if (parts.isEmpty) {
+      return 'Unbekannt';
+    }
+
+    for (var index = parts.length - 1; index >= 0; index--) {
+      final token = _sanitizeFileNameToken(parts[index]);
+      if (token.isNotEmpty) {
+        return token;
+      }
+    }
+
+    return 'Unbekannt';
+  }
+
+  bool _isDeliveryAddressDifferent(InvoiceDocumentData data) {
+    final buyerStreet = _normalizedAddressField(data.buyer.street);
+    final deliveryStreet = _normalizedAddressField(data.delivery.street);
+    final buyerHouseNumber = _normalizedAddressField(data.buyer.houseNumber);
+    final deliveryHouseNumber = _normalizedAddressField(data.delivery.houseNumber);
+    final buyerPostalCode = _normalizedAddressField(data.buyer.postalCode);
+    final deliveryPostalCode = _normalizedAddressField(data.delivery.postalCode);
+    final buyerCity = _normalizedAddressField(data.buyer.city);
+    final deliveryCity = _normalizedAddressField(data.delivery.city);
+    final buyerState = _normalizedAddressField(data.buyer.state);
+    final deliveryState = _normalizedAddressField(data.delivery.state);
+    final buyerCountryCode = _normalizedAddressField(data.buyer.countryCode)
+        .toUpperCase();
+    final deliveryCountryCode = _normalizedAddressField(data.delivery.countryCode)
+        .toUpperCase();
+
+    return buyerStreet != deliveryStreet ||
+        buyerHouseNumber != deliveryHouseNumber ||
+        buyerPostalCode != deliveryPostalCode ||
+        buyerCity != deliveryCity ||
+      buyerState != deliveryState ||
+        buyerCountryCode != deliveryCountryCode;
+  }
+
+  String _normalizedAddressField(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty || value == '-') {
+      return '';
+    }
+    return value;
+  }
+
+  @visibleForTesting
+  bool debugShouldShowDeliveryAddressRubric(InvoiceDocumentData data) {
+    return _shouldShowDeliveryAddressRubric(data);
+  }
+
+  @visibleForTesting
+  bool debugUsesBuyerForShippingRubric(InvoiceDocumentData data) {
+    return identical(_shippingRubricParty(data), data.buyer);
+  }
+
+  InvoicePartyData _recipientForWindowAddress(InvoiceDocumentData data) {
+    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    if (isPackingList && _isDeliveryAddressDifferent(data)) {
+      return data.delivery;
+    }
+    return data.buyer;
+  }
+
+  InvoicePartyData _shippingRubricParty(InvoiceDocumentData data) {
+    if (!_isDeliveryAddressDifferent(data)) {
+      return data.buyer;
+    }
+    return data.delivery;
+  }
+
+  bool _shouldShowDeliveryAddressRubric(InvoiceDocumentData data) {
+    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    return !isPackingList || _isDeliveryAddressDifferent(data);
   }
 
   String _normalizedNumberToken(String orderId, String invoiceNumber) {
@@ -197,8 +289,9 @@ class InvoicePdfService {
     bool useGerman,
     pw.MemoryImage? logoImage,
   ) {
+    final recipient = _recipientForWindowAddress(data);
     final buyerHouseNumberFirst = _shouldPlaceHouseNumberFirst(
-      countryCode: data.buyer.countryCode,
+      countryCode: recipient.countryCode,
       useGerman: useGerman,
     );
     final sellerHouseNumberFirst = _shouldPlaceHouseNumberFirst(
@@ -225,7 +318,7 @@ class InvoicePdfService {
                 pw.SizedBox(height: 1),
                 _buildPartyBlock(
                   '',
-                  data.buyer,
+                  recipient,
                   useGerman: useGerman,
                   includeContacts: false,
                   includeVat: false,
@@ -277,8 +370,9 @@ class InvoicePdfService {
   }
 
   pw.Widget _buildParties(InvoiceDocumentData data, bool useGerman) {
+    final shippingParty = _shippingRubricParty(data);
     final deliveryHouseNumberFirst = _shouldPlaceHouseNumberFirst(
-      countryCode: data.delivery.countryCode,
+      countryCode: shippingParty.countryCode,
       useGerman: useGerman,
     );
 
@@ -291,7 +385,7 @@ class InvoicePdfService {
           width: _rightAlignedBlockWidth,
           child: _buildPartyBlock(
             useGerman ? 'Lieferadresse' : 'Shipping address',
-            data.delivery,
+            shippingParty,
             useGerman: useGerman,
             includeContacts: false,
             includeVat: false,
@@ -399,7 +493,10 @@ class InvoicePdfService {
     final lines = <({String text, bool bold})>[];
 
     final hasIntraCommunityNote =
-        useGerman && data.totals.vatRate <= 0 && _valid(data.buyer.vatId);
+      useGerman &&
+      !isPackingList &&
+      data.totals.vatRate <= 0 &&
+      _valid(data.buyer.vatId);
     if (hasIntraCommunityNote) {
       lines.add((
         text: 'Innergemeinschaftliche Lieferung, Ihre USt.-ID: ${data.buyer.vatId}',

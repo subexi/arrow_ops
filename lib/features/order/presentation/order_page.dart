@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../customer/data/customer_repository.dart';
 import '../../item/data/item_image_storage_service.dart';
 import '../../customer/domain/customer.dart';
+import '../../customer/domain/country_tld.dart';
 import '../../item/domain/item_models.dart';
 import '../data/order_repository.dart';
 import '../domain/order_models.dart';
@@ -29,6 +32,7 @@ class _OrderPageState extends State<OrderPage> {
   List<OrderRow> _orders = [];
   List<ItemOrderedRow> _items = [];
   List<Customer> _allCustomers = [];
+  List<CountryTld> _allCountries = [];
   Map<String, Customer> _customerById = {};
 
   bool _loading = true;
@@ -67,6 +71,7 @@ class _OrderPageState extends State<OrderPage> {
     try {
       final orders = await _orderRepo.getOrders();
       final customers = await _customerRepo.getAll();
+      final countries = await _customerRepo.getAllCountries();
       final customerMap = {for (final c in customers) c.cId: c};
 
       String? nextSelectedId = _selectedOrderId;
@@ -94,6 +99,7 @@ class _OrderPageState extends State<OrderPage> {
       setState(() {
         _orders = orders;
         _allCustomers = customers;
+        _allCountries = countries;
         _customerById = customerMap;
         _selectedOrderId = nextSelectedId;
         _items = items;
@@ -211,6 +217,166 @@ class _OrderPageState extends State<OrderPage> {
       return '';
     }
     return company;
+  }
+
+  Future<bool> _openMapInBrowser(String mapUrl) async {
+    final uri = Uri.tryParse(mapUrl);
+    if (uri == null) {
+      return false;
+    }
+    for (final mode in [LaunchMode.externalApplication, LaunchMode.platformDefault]) {
+      try {
+        if (await launchUrl(uri, mode: mode)) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  void _showOrderDeliveryMapDialog(OrderRow order) {
+    final lat = order.oDeliveryLat;
+    final lon = order.oDeliveryLon;
+
+    if ((lat == 0 && lon == 0) || lat.isNaN || lon.isNaN) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine gültigen Koordinaten für Lieferadresse vorhanden.')),
+      );
+      return;
+    }
+
+    final mapUrl = 'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon';
+    final location = LatLng(lat, lon);
+    final mapController = MapController();
+    final screenSize = MediaQuery.of(context).size;
+    final dialogWidth = (screenSize.width * 0.85).clamp(300.0, 760.0);
+    final mapHeight = (screenSize.height * 0.40).clamp(180.0, 320.0);
+    final label = _endCustomerLabel(order) == 'Dito'
+        ? _customerName(order.oCustomerId)
+        : _endCustomerLabel(order);
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Location: $label'),
+        content: SizedBox(
+          width: dialogWidth,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  height: mapHeight,
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: mapController,
+                        options: MapOptions(
+                          initialCenter: location,
+                          initialZoom: 16,
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.example.arrow_ops',
+                          ),
+                          MarkerLayer(
+                            markers: [
+                              Marker(
+                                width: 42,
+                                height: 42,
+                                point: location,
+                                child: const Icon(
+                                  Icons.location_pin,
+                                  color: Colors.red,
+                                  size: 40,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Material(
+                              color: Colors.white,
+                              elevation: 2,
+                              borderRadius: BorderRadius.circular(4),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(4),
+                                onTap: () => mapController.move(
+                                  mapController.camera.center,
+                                  mapController.camera.zoom + 1,
+                                ),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(6),
+                                  child: Icon(Icons.add, size: 20),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Material(
+                              color: Colors.white,
+                              elevation: 2,
+                              borderRadius: BorderRadius.circular(4),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(4),
+                                onTap: () => mapController.move(
+                                  mapController.camera.center,
+                                  mapController.camera.zoom - 1,
+                                ),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(6),
+                                  child: Icon(Icons.remove, size: 20),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SelectableText('Lat: $lat, Lon: $lon'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await _openMapInBrowser(mapUrl);
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Im Browser öffnen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Schliessen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _endCustomerLabel(OrderRow order) {
+    if (order.oDeliveryAddressDifferent == 0) {
+      return 'Dito';
+    }
+
+    final name = order.oDeliveryName.trim();
+    final city = order.oDeliveryCity.trim();
+    final safeName = (name.isEmpty || name == '-') ? '-' : name;
+    final safeCity = (city.isEmpty || city == '-') ? '-' : city;
+    return '$safeName, $safeCity';
   }
 
   String _puttLabel(int value) => value != 0 ? 'Ja' : '-';
@@ -349,6 +515,7 @@ class _OrderPageState extends State<OrderPage> {
     final haystack = <String>[
       order.oId,
       _customerName(order.oCustomerId),
+      _endCustomerLabel(order),
       _customerCompany(order.oCustomerId),
       order.oCustomerId,
       order.oTradeShow,
@@ -377,30 +544,32 @@ class _OrderPageState extends State<OrderPage> {
           cmp = _customerName(a.oCustomerId)
               .compareTo(_customerName(b.oCustomerId));
         case 2:
-          cmp = a.oTradeShow.compareTo(b.oTradeShow);
+          cmp = _endCustomerLabel(a).compareTo(_endCustomerLabel(b));
         case 3:
-          cmp = a.oPutt.compareTo(b.oPutt);
+          cmp = a.oTradeShow.compareTo(b.oTradeShow);
         case 4:
-          cmp = a.oCurrency.compareTo(b.oCurrency);
+          cmp = a.oPutt.compareTo(b.oPutt);
         case 5:
-          cmp = a.oValueGoods.compareTo(b.oValueGoods);
+          cmp = a.oCurrency.compareTo(b.oCurrency);
         case 6:
-          cmp = a.oVat.compareTo(b.oVat);
+          cmp = a.oValueGoods.compareTo(b.oValueGoods);
         case 7:
-          cmp = (a.oValueGoods + a.oVat).compareTo(b.oValueGoods + b.oVat);
+          cmp = a.oVat.compareTo(b.oVat);
         case 8:
-          cmp = a.oShipping.compareTo(b.oShipping);
+          cmp = (a.oValueGoods + a.oVat).compareTo(b.oValueGoods + b.oVat);
         case 9:
-          cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
+          cmp = a.oShipping.compareTo(b.oShipping);
         case 10:
-          cmp = a.oPayment.compareTo(b.oPayment);
+          cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
         case 11:
-          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
+          cmp = a.oPayment.compareTo(b.oPayment);
         case 12:
-          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
+          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
         case 13:
-          cmp = a.oPayDate.compareTo(b.oPayDate);
+          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
         case 14:
+          cmp = a.oPayDate.compareTo(b.oPayDate);
+        case 15:
           cmp = a.oDelivery.compareTo(b.oDelivery);
         default:
           cmp = a.oId.compareTo(b.oId);
@@ -412,9 +581,11 @@ class _OrderPageState extends State<OrderPage> {
 
   Future<void> _showOrderForm({OrderRow? initialValue}) async {
     final latestCustomers = await _customerRepo.getAll();
+    final latestCountries = await _customerRepo.getAllCountries();
     if (!mounted) return;
     setState(() {
       _allCustomers = latestCustomers;
+      _allCountries = latestCountries;
       _customerById = {for (final c in latestCustomers) c.cId: c};
     });
 
@@ -431,6 +602,7 @@ class _OrderPageState extends State<OrderPage> {
       barrierDismissible: false,
       builder: (context) => OrderFormDialog(
         allCustomers: _allCustomers,
+        allCountries: _allCountries,
         initialValue: initialValue,
         canEditOrderId: canEditOrderId,
         assignedItems: assignedItems,
@@ -706,7 +878,7 @@ class _OrderPageState extends State<OrderPage> {
               controller: _orderSearchController,
               decoration: InputDecoration(
                 labelText: 'Bestellungen suchen',
-                hintText: 'Auftrags-ID, Kunde, Firma, Trade Show, Trackingcode, Zahlart, Datum',
+                hintText: 'Auftrags-ID, Kunde, Endkunde, Firma, Trade Show, Trackingcode, Zahlart, Datum',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _orderSearchQuery.trim().isEmpty
                     ? null
@@ -737,6 +909,8 @@ class _OrderPageState extends State<OrderPage> {
                           columns: [
                             DataColumn(label: const Text('Auftrags-ID'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Kunde'), onSort: _onOrderSort),
+                            DataColumn(label: const Text('Endkunde'), onSort: _onOrderSort),
+                            const DataColumn(label: Text('Maps')),
                             DataColumn(label: const Text('Trade Show'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Putt'), onSort: _onOrderSort),
                             DataColumn(label: const Text('Währung'), onSort: _onOrderSort),
@@ -779,6 +953,32 @@ class _OrderPageState extends State<OrderPage> {
                                   onDoubleTap: () => handleOpenEdit(),
                                 ),
                                 DataCell(Text(_customerName(order.oCustomerId)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(Text(_endCustomerLabel(order)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                                DataCell(
+                                  Builder(
+                                    builder: (cellContext) {
+                                      final hasCoords = !(order.oDeliveryLat == 0 && order.oDeliveryLon == 0) &&
+                                          !order.oDeliveryLat.isNaN &&
+                                          !order.oDeliveryLon.isNaN;
+                                      return Tooltip(
+                                        message: hasCoords
+                                            ? 'Lieferadresse auf Karte anzeigen'
+                                            : 'Keine Koordinaten vorhanden',
+                                        child: IconButton(
+                                          onPressed: hasCoords
+                                              ? () => _showOrderDeliveryMapDialog(order)
+                                              : null,
+                                          icon: Icon(
+                                            Icons.location_on_outlined,
+                                            color: hasCoords
+                                                ? Theme.of(cellContext).colorScheme.primary
+                                                : Theme.of(cellContext).disabledColor,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
                                 DataCell(Text(order.oTradeShow.trim().isEmpty ? '-' : order.oTradeShow), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(_puttLabel(order.oPutt)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                                 DataCell(Text(order.oCurrency), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),

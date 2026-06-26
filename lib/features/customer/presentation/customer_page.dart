@@ -35,6 +35,16 @@ import 'widgets/customer_results_header.dart';
 
 export 'widgets/customer_paginated_table.dart' show CustomerDataTableSource;
 
+@visibleForTesting
+double computeEffectiveOrderNetGoods(OrderRow order) {
+  if (order.oValueGoods != 0) {
+    return order.oValueGoods;
+  }
+
+  // Fallback for legacy/unsynchronized orders where o_value_goods is not set.
+  return order.oTotalPrice - order.oShipping - order.oPaypalFee - order.oVat;
+}
+
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key, this.showModuleNavigation = true});
 
@@ -306,10 +316,15 @@ class _CustomerPageState extends State<CustomerPage> {
 
       final customerNetById = <String, double>{};
       for (final order in orders) {
+        final customerId = order.oCustomerId.trim();
+        if (customerId.isEmpty) {
+          continue;
+        }
+        final orderNet = computeEffectiveOrderNetGoods(order);
         customerNetById.update(
-          order.oCustomerId,
-          (value) => value + order.oValueGoods,
-          ifAbsent: () => order.oValueGoods,
+          customerId,
+          (value) => value + orderNet,
+          ifAbsent: () => orderNet,
         );
       }
 
@@ -697,7 +712,7 @@ class _CustomerPageState extends State<CustomerPage> {
             cells: [
               DataCell(Text(order.oId)),
               DataCell(Text(_formatDate(order.oDate))),
-              DataCell(Text(_formatMoney(order.oValueGoods))),
+              DataCell(Text(_formatMoney(computeEffectiveOrderNetGoods(order)))),
               DataCell(Text(itemCount?.toString() ?? '-')),
               DataCell(
                 IconButton(
@@ -757,11 +772,11 @@ class _CustomerPageState extends State<CustomerPage> {
         break;
       case 1:
         customers.sort((a, b) => _sortAscending
-            ? (_customerNetById[a.cId] ?? a.cTotalValueEur).compareTo(
-                _customerNetById[b.cId] ?? b.cTotalValueEur,
+            ? (_customerNetById[a.cId.trim()] ?? a.cTotalValueEur).compareTo(
+                _customerNetById[b.cId.trim()] ?? b.cTotalValueEur,
               )
-            : (_customerNetById[b.cId] ?? b.cTotalValueEur).compareTo(
-                _customerNetById[a.cId] ?? a.cTotalValueEur,
+            : (_customerNetById[b.cId.trim()] ?? b.cTotalValueEur).compareTo(
+                _customerNetById[a.cId.trim()] ?? a.cTotalValueEur,
               ));
         break;
       case 2:

@@ -475,7 +475,19 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
               children: [
                 _row2(
                   _field(_orderIdController, 'io_order_id', readOnly: true),
-                  _field(_posController, 'io_pos', readOnly: true),
+                  _field(
+                    _posController,
+                    'io_pos',
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      final trimmed = (value ?? '').trim();
+                      final parsed = int.tryParse(trimmed);
+                      if (parsed == null || parsed <= 0) {
+                        return 'Bitte eine gueltige Position > 0 eingeben.';
+                      }
+                      return null;
+                    },
+                  ),
                 ),
                 const SizedBox(height: 12),
                 DropdownMenu<int>(
@@ -582,6 +594,10 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
         ),
         FilledButton(
           onPressed: () {
+            if (!(_formKey.currentState?.validate() ?? false)) {
+              return;
+            }
+
             if (_selectedItemId == null) {
               setState(() {});
               return;

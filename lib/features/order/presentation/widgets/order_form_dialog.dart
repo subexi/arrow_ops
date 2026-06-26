@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
+import '../../../customer/domain/country_tld.dart';
 import '../../../customer/domain/customer.dart';
 import '../../../order/domain/order_models.dart';
 import '../../domain/paypal_fee_rules.dart';
@@ -10,12 +13,14 @@ class OrderFormDialog extends StatefulWidget {
   const OrderFormDialog({
     super.key,
     required this.allCustomers,
+    required this.allCountries,
     this.initialValue,
     this.canEditOrderId = true,
     this.assignedItems = const [],
   });
 
   final List<Customer> allCustomers;
+  final List<CountryTld> allCountries;
   final OrderRow? initialValue;
   final bool canEditOrderId;
   final List<ItemOrderedRow> assignedItems;
@@ -49,6 +54,15 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   late final TextEditingController _tradeShowController;
   late final TextEditingController _trackingCodeController;
   late final TextEditingController _noteController;
+  late final TextEditingController _deliveryNameController;
+  late final TextEditingController _deliveryStreetController;
+  late final TextEditingController _deliveryHouseNumberController;
+  late final TextEditingController _deliveryPostalCodeController;
+  late final TextEditingController _deliveryCityController;
+  late final TextEditingController _deliveryLatController;
+  late final TextEditingController _deliveryLonController;
+  late final TextEditingController _deliveryCountryController;
+  late String _deliveryCountryId;
 
   Customer? _selectedCustomer;
   String _currency = 'EUR';
@@ -61,6 +75,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   bool _showCustomerDropdown = false;
   bool _isRecalculatingPaypalFee = false;
   bool _isUpdatingDateFromOrderId = false;
+  bool _deliveryAddressDifferent = false;
+  bool _isFetchingDeliveryCoordinates = false;
 
   static const int _paypalPaymentCode = 1;
   static const int _cashPaymentCode = 4;
@@ -98,6 +114,31 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _tradeShowController = TextEditingController(text: v?.oTradeShow ?? '');
     _trackingCodeController = TextEditingController(text: v?.oTrackingCode ?? '');
     _noteController = TextEditingController(text: v?.oNote ?? '-');
+    _deliveryNameController = TextEditingController(
+      text: v?.oDeliveryName ?? '-',
+    );
+    _deliveryStreetController = TextEditingController(
+      text: v?.oDeliveryStreet ?? '-',
+    );
+    _deliveryHouseNumberController = TextEditingController(
+      text: v?.oDeliveryHouseNumber ?? '-',
+    );
+    _deliveryPostalCodeController = TextEditingController(
+      text: v?.oDeliveryPostalCode ?? '-',
+    );
+    _deliveryCityController = TextEditingController(
+      text: v?.oDeliveryCity ?? '-',
+    );
+    _deliveryLatController = TextEditingController(
+      text: (v?.oDeliveryLat ?? 0).toString(),
+    );
+    _deliveryLonController = TextEditingController(
+      text: (v?.oDeliveryLon ?? 0).toString(),
+    );
+    _deliveryCountryId = _normalizeCountryId(v?.oDeliveryCountryId);
+    _deliveryCountryController = TextEditingController(
+      text: _countryNameForId(_deliveryCountryId),
+    );
 
     _currency = v?.oCurrency ?? 'EUR';
     _language = v?.oLanguage ?? 'DE';
@@ -105,6 +146,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _payment = v?.oPayment ?? _paypalPaymentCode;
     _putt = (v?.oPutt ?? 0) != 0;
     _dealer = (v?.oDealer ?? 0) != 0;
+    _deliveryAddressDifferent = (v?.oDeliveryAddressDifferent ?? 0) != 0;
 
     _syncPriceBasisWithCurrency();
     _setVatRateForPriceBasis();
@@ -133,6 +175,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       if (existing != null) {
         _customerSearchController.text = _customerLabel(existing);
         _dealer = existing.cDealer;
+        _syncDeliveryFromSelectedCustomer(force: !_deliveryAddressDifferent);
         _applyNoVatCustomerRules();
         _setVatRateForPriceBasis();
         _refreshGoodsValuesForCurrentBasis();
@@ -162,6 +205,14 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _tradeShowController.dispose();
     _trackingCodeController.dispose();
     _noteController.dispose();
+    _deliveryNameController.dispose();
+    _deliveryStreetController.dispose();
+    _deliveryHouseNumberController.dispose();
+    _deliveryPostalCodeController.dispose();
+    _deliveryCityController.dispose();
+    _deliveryLatController.dispose();
+    _deliveryLonController.dispose();
+    _deliveryCountryController.dispose();
     _orderIdFocusNode.dispose();
     _paypalFeeFocusNode.dispose();
     _noteFocusNode.dispose();
@@ -609,6 +660,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       _selectedCustomer = c;
       _customerSearchController.text = _customerLabel(c);
       _dealer = c.cDealer;
+      _syncDeliveryFromSelectedCustomer(force: !_deliveryAddressDifferent);
       _applyNoVatCustomerRules();
       _setVatRateForPriceBasis();
       _refreshGoodsValuesForCurrentBasis();
@@ -616,6 +668,245 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       _showCustomerDropdown = false;
     });
   }
+
+  String _customerFullName(Customer customer) {
+    final firstName = customer.cFirstName.trim();
+    final lastName = customer.cLastName.trim();
+    return '$lastName $firstName'.trim();
+  }
+
+  String _normalizeCountryId(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase();
+    if (normalized.isEmpty || normalized == '-') {
+      return '';
+    }
+    return normalized;
+  }
+
+  String _normalizeCountryForStorage(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return '-';
+    }
+    return normalized;
+  }
+
+  String _countryNameForId(String? countryId) {
+    final normalizedId = _normalizeCountryId(countryId);
+    if (normalizedId.isEmpty) {
+      return '';
+    }
+
+    for (final country in widget.allCountries) {
+      if (country.coTld.toLowerCase() == normalizedId) {
+        return country.coName;
+      }
+    }
+    return normalizedId.toUpperCase();
+  }
+
+  String _tldToIso(String tld) {
+    const mapping = <String, String>{
+      'uk': 'gb',
+      'ac': 'sh',
+      'eu': '',
+    };
+    return mapping[tld] ?? tld;
+  }
+
+  bool _isIsoAlpha2CountryCode(String value) {
+    return RegExp(r'^[a-z]{2}$').hasMatch(value);
+  }
+
+  void _syncDeliveryFromSelectedCustomer({bool force = false}) {
+    final customer = _selectedCustomer;
+    if (customer == null) {
+      return;
+    }
+    if (!force && _deliveryAddressDifferent) {
+      return;
+    }
+
+    _deliveryNameController.text = _customerFullName(customer).isEmpty
+        ? '-'
+        : _customerFullName(customer);
+    _deliveryStreetController.text = customer.cStreetB.trim().isEmpty
+        ? '-'
+        : customer.cStreetB.trim();
+    _deliveryHouseNumberController.text =
+        customer.cHouseNumberB.trim().isEmpty ? '-' : customer.cHouseNumberB.trim();
+    _deliveryPostalCodeController.text =
+        customer.cPostalCodeB.trim().isEmpty ? '-' : customer.cPostalCodeB.trim();
+    _deliveryCityController.text =
+        customer.cCityB.trim().isEmpty ? '-' : customer.cCityB.trim();
+    _deliveryCountryId = _normalizeCountryId(customer.cCountryBId);
+    _deliveryCountryController.text = _countryNameForId(_deliveryCountryId);
+    _deliveryLatController.text = customer.cLat.toString();
+    _deliveryLonController.text = customer.cLon.toString();
+  }
+
+  String _normalizeDeliveryField(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '-';
+    }
+    return trimmed;
+  }
+
+  bool _validateDeliveryFieldsIfNeeded() {
+    if (!_deliveryAddressDifferent) {
+      return true;
+    }
+
+    if (_deliveryNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Endkunde Name ist erforderlich.')),
+      );
+      return false;
+    }
+    if (_deliveryStreetController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lieferadresse Straße ist erforderlich.')),
+      );
+      return false;
+    }
+    if (_deliveryHouseNumberController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lieferadresse Hausnummer ist erforderlich.')),
+      );
+      return false;
+    }
+    if (_deliveryPostalCodeController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lieferadresse PLZ ist erforderlich.')),
+      );
+      return false;
+    }
+    if (_deliveryCityController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lieferadresse Stadt ist erforderlich.')),
+      );
+      return false;
+    }
+    if (_deliveryCountryId.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lieferadresse Land ist erforderlich.')),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _fetchDeliveryCoordinates({
+    bool showFeedbackOnMissingFields = true,
+    bool silentNoResult = false,
+  }) async {
+    final street = _deliveryStreetController.text.trim();
+    final houseNumber = _deliveryHouseNumberController.text.trim();
+    final postalCode = _deliveryPostalCodeController.text.trim();
+    final city = _deliveryCityController.text.trim();
+
+    if (street.isEmpty || postalCode.isEmpty || city.isEmpty) {
+      if (showFeedbackOnMissingFields) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Für Koordinaten bitte Straße, PLZ und Stadt ausfüllen.')),
+        );
+      }
+      return;
+    }
+
+    final rawCode = _deliveryCountryId.trim().toLowerCase();
+    final resolvedCountryCode = _tldToIso(rawCode).trim().toLowerCase();
+    final countryCode =
+        _isIsoAlpha2CountryCode(resolvedCountryCode) ? resolvedCountryCode : '';
+
+    final query = [
+      [street, houseNumber].where((part) => part.isNotEmpty).join(' '),
+      [postalCode, city].where((part) => part.isNotEmpty).join(' '),
+    ].where((part) => part.isNotEmpty).join(', ');
+
+    setState(() => _isFetchingDeliveryCoordinates = true);
+    try {
+      final params = <String, String>{
+        'q': query,
+        'format': 'json',
+        'limit': '1',
+      };
+      if (countryCode.isNotEmpty) {
+        params['countrycodes'] = countryCode;
+      }
+
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', params);
+      final response = await http.get(
+        uri,
+        headers: const {'User-Agent': 'arrow_ops/1.0'},
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Nominatim antwortete mit ${response.statusCode}');
+      }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! List || decoded.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        if (!silentNoResult) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Keine Koordinaten für Lieferadresse gefunden.')),
+          );
+        }
+        return;
+      }
+
+      final first = decoded.first;
+      if (first is! Map<String, dynamic>) {
+        throw Exception('Ungültige Nominatim-Antwort');
+      }
+
+      final lat = double.tryParse(first['lat']?.toString() ?? '');
+      final lon = double.tryParse(first['lon']?.toString() ?? '');
+      if (lat == null || lon == null) {
+        throw Exception('Koordinaten konnten nicht gelesen werden');
+      }
+
+      _deliveryLatController.text = lat.toString();
+      _deliveryLonController.text = lon.toString();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Koordinaten konnten nicht ermittelt werden: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isFetchingDeliveryCoordinates = false);
+      }
+    }
+  }
+
+    void _tryAutoRefreshDeliveryCoordinates() {
+      if (_isFetchingDeliveryCoordinates) {
+        return;
+      }
+
+      final hasAddressData =
+          _deliveryStreetController.text.trim().isNotEmpty &&
+          _deliveryPostalCodeController.text.trim().isNotEmpty &&
+          _deliveryCityController.text.trim().isNotEmpty;
+
+      if (!hasAddressData) {
+        return;
+      }
+
+      unawaited(
+        _fetchDeliveryCoordinates(
+          showFeedbackOnMissingFields: false,
+          silentNoResult: true,
+        ),
+      );
+    }
 
   Widget _field(
     TextEditingController controller,
@@ -763,6 +1054,125 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                   ],
                 ),
                 const SizedBox(height: 12),
+
+                SwitchListTile.adaptive(
+                  title: const Text('Abweichende Lieferadresse verwenden'),
+                  subtitle: const Text(
+                    'Wenn deaktiviert, wird die Rechnungsadresse als Lieferadresse übernommen.',
+                  ),
+                  value: _deliveryAddressDifferent,
+                  onChanged: _selectedCustomer == null
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _deliveryAddressDifferent = value;
+                            if (!value) {
+                              _syncDeliveryFromSelectedCustomer(force: true);
+                            }
+                          });
+                        },
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 8),
+
+                if (_deliveryAddressDifferent) ...[
+                  DropdownMenu<String>(
+                    key: ValueKey('delivery-country-$_deliveryCountryId'),
+                    controller: _deliveryCountryController,
+                    initialSelection: widget.allCountries.any(
+                      (country) => country.coTld.toLowerCase() == _deliveryCountryId,
+                    )
+                        ? _deliveryCountryId
+                        : null,
+                    expandedInsets: EdgeInsets.zero,
+                    requestFocusOnTap: true,
+                    enableFilter: true,
+                    enableSearch: true,
+                    label: const Text('Lieferadresse Land'),
+                    searchCallback: (entries, query) {
+                      final normalizedQuery = query.trim().toLowerCase();
+                      if (normalizedQuery.isEmpty) {
+                        return null;
+                      }
+                      for (var index = 0; index < entries.length; index++) {
+                        final entryLabel = entries[index].label.toLowerCase();
+                        if (entryLabel.startsWith(normalizedQuery)) {
+                          return index;
+                        }
+                      }
+                      return null;
+                    },
+                    filterCallback: (entries, query) {
+                      final normalizedQuery = query.trim().toLowerCase();
+                      if (normalizedQuery.isEmpty) {
+                        return entries;
+                      }
+                      return entries
+                          .where(
+                            (entry) => entry.label.toLowerCase().startsWith(normalizedQuery),
+                          )
+                          .toList(growable: false);
+                    },
+                    dropdownMenuEntries: widget.allCountries
+                        .map(
+                          (country) => DropdownMenuEntry<String>(
+                            value: country.coTld.toLowerCase(),
+                            label: '${country.coName} (${country.coTld.toUpperCase()})',
+                          ),
+                        )
+                        .toList(growable: false),
+                    onSelected: (value) {
+                      setState(() {
+                        _deliveryCountryId = _normalizeCountryId(value);
+                        _deliveryCountryController.text = _countryNameForId(_deliveryCountryId);
+                      });
+                      _tryAutoRefreshDeliveryCoordinates();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _row2(
+                    _field(_deliveryNameController, 'Endkunde Name'),
+                    _field(_deliveryCityController, 'Lieferadresse Stadt'),
+                  ),
+                  const SizedBox(height: 12),
+                  _row2(
+                    _field(_deliveryStreetController, 'Lieferadresse Straße'),
+                    _field(_deliveryHouseNumberController, 'Lieferadresse Hausnummer'),
+                  ),
+                  const SizedBox(height: 12),
+                  _row2(
+                    _field(_deliveryPostalCodeController, 'Lieferadresse PLZ'),
+                    _field(
+                      _deliveryLatController,
+                      'Breitengrad (Lat)',
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _row2(
+                    _field(
+                      _deliveryLonController,
+                      'Längengrad (Lon)',
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _isFetchingDeliveryCoordinates
+                          ? null
+                          : _fetchDeliveryCoordinates,
+                      icon: _isFetchingDeliveryCoordinates
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.location_searching),
+                      label: const Text('Koordinaten ermitteln'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // ── Datum & Währung
                 _row2(
@@ -999,6 +1409,12 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
             }
 
             if (!_formKey.currentState!.validate()) return;
+            if (!_validateDeliveryFieldsIfNeeded()) return;
+
+            if (!_deliveryAddressDifferent) {
+              _syncDeliveryFromSelectedCustomer(force: true);
+            }
+
             final result = OrderRow(
               oId: _orderIdController.text.trim(),
               oCustomerId: _selectedCustomer!.cId,
@@ -1021,6 +1437,20 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
               oPutt: _putt ? 1 : 0,
               oTrackingCode: _trackingCodeController.text.trim(),
               oNote: _noteController.text.trim().isEmpty ? '-' : _noteController.text.trim(),
+                oDeliveryAddressDifferent: _deliveryAddressDifferent ? 1 : 0,
+                oDeliveryName: _normalizeDeliveryField(_deliveryNameController.text),
+                oDeliveryStreet: _normalizeDeliveryField(_deliveryStreetController.text),
+                oDeliveryHouseNumber:
+                  _normalizeDeliveryField(_deliveryHouseNumberController.text),
+                oDeliveryPostalCode:
+                  _normalizeDeliveryField(_deliveryPostalCodeController.text),
+                oDeliveryCity: _normalizeDeliveryField(_deliveryCityController.text),
+                oDeliveryState: '-',
+                oDeliveryCountryId: _normalizeCountryForStorage(_deliveryCountryId),
+                oDeliveryLat:
+                  double.tryParse(_deliveryLatController.text.trim().replaceAll(',', '.')) ?? 0,
+                oDeliveryLon:
+                  double.tryParse(_deliveryLonController.text.trim().replaceAll(',', '.')) ?? 0,
             );
             Navigator.of(context).pop(result);
           },

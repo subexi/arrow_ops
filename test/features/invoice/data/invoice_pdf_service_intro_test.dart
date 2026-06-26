@@ -135,6 +135,259 @@ void main() {
 
       expect(fileName, equals('1001_Unbekannt_in.pdf'));
     });
+
+    test(
+      'adds end-customer last name for packing list when delivery differs',
+      () {
+        final data = _documentData(
+          kind: InvoiceDocumentKind.packingList,
+          lastName: 'Mueller',
+          delivery: const InvoicePartyData(
+            name: 'Anna Schmidt',
+            street: 'Lieferweg',
+            houseNumber: '7',
+            postalCode: '12345',
+            city: 'Berlin',
+            countryCode: 'DE',
+          ),
+        );
+
+        final fileName = service.buildDefaultFileName(data);
+
+        expect(fileName, equals('1001_Mueller_Schmidt_pl.pdf'));
+      },
+    );
+
+    test(
+      'keeps previous packing list filename when delivery equals billing',
+      () {
+        const sameParty = InvoicePartyData(
+          name: 'Buyer',
+          lastName: 'Mueller',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        );
+        final data = _documentData(
+          kind: InvoiceDocumentKind.packingList,
+          lastName: 'Mueller',
+          buyer: sameParty,
+          delivery: sameParty,
+        );
+
+        final fileName = service.buildDefaultFileName(data);
+
+        expect(fileName, equals('1001_Mueller_pl.pdf'));
+      },
+    );
+
+    test(
+      'does not append end-customer token when only recipient name differs',
+      () {
+        final data = _documentData(
+          kind: InvoiceDocumentKind.packingList,
+          lastName: 'Mueller',
+          buyer: const InvoicePartyData(
+            name: 'Buyer Name',
+            lastName: 'Mueller',
+            company: 'Arrow GmbH',
+            street: 'Main Street',
+            houseNumber: '1',
+            postalCode: '11111',
+            city: 'Stuttgart',
+            countryCode: 'DE',
+          ),
+          delivery: const InvoicePartyData(
+            name: 'Endkunde Name',
+            street: 'Main Street',
+            houseNumber: '1',
+            postalCode: '11111',
+            city: 'Stuttgart',
+            countryCode: 'DE',
+          ),
+        );
+
+        final fileName = service.buildDefaultFileName(data);
+
+        expect(fileName, equals('1001_Mueller_pl.pdf'));
+      },
+    );
+  });
+
+  group('InvoicePdfService delivery address rubric visibility', () {
+    const service = InvoicePdfService();
+
+    test('shows rubric for packing list when delivery differs', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        buyer: const InvoicePartyData(
+          name: 'Buyer',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        ),
+        delivery: const InvoicePartyData(
+          name: 'Delivery',
+          street: 'Lieferweg',
+          houseNumber: '7',
+          postalCode: '12345',
+          city: 'Berlin',
+          countryCode: 'DE',
+        ),
+      );
+
+      expect(service.debugShouldShowDeliveryAddressRubric(data), isTrue);
+    });
+
+    test('hides rubric for packing list when delivery equals billing', () {
+      const sameAddress = InvoicePartyData(
+        name: 'Buyer',
+        street: 'Main Street',
+        houseNumber: '1',
+        postalCode: '11111',
+        city: 'Stuttgart',
+        countryCode: 'DE',
+      );
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        buyer: sameAddress,
+        delivery: sameAddress,
+      );
+
+      expect(service.debugShouldShowDeliveryAddressRubric(data), isFalse);
+    });
+
+    test('hides rubric when only recipient name differs', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        buyer: const InvoicePartyData(
+          name: 'Buyer Name',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        ),
+        delivery: const InvoicePartyData(
+          name: 'Endkunde Name',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        ),
+      );
+
+      expect(service.debugShouldShowDeliveryAddressRubric(data), isFalse);
+    });
+
+    test('uses buyer address block for packing list when addresses are equal', () {
+      const buyer = InvoicePartyData(
+        name: 'Buyer Name',
+        company: 'Arrow GmbH',
+        street: 'Main Street',
+        houseNumber: '1',
+        postalCode: '11111',
+        city: 'Stuttgart',
+        countryCode: 'DE',
+      );
+      const delivery = InvoicePartyData(
+        name: 'Endkunde Name',
+        street: 'Main Street',
+        houseNumber: '1',
+        postalCode: '11111',
+        city: 'Stuttgart',
+        countryCode: 'DE',
+      );
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        buyer: buyer,
+        delivery: delivery,
+      );
+
+      expect(service.debugUsesBuyerForShippingRubric(data), isTrue);
+    });
+
+    test('uses delivery address block for packing list when addresses differ', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        buyer: const InvoicePartyData(
+          name: 'Buyer Name',
+          company: 'Arrow GmbH',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        ),
+        delivery: const InvoicePartyData(
+          name: 'Endkunde Name',
+          street: 'Lieferweg',
+          houseNumber: '7',
+          postalCode: '12345',
+          city: 'Berlin',
+          countryCode: 'DE',
+        ),
+      );
+
+      expect(service.debugUsesBuyerForShippingRubric(data), isFalse);
+    });
+
+    test('uses buyer address block for invoice when addresses are equal', () {
+      const buyer = InvoicePartyData(
+        name: 'Buyer Name',
+        company: 'Arrow GmbH',
+        street: 'Main Street',
+        houseNumber: '1',
+        postalCode: '11111',
+        city: 'Stuttgart',
+        countryCode: 'DE',
+      );
+      const delivery = InvoicePartyData(
+        name: 'Endkunde Name',
+        street: 'Main Street',
+        houseNumber: '1',
+        postalCode: '11111',
+        city: 'Stuttgart',
+        countryCode: 'DE',
+      );
+      final data = _documentData(
+        kind: InvoiceDocumentKind.invoice,
+        buyer: buyer,
+        delivery: delivery,
+      );
+
+      expect(service.debugUsesBuyerForShippingRubric(data), isTrue);
+    });
+
+    test('uses delivery address block for invoice when addresses differ', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.invoice,
+        buyer: const InvoicePartyData(
+          name: 'Buyer Name',
+          company: 'Arrow GmbH',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        ),
+        delivery: const InvoicePartyData(
+          name: 'Endkunde Name',
+          street: 'Lieferweg',
+          houseNumber: '7',
+          postalCode: '12345',
+          city: 'Berlin',
+          countryCode: 'DE',
+        ),
+      );
+
+      expect(service.debugUsesBuyerForShippingRubric(data), isFalse);
+    });
   });
 
   group('InvoicePdfService.debugSanitizePdfText', () {
@@ -179,7 +432,17 @@ InvoiceDocumentData _documentData({
   String buyerVatId = '-',
   String lastName = 'BuyerLastName',
   InvoiceDocumentKind kind = InvoiceDocumentKind.invoice,
+  InvoicePartyData? buyer,
+  InvoicePartyData? delivery,
 }) {
+  final effectiveBuyer =
+      buyer ??
+      InvoicePartyData(
+        name: 'Buyer',
+        lastName: lastName,
+        vatId: buyerVatId,
+      );
+
   return InvoiceDocumentData(
     documentKind: kind,
     invoiceNumber: 'INV-1',
@@ -192,12 +455,8 @@ InvoiceDocumentData _documentData({
     isReseller: isReseller,
     isNoVatCustomer: isNoVatCustomer,
     seller: const InvoicePartyData(name: 'Seller'),
-    buyer: InvoicePartyData(
-      name: 'Buyer',
-      lastName: lastName,
-      vatId: buyerVatId,
-    ),
-    delivery: const InvoicePartyData(name: 'Delivery'),
+    buyer: effectiveBuyer,
+    delivery: delivery ?? const InvoicePartyData(name: 'Delivery'),
     footer: const InvoiceFooterData(),
     lines: const <InvoiceLineData>[],
     totals: const InvoiceTotalsData(

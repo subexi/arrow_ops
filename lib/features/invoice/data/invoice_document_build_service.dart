@@ -131,7 +131,7 @@ class InvoiceDocumentBuildService {
       isNoVatCustomer: customer.cVat,
       seller: _buildSeller(sellerProfile),
       buyer: _buildBuyer(customer),
-        delivery: _buildDelivery(customer),
+      delivery: _buildDelivery(order, customer),
       footer: _buildFooter(sellerProfile),
       lines: lines,
       totals: totals,
@@ -186,22 +186,34 @@ class InvoiceDocumentBuildService {
     );
   }
 
-  InvoicePartyData _buildDelivery(Customer customer) {
-    final deliveryName = _deliveryName(customer);
+  InvoicePartyData _buildDelivery(OrderRow order, Customer customer) {
+    final deliveryName = _deliveryName(order, customer);
 
     return InvoicePartyData(
       name: deliveryName.isEmpty ? '-' : deliveryName,
       lastName: _normalizedOrFallback(customer.cLastName, '-'),
       company: '-',
-      street: _normalizedOrFallback(customer.cStreetD, '-'),
-      houseNumber: _normalizedOrFallback(customer.cHouseNumberD, '-'),
-      postalCode: _normalizedOrFallback(customer.cPostalCodeD, '-'),
-      city: _normalizedOrFallback(customer.cCityD, '-'),
-      state: _normalizedOrFallback(customer.cStateD, ''),
-      countryCode: _normalizedOrFallback(
-        customer.cCountryDId,
-        '-',
-      ).toUpperCase(),
+      street: _deliveryValue(
+        orderValue: order.oDeliveryStreet,
+        customerValue: customer.cStreetD,
+      ),
+      houseNumber: _deliveryValue(
+        orderValue: order.oDeliveryHouseNumber,
+        customerValue: customer.cHouseNumberD,
+      ),
+      postalCode: _deliveryValue(
+        orderValue: order.oDeliveryPostalCode,
+        customerValue: customer.cPostalCodeD,
+      ),
+      city: _deliveryValue(
+        orderValue: order.oDeliveryCity,
+        customerValue: customer.cCityD,
+      ),
+      state: _deliveryValue(
+        orderValue: order.oDeliveryState,
+        customerValue: customer.cStateD,
+      ),
+      countryCode: _deliveryCountryToken(order, customer),
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),
@@ -209,12 +221,30 @@ class InvoiceDocumentBuildService {
     );
   }
 
-  String _deliveryName(Customer customer) {
-    final explicitDeliveryName = _normalizedOrFallback(customer.cCareofD, '').trim();
+  String _deliveryName(OrderRow order, Customer customer) {
+    final explicitOrderName =
+        _normalizedOrFallback(order.oDeliveryName, '').trim();
+    if (explicitOrderName.isNotEmpty && explicitOrderName != '-') {
+      return explicitOrderName;
+    }
+
+    final explicitDeliveryName =
+        _normalizedOrFallback(customer.cCareofD, '').trim();
     if (explicitDeliveryName.isNotEmpty && explicitDeliveryName != '-') {
       return explicitDeliveryName;
     }
     return _customerName(customer);
+  }
+
+  String _deliveryValue({
+    required String orderValue,
+    required String customerValue,
+  }) {
+    final normalizedOrderValue = _normalizedOrFallback(orderValue, '').trim();
+    if (normalizedOrderValue.isNotEmpty && normalizedOrderValue != '-') {
+      return normalizedOrderValue;
+    }
+    return _normalizedOrFallback(customerValue, '-');
   }
 
   InvoiceFooterData _buildFooter(InvoiceSellerProfile profile) {
@@ -299,14 +329,19 @@ class InvoiceDocumentBuildService {
         'EN';
     final isNet =
         _normalizedOrFallback(order.oPriceBasis, 'net').toLowerCase() == 'net';
-    final country = _deliveryCountryToken(customer);
+    final country = _deliveryCountryToken(order, customer);
     final isOutsideEu = country.isNotEmpty && !_isEuCountry(country);
     return isEnglish && isNet && isOutsideEu;
   }
 
-  String _deliveryCountryToken(Customer customer) {
-    final delivery = _normalizedOrFallback(customer.cCountryDId, '')
+  String _deliveryCountryToken(OrderRow order, Customer customer) {
+    final orderDelivery = _normalizedOrFallback(order.oDeliveryCountryId, '')
         .toUpperCase();
+    if (orderDelivery.isNotEmpty && orderDelivery != '-') {
+      return orderDelivery;
+    }
+
+    final delivery = _normalizedOrFallback(customer.cCountryDId, '').toUpperCase();
     if (delivery.isNotEmpty && delivery != '-') {
       return delivery;
     }

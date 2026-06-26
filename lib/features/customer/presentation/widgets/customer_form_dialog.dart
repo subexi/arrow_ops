@@ -1243,10 +1243,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
     {
       final city = _cityBControl.text.trim();
-      final stripped = city.replaceAll(RegExp(r'[\s\-/(),]'), '');
+      final stripped = city.replaceAll(RegExp(r'[\s\-./(),]'), '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
         _showDialogSnackBar(
-          'Stadt (Rechnungsadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Bindestrich, Schraegstrich, Komma und Klammern enthalten.',
+          'Stadt (Rechnungsadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Punkt, Bindestrich, Schraegstrich, Komma und Klammern enthalten.',
           type: _DialogSnackBarType.validation,
         );
         return false;
@@ -1336,10 +1336,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     }
     {
       final city = _cityDControl.text.trim();
-      final stripped = city.replaceAll(RegExp(r'[\s\-/(),]'), '');
+      final stripped = city.replaceAll(RegExp(r'[\s\-./(),]'), '');
       if (city.length < 2 || !RegExp(r'^[\p{L}]+$', unicode: true).hasMatch(stripped)) {
         _showDialogSnackBar(
-          'Stadt (Lieferadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Bindestrich, Schraegstrich, Komma und Klammern enthalten.',
+          'Stadt (Lieferadresse) muss mindestens 2 Buchstaben enthalten und darf Buchstaben sowie Leerzeichen, Punkt, Bindestrich, Schraegstrich, Komma und Klammern enthalten.',
           type: _DialogSnackBarType.validation,
         );
         return false;

@@ -145,7 +145,8 @@ class CustomerDataTableSource extends DataTableSource {
   }
 
   double _customerNetValue(Customer customer) {
-    return customerNetById[customer.cId] ?? customer.cTotalValueEur;
+    final customerId = customer.cId.trim();
+    return customerNetById[customerId] ?? customer.cTotalValueEur;
   }
 
   @override

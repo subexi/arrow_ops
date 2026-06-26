@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 16;
+  static const int _currentVersion = 17;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -35,6 +35,7 @@ class AppDatabase {
     DatabaseMigration(version: 14, run: _migrationV14),
     DatabaseMigration(version: 15, run: _migrationV15),
     DatabaseMigration(version: 16, run: _migrationV16),
+    DatabaseMigration(version: 17, run: _migrationV17),
   ];
 
   Future<Database> get database async {
@@ -760,5 +761,153 @@ class AppDatabase {
       // Re-enable Foreign Keys
       await db.execute('PRAGMA foreign_keys = ON');
     }
+  }
+
+  static Future<void> _migrationV17(Database db) async {
+    final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+
+    bool hasColumn(String name) =>
+        orderColumns.any((column) => column['name'] == name);
+
+    if (!hasColumn('o_delivery_address_different')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_address_different INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!hasColumn('o_delivery_name')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_name TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasColumn('o_delivery_street')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_street TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasColumn('o_delivery_house_number')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_house_number TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasColumn('o_delivery_postal_code')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_postal_code TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasColumn('o_delivery_city')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_city TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasColumn('o_delivery_state')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_state TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasColumn('o_delivery_country_id')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_country_id TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasColumn('o_delivery_lat')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_lat REAL NOT NULL DEFAULT 0',
+      );
+    }
+    if (!hasColumn('o_delivery_lon')) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_delivery_lon REAL NOT NULL DEFAULT 0',
+      );
+    }
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_name = (
+        SELECT TRIM(COALESCE(c_first_name, '') || ' ' || COALESCE(c_last_name, ''))
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE TRIM(COALESCE(o_delivery_name, '')) IN ('', '-')
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_street = (
+        SELECT COALESCE(c_street_b, '-')
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE TRIM(COALESCE(o_delivery_street, '')) IN ('', '-')
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_house_number = (
+        SELECT COALESCE(c_house_number_b, '-')
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE TRIM(COALESCE(o_delivery_house_number, '')) IN ('', '-')
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_postal_code = (
+        SELECT COALESCE(c_postal_code_b, '-')
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE TRIM(COALESCE(o_delivery_postal_code, '')) IN ('', '-')
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_city = (
+        SELECT COALESCE(c_city_b, '-')
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE TRIM(COALESCE(o_delivery_city, '')) IN ('', '-')
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_state = (
+        SELECT COALESCE(c_state_b, '-')
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE TRIM(COALESCE(o_delivery_state, '')) IN ('', '-')
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_country_id = (
+        SELECT COALESCE(c_country_b_id, '-')
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE TRIM(COALESCE(o_delivery_country_id, '')) IN ('', '-')
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_lat = (
+        SELECT COALESCE(c_lat, 0)
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE COALESCE(o_delivery_lat, 0) = 0
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_delivery_lon = (
+        SELECT COALESCE(c_lon, 0)
+        FROM customer
+        WHERE customer.c_id = "order".o_customer_id
+      )
+      WHERE COALESCE(o_delivery_lon, 0) = 0
+    ''');
   }
 }

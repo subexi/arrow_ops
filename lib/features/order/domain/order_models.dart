@@ -21,6 +21,16 @@ class OrderRow {
     this.oPutt = 0,
     this.oTrackingCode = '',
     this.oNote = '-',
+    this.oDeliveryAddressDifferent = 0,
+    this.oDeliveryName = '-',
+    this.oDeliveryStreet = '-',
+    this.oDeliveryHouseNumber = '-',
+    this.oDeliveryPostalCode = '-',
+    this.oDeliveryCity = '-',
+    this.oDeliveryState = '-',
+    this.oDeliveryCountryId = '-',
+    this.oDeliveryLat = 0,
+    this.oDeliveryLon = 0,
   });
 
   final String oId;
@@ -44,6 +54,16 @@ class OrderRow {
   final int oPutt;
   final String oTrackingCode;
   final String oNote;
+  final int oDeliveryAddressDifferent;
+  final String oDeliveryName;
+  final String oDeliveryStreet;
+  final String oDeliveryHouseNumber;
+  final String oDeliveryPostalCode;
+  final String oDeliveryCity;
+  final String oDeliveryState;
+  final String oDeliveryCountryId;
+  final double oDeliveryLat;
+  final double oDeliveryLon;
 
   factory OrderRow.fromMap(Map<String, Object?> map) {
     return OrderRow(
@@ -68,6 +88,16 @@ class OrderRow {
       oPutt: _int(map['o_putt']),
       oTrackingCode: _str(map['o_tracking_code']),
       oNote: _str(map['o_note'], fallback: '-'),
+      oDeliveryAddressDifferent: _int(map['o_delivery_address_different']),
+      oDeliveryName: _str(map['o_delivery_name'], fallback: '-'),
+      oDeliveryStreet: _str(map['o_delivery_street'], fallback: '-'),
+      oDeliveryHouseNumber: _str(map['o_delivery_house_number'], fallback: '-'),
+      oDeliveryPostalCode: _str(map['o_delivery_postal_code'], fallback: '-'),
+      oDeliveryCity: _str(map['o_delivery_city'], fallback: '-'),
+      oDeliveryState: _str(map['o_delivery_state'], fallback: '-'),
+      oDeliveryCountryId: _str(map['o_delivery_country_id'], fallback: '-'),
+      oDeliveryLat: _double(map['o_delivery_lat']),
+      oDeliveryLon: _double(map['o_delivery_lon']),
     );
   }
 
@@ -93,6 +123,16 @@ class OrderRow {
         'o_putt': oPutt,
         'o_tracking_code': oTrackingCode,
         'o_note': oNote,
+        'o_delivery_address_different': oDeliveryAddressDifferent,
+        'o_delivery_name': oDeliveryName,
+        'o_delivery_street': oDeliveryStreet,
+        'o_delivery_house_number': oDeliveryHouseNumber,
+        'o_delivery_postal_code': oDeliveryPostalCode,
+        'o_delivery_city': oDeliveryCity,
+        'o_delivery_state': oDeliveryState,
+        'o_delivery_country_id': oDeliveryCountryId,
+        'o_delivery_lat': oDeliveryLat,
+        'o_delivery_lon': oDeliveryLon,
       };
 
   OrderRow copyWith({
@@ -117,6 +157,16 @@ class OrderRow {
     int? oPutt,
     String? oTrackingCode,
     String? oNote,
+    int? oDeliveryAddressDifferent,
+    String? oDeliveryName,
+    String? oDeliveryStreet,
+    String? oDeliveryHouseNumber,
+    String? oDeliveryPostalCode,
+    String? oDeliveryCity,
+    String? oDeliveryState,
+    String? oDeliveryCountryId,
+    double? oDeliveryLat,
+    double? oDeliveryLon,
   }) =>
       OrderRow(
         oId: oId ?? this.oId,
@@ -140,6 +190,18 @@ class OrderRow {
         oPutt: oPutt ?? this.oPutt,
         oTrackingCode: oTrackingCode ?? this.oTrackingCode,
         oNote: oNote ?? this.oNote,
+        oDeliveryAddressDifferent:
+          oDeliveryAddressDifferent ?? this.oDeliveryAddressDifferent,
+        oDeliveryName: oDeliveryName ?? this.oDeliveryName,
+        oDeliveryStreet: oDeliveryStreet ?? this.oDeliveryStreet,
+        oDeliveryHouseNumber:
+          oDeliveryHouseNumber ?? this.oDeliveryHouseNumber,
+        oDeliveryPostalCode: oDeliveryPostalCode ?? this.oDeliveryPostalCode,
+        oDeliveryCity: oDeliveryCity ?? this.oDeliveryCity,
+        oDeliveryState: oDeliveryState ?? this.oDeliveryState,
+        oDeliveryCountryId: oDeliveryCountryId ?? this.oDeliveryCountryId,
+        oDeliveryLat: oDeliveryLat ?? this.oDeliveryLat,
+        oDeliveryLon: oDeliveryLon ?? this.oDeliveryLon,
       );
 
   static String _str(Object? v, {String fallback = ''}) =>
