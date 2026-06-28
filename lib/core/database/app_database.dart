@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 17;
+  static const int _currentVersion = 19;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -36,6 +36,8 @@ class AppDatabase {
     DatabaseMigration(version: 15, run: _migrationV15),
     DatabaseMigration(version: 16, run: _migrationV16),
     DatabaseMigration(version: 17, run: _migrationV17),
+    DatabaseMigration(version: 18, run: _migrationV18),
+    DatabaseMigration(version: 19, run: _migrationV19),
   ];
 
   Future<Database> get database async {
@@ -909,5 +911,50 @@ class AppDatabase {
       )
       WHERE COALESCE(o_delivery_lon, 0) = 0
     ''');
+  }
+
+  static Future<void> _migrationV18(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS item_category (
+        icat_id INTEGER NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE
+      )
+    ''');
+
+    final itemCatalogueColumns = await db.rawQuery('PRAGMA table_info(item_catalogue)');
+    final hasCategoryColumn = itemCatalogueColumns.any(
+      (column) => column['name'] == 'category',
+    );
+    if (!hasCategoryColumn) {
+      await db.execute(
+        "ALTER TABLE item_catalogue ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+      );
+    }
+
+    final defaultCategories = <Map<String, Object>>[
+      {'icat_id': 1, 'name': 'Nocks'},
+      {'icat_id': 2, 'name': 'Schaefte'},
+      {'icat_id': 3, 'name': 'Spitzen'},
+      {'icat_id': 4, 'name': 'Werkzeuge'},
+    ];
+    for (final category in defaultCategories) {
+      await db.insert(
+        'item_category',
+        category,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+  }
+
+  static Future<void> _migrationV19(Database db) async {
+    final itemCatalogueColumns = await db.rawQuery('PRAGMA table_info(item_catalogue)');
+    final hasArchiveColumn = itemCatalogueColumns.any(
+      (column) => column['name'] == 'ic_archive',
+    );
+    if (!hasArchiveColumn) {
+      await db.execute(
+        'ALTER TABLE item_catalogue ADD COLUMN ic_archive INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 }

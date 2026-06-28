@@ -19,6 +19,99 @@ class DuplicateCatalogueResult {
 class ItemRepository {
   const ItemRepository();
 
+  Future<List<ItemCategoryRow>> getItemCategories() async {
+    final db = await AppDatabase.instance.database;
+    final rows = await db.query(
+      'item_category',
+      orderBy: 'name COLLATE NOCASE ASC, icat_id ASC',
+    );
+    return rows.map(ItemCategoryRow.fromMap).toList(growable: false);
+  }
+
+  Future<int> nextItemCategoryId() async {
+    final db = await AppDatabase.instance.database;
+    final rows = await db.rawQuery('SELECT COALESCE(MAX(icat_id), 0) + 1 AS next_id FROM item_category');
+    return _readInt(rows.first['next_id']);
+  }
+
+  Future<void> saveItemCategory(ItemCategoryRow category) async {
+    final db = await AppDatabase.instance.database;
+    final normalizedName = category.name.trim();
+    if (normalizedName.isEmpty) {
+      throw Exception('Kategorie darf nicht leer sein.');
+    }
+
+    await db.transaction((txn) async {
+      final duplicateRows = await txn.query(
+        'item_category',
+        columns: ['icat_id'],
+        where: 'LOWER(name) = LOWER(?) AND icat_id != ?',
+        whereArgs: [normalizedName, category.icatId],
+        limit: 1,
+      );
+      if (duplicateRows.isNotEmpty) {
+        throw Exception('Kategorie "$normalizedName" existiert bereits.');
+      }
+
+      final existingRows = await txn.query(
+        'item_category',
+        where: 'icat_id = ?',
+        whereArgs: [category.icatId],
+        limit: 1,
+      );
+
+      final updated = await txn.update(
+        'item_category',
+        {'icat_id': category.icatId, 'name': normalizedName},
+        where: 'icat_id = ?',
+        whereArgs: [category.icatId],
+      );
+      if (updated == 0) {
+        await txn.insert('item_category', {'icat_id': category.icatId, 'name': normalizedName});
+      }
+
+      if (existingRows.isNotEmpty) {
+        final previousName = existingRows.first['name']?.toString().trim() ?? '';
+        if (previousName.isNotEmpty && previousName != normalizedName) {
+          await txn.update(
+            'item_catalogue',
+            {'category': normalizedName},
+            where: 'category = ?',
+            whereArgs: [previousName],
+          );
+        }
+      }
+    });
+  }
+
+  Future<void> deleteItemCategory(int categoryId) async {
+    final db = await AppDatabase.instance.database;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'item_category',
+        columns: ['name'],
+        where: 'icat_id = ?',
+        whereArgs: [categoryId],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        return;
+      }
+
+      final categoryName = rows.first['name']?.toString().trim() ?? '';
+      await txn.delete('item_category', where: 'icat_id = ?', whereArgs: [categoryId]);
+
+      if (categoryName.isNotEmpty) {
+        await txn.update(
+          'item_catalogue',
+          {'category': ''},
+          where: 'category = ?',
+          whereArgs: [categoryName],
+        );
+      }
+    });
+  }
+
   Future<void> syncDerivedPurchasePrices({Set<int> excludedArticleIds = const {}}) async {
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {
@@ -116,15 +209,31 @@ class ItemRepository {
 
   Future<void> saveCatalogueItem(ItemCatalogueRow item) async {
     final db = await AppDatabase.instance.database;
+    final normalizedCategory = item.category.trim();
+
+    if (normalizedCategory.isNotEmpty) {
+      final categoryRows = await db.query(
+        'item_category',
+        columns: ['icat_id'],
+        where: 'name = ?',
+        whereArgs: [normalizedCategory],
+        limit: 1,
+      );
+      if (categoryRows.isEmpty) {
+        throw Exception('Kategorie "$normalizedCategory" existiert nicht.');
+      }
+    }
+
     await db.transaction((txn) async {
+      final normalizedItem = item.copyWith(category: normalizedCategory);
       final updated = await txn.update(
         'item_catalogue',
-        item.toMap(),
+        normalizedItem.toMap(),
         where: 'ic_id = ?',
-        whereArgs: [item.icId],
+        whereArgs: [normalizedItem.icId],
       );
       if (updated == 0) {
-        await txn.insert('item_catalogue', item.toMap());
+        await txn.insert('item_catalogue', normalizedItem.toMap());
       }
     });
 
@@ -402,8 +511,12 @@ class ItemRepository {
       catalogueRows: catalogueRows,
       bomRows: bomRows,
     );
+    final derivedWeightByArticleId = calculateDerivedWeights(
+      catalogueRows: catalogueRows,
+      bomRows: bomRows,
+    );
 
-    if (derivedByArticleId.isEmpty) {
+    if (derivedByArticleId.isEmpty && derivedWeightByArticleId.isEmpty) {
       return;
     }
 
@@ -411,25 +524,43 @@ class ItemRepository {
       for (final row in catalogueRows) row.icId: row,
     };
 
-    for (final entry in derivedByArticleId.entries) {
-      final articleId = entry.key;
+    final articleIdsToUpdate = <int>{
+      ...derivedByArticleId.keys,
+      ...derivedWeightByArticleId.keys,
+    };
+
+    for (final articleId in articleIdsToUpdate) {
       if (excludedArticleIds.contains(articleId)) {
         // Den gerade manuell gespeicherten Artikel nicht sofort wieder ueberschreiben.
         continue;
       }
-      final derivedValue = entry.value;
+
+      final derivedPurchasePrice = derivedByArticleId[articleId];
+      final derivedWeight = derivedWeightByArticleId[articleId];
       final current = catalogueById[articleId];
       if (current == null) {
         continue;
       }
 
-      if ((current.icPurchasePriceNet - derivedValue).abs() < 0.000001) {
+      final updateMap = <String, Object?>{};
+      if (derivedPurchasePrice != null &&
+          (current.icPurchasePriceNet - derivedPurchasePrice).abs() >=
+              0.000001) {
+        updateMap['ic_purchase_price_net'] = derivedPurchasePrice;
+      }
+
+      if (derivedWeight != null &&
+          (current.icWeight - derivedWeight).abs() >= 0.000001) {
+        updateMap['ic_weight'] = derivedWeight;
+      }
+
+      if (updateMap.isEmpty) {
         continue;
       }
 
       await txn.update(
         'item_catalogue',
-        {'ic_purchase_price_net': derivedValue},
+        updateMap,
         where: 'ic_id = ?',
         whereArgs: [articleId],
       );

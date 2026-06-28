@@ -56,6 +56,7 @@ class _InvoicePageState extends State<InvoicePage> {
   InvoiceDocumentData? _preview;
   InvoiceDocumentKind _selectedDocumentKind = InvoiceDocumentKind.invoice;
   InvoiceDocumentKind? _previewDocumentKind;
+  bool _isProforma = false;
 
   bool _loadingOrders = true;
   bool _buildingPreview = false;
@@ -382,6 +383,7 @@ class _InvoicePageState extends State<InvoicePage> {
       final preview = await _documentBuilder.buildFromOrder(
         orderId: orderId,
         documentKind: targetKind,
+          isProforma: _isProforma,
         sellerProfile: _fixedSellerProfile,
         invoiceDate: _documentDateController.text.trim().isEmpty
             ? null
@@ -607,6 +609,58 @@ class _InvoicePageState extends State<InvoicePage> {
                   ),
                 ),
               ),
+                  SizedBox(
+                    width: 420,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.receipt_long,
+                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Proforma',
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                Text(
+                                  'Aktiv: Proforma Rechnung / Proforma invoice',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: _isProforma,
+                            onChanged: (value) async {
+                              setState(() {
+                                _isProforma = value;
+                              });
+                              await _buildPreview(
+                                documentKind: _selectedDocumentKind,
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               SizedBox(
                 width: 320,
                 child: SegmentedButton<InvoiceDocumentKind>(
@@ -821,6 +875,7 @@ class _InvoicePageState extends State<InvoicePage> {
                   _kv('Auftrag', preview.orderId),
                   _kv('Währung', preview.currency),
                   _kv('Sprache', preview.language),
+                  _kv('Proforma', preview.isProforma ? 'ja' : 'nein'),
                   _kv('Preisart', _priceTypeLabel(preview.priceBasis)),
                   _kv('Kunde', _partyOneLine(preview.buyer)),
                   _kv('Positionen', preview.lines.length.toString()),
@@ -844,18 +899,20 @@ class _InvoicePageState extends State<InvoicePage> {
                       'Waren brutto',
                       _money(preview.totals.itemsGross, preview.currency),
                     ),
-                    _kv(
-                      'Versand',
-                      _money(preview.totals.shipping, preview.currency),
-                    ),
-                    _kv(
-                      'PayPal-Gebühr',
-                      _money(preview.totals.paypalFee, preview.currency),
-                    ),
+                    if (!_hideShippingAndPayPalForProforma(preview))
+                      _kv(
+                        'Versand',
+                        _money(preview.totals.shipping, preview.currency),
+                      ),
+                    if (!_hideShippingAndPayPalForProforma(preview))
+                      _kv(
+                        'PayPal-Gebühr',
+                        _money(preview.totals.paypalFee, preview.currency),
+                      ),
                     const Divider(height: 24),
                     _kv(
                       'Gesamt',
-                      _money(preview.totals.grandTotal, preview.currency),
+                      _money(_displayGrandTotal(preview), preview.currency),
                     ),
                   ],
                 ],
@@ -915,6 +972,19 @@ class _InvoicePageState extends State<InvoicePage> {
       return 'netto';
     }
     return priceBasis;
+  }
+
+  bool _hideShippingAndPayPalForProforma(InvoiceDocumentData data) {
+    return data.documentKind == InvoiceDocumentKind.invoice && data.isProforma;
+  }
+
+  double _displayGrandTotal(InvoiceDocumentData data) {
+    if (!_hideShippingAndPayPalForProforma(data)) {
+      return data.totals.grandTotal;
+    }
+    final adjusted =
+        data.totals.grandTotal - data.totals.shipping - data.totals.paypalFee;
+    return adjusted < 0 ? 0 : adjusted;
   }
 
   void _applyNoteTemplate(String template) {

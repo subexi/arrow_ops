@@ -33,10 +33,11 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
   late final TextEditingController _materialController;
   late final TextEditingController _noteController;
   late final TextEditingController _drawingController;
+  late final FocusNode _purchaseDateFocusNode;
 
-  late final Map<String, String> _descriptionByIdi;
-  late final List<String> _idiOptions;
-  String _selectedIdi = '';
+  late final Map<String, _CatalogueSelectionOption> _optionById;
+  late final List<_CatalogueSelectionOption> _options;
+  String _selectedOptionId = '';
 
   bool get _isWide => MediaQuery.of(context).size.width >= 760;
 
@@ -44,32 +45,91 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
   void initState() {
     super.initState();
 
-    final descriptions = <String, String>{};
-    for (final item in widget.catalogueItems) {
-      final idi = item.icIdi.trim();
-      if (idi.isEmpty) {
-        continue;
-      }
-      descriptions.putIfAbsent(idi, () => item.icDescriptionDeLong.trim());
+    final options = <_CatalogueSelectionOption>[];
+    for (var i = 0; i < widget.catalogueItems.length; i++) {
+      final item = widget.catalogueItems[i];
+      final selectionKey = _selectionKeyForItem(item);
+      final displayId = _displayIdForItem(item);
+      final description = item.icDescriptionDeLong.trim();
+      final label = description.isEmpty
+          ? displayId
+          : displayId;
+
+      options.add(
+        _CatalogueSelectionOption(
+          optionId: 'item:${item.icId}:$i',
+          storedToken: selectionKey,
+          description: description,
+          label: label,
+        ),
+      );
     }
-    _descriptionByIdi = descriptions;
-    _idiOptions = descriptions.keys.toList(growable: false)..sort((a, b) => a.compareTo(b));
+
+    options.sort((a, b) =>
+        a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+
+    _options = options;
+    _optionById = {
+      for (final option in options) option.optionId: option,
+    };
 
     final initial = widget.initialValue;
-    _selectedIdi = initial?.ppIdi ?? (_idiOptions.isEmpty ? '' : _idiOptions.first);
+    final initialKey = (initial?.ppIdi ?? '').trim();
+    String? initialOptionId;
+    if (initialKey.isNotEmpty) {
+      for (final option in _options) {
+        if (option.storedToken == initialKey) {
+          initialOptionId = option.optionId;
+          break;
+        }
+      }
+    }
+
+    if (initialKey.isNotEmpty && initialOptionId == null) {
+      final legacyDescription = initial?.ppDescriptionDeLong.trim() ?? '';
+      final legacyOption = _CatalogueSelectionOption(
+        optionId: 'legacy:$initialKey',
+        storedToken: initialKey,
+        description: legacyDescription,
+        label: legacyDescription.isEmpty
+          ? initialKey
+          : initialKey,
+      );
+      _options.insert(0, legacyOption);
+      _optionById[legacyOption.optionId] = legacyOption;
+      initialOptionId = legacyOption.optionId;
+    }
+
+    _selectedOptionId = initialOptionId ??
+        (_options.isEmpty ? '' : _options.first.optionId);
 
     _purchaseDateController = TextEditingController(text: initial?.ppPurchaseDate ?? '');
     _quantityController = TextEditingController(text: (initial?.ppQuantity ?? 0).toString());
     _priceNetController = TextEditingController(text: _decimalText(initial?.ppPriceNet));
     _totalPriceNetController = TextEditingController(text: _decimalText(initial?.ppTotalPriceNet));
     _descriptionController = TextEditingController(
-      text: initial?.ppDescriptionDeLong ?? _descriptionByIdi[_selectedIdi] ?? '',
+      text: initial?.ppDescriptionDeLong ??
+          _optionById[_selectedOptionId]?.description ??
+          '',
     );
     _pointOfUseController = TextEditingController(text: initial?.ppPointOfUse ?? '');
     _partSourceController = TextEditingController(text: initial?.ppPartSource ?? '');
     _materialController = TextEditingController(text: initial?.ppMaterial ?? '');
     _noteController = TextEditingController(text: initial?.ppNote ?? '');
     _drawingController = TextEditingController(text: initial?.ppDrawing ?? '');
+    _purchaseDateFocusNode = FocusNode();
+    _purchaseDateFocusNode.addListener(() {
+      if (_purchaseDateFocusNode.hasFocus) {
+        return;
+      }
+
+      final normalized = _normalizeDateInput(_purchaseDateController.text);
+      if (normalized == null || normalized == _purchaseDateController.text) {
+        return;
+      }
+
+      _purchaseDateController.text = normalized;
+    });
 
     _quantityController.addListener(_recalculateTotalPrice);
     _priceNetController.addListener(_recalculateTotalPrice);
@@ -88,6 +148,7 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     _materialController.dispose();
     _noteController.dispose();
     _drawingController.dispose();
+    _purchaseDateFocusNode.dispose();
     super.dispose();
   }
 
@@ -96,6 +157,52 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
       return '';
     }
     return value.toStringAsFixed(2).replaceAll('.', ',');
+  }
+
+  String? _normalizeDateInput(String raw) {
+    final input = raw.trim();
+    if (input.isEmpty) {
+      return null;
+    }
+
+    final normalizedSeparators = input.replaceAll('.', '-').replaceAll('/', '-');
+    final parts = normalizedSeparators.split('-').where((part) => part.trim().isNotEmpty).toList();
+    if (parts.length != 3) {
+      return null;
+    }
+
+    int? year;
+    int? month;
+    int? day;
+
+    if (parts[0].length == 4) {
+      year = int.tryParse(parts[0]);
+      month = int.tryParse(parts[1]);
+      day = int.tryParse(parts[2]);
+    } else if (parts[2].length == 4) {
+      day = int.tryParse(parts[0]);
+      month = int.tryParse(parts[1]);
+      year = int.tryParse(parts[2]);
+    } else {
+      return null;
+    }
+
+    if (year == null || month == null || day == null) {
+      return null;
+    }
+
+    if (year < 1000 || year > 9999) {
+      return null;
+    }
+
+    final parsed = DateTime.tryParse(
+      '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
+    );
+    if (parsed == null || parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+
+    return '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
   }
 
   String _text(TextEditingController controller) => controller.text.trim();
@@ -141,23 +248,6 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     });
   }
 
-  Future<void> _pickDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: now,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(now.year + 20),
-      locale: const Locale('de'),
-    );
-    if (picked == null) {
-      return;
-    }
-    final dateText =
-        '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-    setState(() => _purchaseDateController.text = dateText);
-  }
-
   Widget _field(
     TextEditingController controller,
     String label, {
@@ -165,9 +255,11 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     TextInputType? keyboardType,
     bool readOnly = false,
     VoidCallback? onTap,
+    FocusNode? focusNode,
   }) {
     return TextFormField(
       controller: controller,
+      focusNode: focusNode,
       maxLines: maxLines,
       keyboardType: keyboardType,
       readOnly: readOnly,
@@ -214,7 +306,7 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
 
     final row = PartsProcurementRow(
       ppId: widget.initialValue?.ppId ?? widget.nextId,
-      ppIdi: _selectedIdi,
+      ppIdi: _optionById[_selectedOptionId]?.storedToken ?? '',
       ppPurchaseDate: _text(_purchaseDateController),
       ppQuantity: _parseInt(_quantityController),
       ppPriceNet: _parseDouble(_priceNetController),
@@ -227,6 +319,130 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
       ppDrawing: _text(_drawingController),
     );
     Navigator.of(context).pop(row);
+  }
+
+  Future<String?> _openArticleSelectionDialog() async {
+    String query = '';
+    final searchFocusNode = FocusNode();
+    var requestedInitialFocus = false;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            if (!requestedInitialFocus) {
+              requestedInitialFocus = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (searchFocusNode.canRequestFocus) {
+                  searchFocusNode.requestFocus();
+                }
+              });
+            }
+
+            final normalizedQuery = query.trim().toLowerCase();
+            final filteredOptions = normalizedQuery.isEmpty
+                ? _options
+                : _options.where((option) {
+                    return option.label.toLowerCase().contains(normalizedQuery) ||
+                        option.description.toLowerCase().contains(normalizedQuery) ||
+                        option.storedToken.toLowerCase().contains(normalizedQuery);
+                  }).toList(growable: false);
+
+            return AlertDialog(
+              title: const Text('Artikel auswählen'),
+              content: SizedBox(
+                width: 560,
+                height: 420,
+                child: Column(
+                  children: [
+                    TextField(
+                      focusNode: searchFocusNode,
+                      decoration: const InputDecoration(
+                        labelText: 'Artikel suchen',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          query = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: filteredOptions.isEmpty
+                          ? const Center(child: Text('Keine Treffer'))
+                          : ListView.builder(
+                              itemCount: filteredOptions.length,
+                              itemBuilder: (context, index) {
+                                final option = filteredOptions[index];
+                                return ListTile(
+                                  title: Text(option.label),
+                                  selected: option.optionId == _selectedOptionId,
+                                  onTap: () => Navigator.of(context).pop(option.optionId),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Schließen'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    searchFocusNode.dispose();
+    return result;
+  }
+
+  Widget _buildArticleSelectorField() {
+    final selectedLabel = _optionById[_selectedOptionId]?.label ?? '';
+
+    return FormField<String>(
+      validator: (_) {
+        if (_selectedOptionId.trim().isEmpty) {
+          return 'Bitte Bezeichnung wählen';
+        }
+        return null;
+      },
+      builder: (state) {
+        return InkWell(
+          key: const Key('pp_article_selector_tap'),
+          onTap: () async {
+            final selectedOptionId = await _openArticleSelectionDialog();
+            if (selectedOptionId == null) {
+              return;
+            }
+            setState(() {
+              _selectedOptionId = selectedOptionId;
+              _descriptionController.text =
+                  _optionById[selectedOptionId]?.description ?? '';
+            });
+            state.didChange(selectedOptionId);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: 'Bezeichnung',
+              border: const OutlineInputBorder(),
+              errorText: state.errorText,
+              suffixIcon: const Icon(Icons.arrow_drop_down),
+            ),
+            child: Text(
+              selectedLabel.isEmpty ? 'Artikel auswählen' : selectedLabel,
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -242,43 +458,14 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedIdi.isEmpty ? null : _selectedIdi,
-                  decoration: const InputDecoration(
-                    labelText: 'Bezeichnung',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: _idiOptions
-                      .map(
-                        (idi) => DropdownMenuItem<String>(
-                          value: idi,
-                          child: Text(idi),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setState(() {
-                      _selectedIdi = value;
-                      _descriptionController.text = _descriptionByIdi[value] ?? '';
-                    });
-                  },
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Bitte Bezeichnung wählen';
-                    }
-                    return null;
-                  },
-                ),
+                _buildArticleSelectorField(),
                 const SizedBox(height: 12),
                 _row([
                   _field(
                     _purchaseDateController,
                     'Beschaffungsdatum',
-                    readOnly: true,
-                    onTap: _pickDate,
+                    keyboardType: TextInputType.datetime,
+                    focusNode: _purchaseDateFocusNode,
                   ),
                   _field(
                     _quantityController,
@@ -344,4 +531,46 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
       ],
     );
   }
+
+  String _selectionKeyForItem(ItemCatalogueRow item) {
+    final idi = item.icIdi.trim();
+    if (idi.isNotEmpty) {
+      return idi;
+    }
+
+    final ide = item.icIde.trim();
+    if (ide.isNotEmpty) {
+      return ide;
+    }
+
+    return item.icId.toString();
+  }
+
+  String _displayIdForItem(ItemCatalogueRow item) {
+    final idi = item.icIdi.trim();
+    if (idi.isNotEmpty) {
+      return idi;
+    }
+
+    final ide = item.icIde.trim();
+    if (ide.isNotEmpty) {
+      return ide;
+    }
+
+    return '#${item.icId}';
+  }
+}
+
+class _CatalogueSelectionOption {
+  const _CatalogueSelectionOption({
+    required this.optionId,
+    required this.storedToken,
+    required this.description,
+    required this.label,
+  });
+
+  final String optionId;
+  final String storedToken;
+  final String description;
+  final String label;
 }

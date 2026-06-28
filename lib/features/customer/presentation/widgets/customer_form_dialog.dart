@@ -1685,6 +1685,57 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     );
   }
 
+  Future<void> _openExpandedNoteEditor() async {
+    final draftController = TextEditingController(text: _noteControl.text);
+    final draftFocusNode = FocusNode();
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Notiz bearbeiten'),
+          content: SizedBox(
+            width: 700,
+            child: TextField(
+              controller: draftController,
+              focusNode: draftFocusNode,
+              minLines: 12,
+              maxLines: 20,
+              autofocus: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Notiz eingeben...',
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(draftController.text),
+              child: const Text('Übernehmen'),
+            ),
+          ],
+        );
+      },
+    );
+
+    draftFocusNode.dispose();
+    draftController.dispose();
+
+    if (result == null || !mounted) {
+      return;
+    }
+
+    _noteControl.value = TextEditingValue(
+      text: result,
+      selection: TextSelection.collapsed(offset: result.length),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
@@ -1917,12 +1968,28 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                     const SizedBox(height: 16),
                     const Divider(),
                     const SizedBox(height: 8),
-                    _buildCupertinoField(
-                      label: 'Notiz',
-                      controller: _noteControl,
-                      focusNode: _noteFocusNode,
-                      maxLines: 4,
-                      alignLabelWithHint: true,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: _buildCupertinoField(
+                            label: 'Notiz',
+                            controller: _noteControl,
+                            focusNode: _noteFocusNode,
+                            maxLines: 4,
+                            alignLabelWithHint: true,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: IconButton(
+                            tooltip: 'Notiz vergrößern',
+                            onPressed: _openExpandedNoteEditor,
+                            icon: const Icon(Icons.open_in_full),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 12),
                     if (_isEditing &&

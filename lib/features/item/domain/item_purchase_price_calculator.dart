@@ -67,19 +67,46 @@ Map<int, double> calculateDerivedWeights({
   }
 
   final derivedByArticleId = <int, double>{};
+  final memoizedNodeWeights = <int, double>{};
+  final visitingNodeIds = <int>{};
   final parentNodeIds = childrenByParentId.keys.toList(growable: false)..sort();
+
+  double computeWeightForNode(int nodeId) {
+    final memoized = memoizedNodeWeights[nodeId];
+    if (memoized != null) {
+      return memoized;
+    }
+
+    if (!visitingNodeIds.add(nodeId)) {
+      // Cycle guard: fallback to direct article weight to avoid infinite recursion.
+      final fallbackArticleId = nodeById[nodeId]?.ibItemId;
+      return fallbackArticleId == null
+          ? 0.0
+          : (catalogueById[fallbackArticleId]?.icWeight ?? 0.0);
+    }
+
+    var computedWeight = 0.0;
+    final children = childrenByParentId[nodeId] ?? const <ItemBomRow>[];
+    for (final child in children) {
+      final childNodeId = child.ibId;
+      final childArticleWeight = (childNodeId != null &&
+              childrenByParentId.containsKey(childNodeId))
+          ? computeWeightForNode(childNodeId)
+          : (catalogueById[child.ibItemId]?.icWeight ?? 0.0);
+      computedWeight += childArticleWeight * child.ibQuantity;
+    }
+
+    visitingNodeIds.remove(nodeId);
+    memoizedNodeWeights[nodeId] = computedWeight;
+    return computedWeight;
+  }
 
   for (final parentNodeId in parentNodeIds) {
     final parentNode = nodeById[parentNodeId];
     if (parentNode == null) {
       continue;
     }
-    final children = childrenByParentId[parentNodeId] ?? const <ItemBomRow>[];
-    var computedWeight = 0.0;
-    for (final child in children) {
-      final childArticleWeight = catalogueById[child.ibItemId]?.icWeight ?? 0;
-      computedWeight += childArticleWeight * child.ibQuantity;
-    }
+    final computedWeight = computeWeightForNode(parentNodeId);
     derivedByArticleId[parentNode.ibItemId] = computedWeight;
   }
 

@@ -3,6 +3,7 @@ enum InvoiceDocumentKind { invoice, packingList }
 class InvoiceDocumentData {
   const InvoiceDocumentData({
     this.documentKind = InvoiceDocumentKind.invoice,
+    this.isProforma = false,
     required this.invoiceNumber,
     required this.invoiceDate,
     required this.orderDate,
@@ -26,6 +27,7 @@ class InvoiceDocumentData {
   });
 
   final InvoiceDocumentKind documentKind;
+  final bool isProforma;
   final String invoiceNumber;
   final String invoiceDate;
   final String orderDate;

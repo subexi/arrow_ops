@@ -12,12 +12,14 @@ class ItemCatalogueFormDialog extends StatefulWidget {
   const ItemCatalogueFormDialog({
     super.key,
     required this.nextId,
+    required this.availableCategories,
     this.initialValue,
     this.readOnly = false,
     this.lockPurchasePriceNet = false,
   });
 
   final int nextId;
+  final List<ItemCategoryRow> availableCategories;
   final ItemCatalogueRow? initialValue;
   final bool readOnly;
   final bool lockPurchasePriceNet;
@@ -45,7 +47,9 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   late final TextEditingController _imagePathController;
   late final TextEditingController _noteController;
   late final TextEditingController _stockController;
+  late String _selectedCategory;
   late bool _isIcComponent;
+  late bool _isArchived;
   bool _expandDescriptionDe = false;
   bool _expandDescriptionEn = false;
 
@@ -67,7 +71,9 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     _imagePathController = TextEditingController(text: initialValue?.icImagePath ?? '');
     _noteController = TextEditingController(text: initialValue?.icNote ?? '');
     _stockController = TextEditingController(text: (initialValue?.icStock ?? 0).toString());
+    _selectedCategory = initialValue?.category.trim() ?? '';
     _isIcComponent = (initialValue?.icIc ?? 0) != 0;
+    _isArchived = (initialValue?.icArchive ?? 0) != 0;
   }
 
   @override
@@ -486,6 +492,46 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                   },
                 ),
                 const SizedBox(height: 12),
+                if (readOnly)
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Kategorie',
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Text(_selectedCategory.isEmpty ? '-' : _selectedCategory),
+                  )
+                else
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedCategory.isEmpty ? '' : _selectedCategory,
+                    decoration: const InputDecoration(
+                      labelText: 'Kategorie',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: '',
+                        child: Text('-'),
+                      ),
+                      ...widget.availableCategories.map(
+                        (category) => DropdownMenuItem<String>(
+                          value: category.name,
+                          child: Text(category.name),
+                        ),
+                      ),
+                      if (_selectedCategory.isNotEmpty &&
+                          !widget.availableCategories.any((category) => category.name == _selectedCategory))
+                        DropdownMenuItem<String>(
+                          value: _selectedCategory,
+                          child: Text(_selectedCategory),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedCategory = (value ?? '').trim();
+                      });
+                    },
+                  ),
+                const SizedBox(height: 12),
                 _field(_sourceOfSupplyController, 'Lieferant', enabled: canEdit, readOnly: readOnly),
                 const SizedBox(height: 12),
                 _compactRow([
@@ -545,6 +591,20 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                       ],
                     ),
                   ),
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Archiviert',
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Row(
+                      children: [
+                        CupertinoSwitch(
+                          value: _isArchived,
+                          onChanged: canEdit ? (value) => setState(() => _isArchived = value) : null,
+                        ),
+                      ],
+                    ),
+                  ),
                 ]),
               ],
             ),
@@ -566,6 +626,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
               final result = ItemCatalogueRow(
                 icId: isEditing ? (widget.initialValue?.icId ?? widget.nextId) : widget.nextId,
                 icIdi: _text(_idiController),
+                category: _selectedCategory,
                 icIde: _text(_ideController),
                 icIdv: _text(_idvController),
                 icDescriptionDeLong: _text(_descriptionDeController),
@@ -580,6 +641,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                 icNote: _text(_noteController),
                 icStock: _parseInt(_stockController),
                 icIc: _isIcComponent ? 1 : 0,
+                icArchive: _isArchived ? 1 : 0,
               );
               Navigator.of(context).pop(result);
             },

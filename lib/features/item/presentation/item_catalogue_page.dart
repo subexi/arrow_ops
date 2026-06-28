@@ -19,6 +19,7 @@ import '../data/item_repository.dart';
 import '../domain/item_models.dart';
 import '../domain/item_purchase_price_calculator.dart';
 import 'widgets/item_bom_form_dialog.dart';
+import 'widgets/item_category_management_dialog.dart';
 import 'widgets/item_catalogue_form_dialog.dart';
 
 const Set<String> cataloguePdfHardNoWrapFieldKeys = {
@@ -79,6 +80,7 @@ double cataloguePdfColumnFlexForFieldKey(String fieldKey) {
 
     // Typical short text identifiers - compact.
     case 'ic_idi':
+    case 'category':
     case 'ic_ide':
     case 'ic_idv':
       return 0.9;
@@ -116,6 +118,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   late final ScrollController _bomHorizontalController;
 
   List<ItemCatalogueRow> _catalogueItems = const [];
+  List<ItemCategoryRow> _itemCategories = const [];
   List<ItemBomRow> _bomItems = const [];
   Map<int, ItemCatalogueRow> _catalogueById = const {};
   Map<int, double> _derivedWeightByArticleId = const {};
@@ -129,6 +132,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   int? _selectedCatalogueId;
   int? _selectedBomId;
   _CatalogueFilter _catalogueFilter = _CatalogueFilter.all;
+  _ArchiveFilter _archiveFilter = _ArchiveFilter.activeOnly;
   _VariantFilter _variantFilter = _VariantFilter.all;
   int _catalogueSortColumnIndex = 0;
   bool _catalogueSortAscending = true;
@@ -144,6 +148,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   static const List<String> _catalogueSortLabels = [
     'Artikel-ID',
     'Bezeichnung',
+    'Kategorie',
     'Variante',
     'Bruttopreis',
     'Nettopreis',
@@ -216,7 +221,9 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
+      await _repository.syncDerivedPurchasePrices();
       final catalogueItems = await _repository.getCatalogueItems();
+      final itemCategories = await _repository.getItemCategories();
       await _repository.deleteOrphanBomItems(
         validCatalogueIds: catalogueItems.map((item) => item.icId).toSet(),
       );
@@ -255,6 +262,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
       setState(() {
         _catalogueItems = catalogueItems;
+        _itemCategories = itemCategories;
         _bomItems = bomItems;
         _catalogueById = catalogueById;
         _derivedWeightByArticleId = calculateDerivedWeights(
@@ -484,6 +492,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         value: (row) => row.icIdi,
       ),
       _CatalogueExportField(
+        key: 'category',
+        label: 'Kategorie',
+        csvHeader: 'category',
+        value: (row) => row.category,
+      ),
+      _CatalogueExportField(
         key: 'ic_ide',
         label: 'ic_ide',
         csvHeader: 'ic_ide',
@@ -572,6 +586,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         label: 'ZB Komponenten',
         csvHeader: 'ic_ic',
         value: (row) => row.icIc.toString(),
+      ),
+      _CatalogueExportField(
+        key: 'ic_archive',
+        label: 'Archiviert',
+        csvHeader: 'ic_archive',
+        value: (row) => row.icArchive.toString(),
       ),
     ];
   }
@@ -1427,6 +1447,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case 'ic_source_of_supply':
         return 20;
       case 'ic_idi':
+      case 'category':
       case 'ic_ide':
       case 'ic_idv':
         return 14;
@@ -1451,6 +1472,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case 'ic_purchase_price_net':
         return 14;
       case 'ic_idi':
+      case 'category':
       case 'ic_ide':
       case 'ic_idv':
         return 28;
@@ -1964,6 +1986,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     }
     final text = [
       item.icIdi,
+      item.category,
       item.icIdv,
       item.icDescriptionDeLong,
       item.icDescriptionEnLong,
@@ -1995,9 +2018,24 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     }
   }
 
+  bool _matchesArchiveFilter(ItemCatalogueRow item) {
+    switch (_archiveFilter) {
+      case _ArchiveFilter.all:
+        return true;
+      case _ArchiveFilter.activeOnly:
+        return item.icArchive == 0;
+      case _ArchiveFilter.archivedOnly:
+        return item.icArchive != 0;
+    }
+  }
+
   List<ItemCatalogueRow> _visibleCatalogueRows() {
     final result = _catalogueItems
-        .where((item) => _matchesCatalogueQuery(item) && _matchesCatalogueFilter(item) && _matchesVariantFilter(item))
+        .where((item) =>
+            _matchesCatalogueQuery(item) &&
+            _matchesCatalogueFilter(item) &&
+            _matchesArchiveFilter(item) &&
+            _matchesVariantFilter(item))
         .toList();
     result.sort((a, b) {
       final compare = _compareCatalogueByColumn(a, b, _catalogueSortColumnIndex);
@@ -2028,20 +2066,22 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case 1:
         return a.icIdi.toLowerCase().compareTo(b.icIdi.toLowerCase());
       case 2:
-        return a.icIdv.toLowerCase().compareTo(b.icIdv.toLowerCase());
+        return a.category.toLowerCase().compareTo(b.category.toLowerCase());
       case 3:
-        return _grossPrice(a.icPriceNet).compareTo(_grossPrice(b.icPriceNet));
+        return a.icIdv.toLowerCase().compareTo(b.icIdv.toLowerCase());
       case 4:
-        return a.icPriceNet.compareTo(b.icPriceNet);
+        return _grossPrice(a.icPriceNet).compareTo(_grossPrice(b.icPriceNet));
       case 5:
-        return a.icPriceWholesaleNet.compareTo(b.icPriceWholesaleNet);
+        return a.icPriceNet.compareTo(b.icPriceNet);
       case 6:
-        return a.icPurchasePriceNet.compareTo(b.icPurchasePriceNet);
+        return a.icPriceWholesaleNet.compareTo(b.icPriceWholesaleNet);
       case 7:
-        return _displayWeight(a).compareTo(_displayWeight(b));
+        return a.icPurchasePriceNet.compareTo(b.icPurchasePriceNet);
       case 8:
-        return a.icHts.toLowerCase().compareTo(b.icHts.toLowerCase());
+        return _displayWeight(a).compareTo(_displayWeight(b));
       case 9:
+        return a.icHts.toLowerCase().compareTo(b.icHts.toLowerCase());
+      case 10:
         return a.icStock.compareTo(b.icStock);
       default:
         return a.icId.compareTo(b.icId);
@@ -2241,6 +2281,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       barrierDismissible: false,
       builder: (context) => ItemCatalogueFormDialog(
         nextId: _nextCatalogueId(),
+        availableCategories: _itemCategories,
         initialValue: initialValue,
         lockPurchasePriceNet: lockPurchasePriceNet,
       ),
@@ -2286,11 +2327,22 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       barrierDismissible: true,
       builder: (context) => ItemCatalogueFormDialog(
         nextId: item.icId,
+        availableCategories: _itemCategories,
         initialValue: item,
         readOnly: true,
         lockPurchasePriceNet: _isAutoCalculatedPurchasePriceArticle(item.icId),
       ),
     );
+  }
+
+  Future<void> _showCategoryManagementDialog() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const ItemCategoryManagementDialog(),
+    );
+
+    await _loadData();
   }
 
   bool _isAutoCalculatedPurchasePriceArticle(int articleId) {
@@ -2786,6 +2838,21 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                     icon: const Icon(Icons.delete_outline),
                                     label: const Text('Loeschen'),
                                   ),
+                                if (useUltraCompactControls)
+                                  IconButton.outlined(
+                                    tooltip: 'Kategorien',
+                                    onPressed: _loading ? null : _showCategoryManagementDialog,
+                                    icon: const Icon(Icons.category_outlined),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.all(6),
+                                  )
+                                else
+                                  OutlinedButton.icon(
+                                    onPressed: _loading ? null : _showCategoryManagementDialog,
+                                    style: useCompactButtons ? compactOutlinedStyle : null,
+                                    icon: const Icon(Icons.category_outlined),
+                                    label: const Text('Kategorien'),
+                                  ),
                               ],
                             ),
                           ],
@@ -2867,6 +2934,22 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                               icon: const Icon(Icons.delete_outline),
                               label: const Text('Loeschen'),
                             ),
+                          const SizedBox(width: 8),
+                          if (useUltraCompactControls)
+                            IconButton.outlined(
+                              tooltip: 'Kategorien',
+                              onPressed: _loading ? null : _showCategoryManagementDialog,
+                              icon: const Icon(Icons.category_outlined),
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.all(6),
+                            )
+                          else
+                            OutlinedButton.icon(
+                              onPressed: _loading ? null : _showCategoryManagementDialog,
+                              style: useCompactButtons ? compactOutlinedStyle : null,
+                              icon: const Icon(Icons.category_outlined),
+                              label: const Text('Kategorien'),
+                            ),
                         ],
                       );
                     },
@@ -2879,7 +2962,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
               controller: _searchController,
               decoration: InputDecoration(
                 labelText: 'Artikel suchen',
-                hintText: 'Bezeichnung, Variante, Beschreibung/Description, Notiz ...',
+                hintText: 'Bezeichnung, Kategorie, Variante, Beschreibung/Description, Notiz ...',
                 prefixIcon: const Icon(Icons.search),
                 isDense: useCompactControls,
                 contentPadding: useCompactControls
@@ -2927,6 +3010,28 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                         label: const Text('ohne ZB-Komponenten'),
                         selected: _catalogueFilter == _CatalogueFilter.withoutZb,
                         onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Aktive Artikel'),
+                        selected: _archiveFilter == _ArchiveFilter.activeOnly,
+                        onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.activeOnly),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Archivierte Artikel'),
+                        selected: _archiveFilter == _ArchiveFilter.archivedOnly,
+                        onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.archivedOnly),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Alle (aktiv + archiviert)'),
+                        selected: _archiveFilter == _ArchiveFilter.all,
+                        onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.all),
                       ),
                     ],
                   ),
@@ -3003,6 +3108,28 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                 runSpacing: 8,
                 children: [
                   ChoiceChip(
+                    label: const Text('Aktive Artikel'),
+                    selected: _archiveFilter == _ArchiveFilter.activeOnly,
+                    onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.activeOnly),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Archivierte Artikel'),
+                    selected: _archiveFilter == _ArchiveFilter.archivedOnly,
+                    onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.archivedOnly),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Alle (aktiv + archiviert)'),
+                    selected: _archiveFilter == _ArchiveFilter.all,
+                    onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.all),
+                  ),
+                ],
+              ),
+              SizedBox(height: compactVerticalSpacing ? 6 : 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
                     key: const ValueKey('variant-filter-all'),
                     label: const Text('Alle Varianten'),
                     selected: _variantFilter == _VariantFilter.all,
@@ -3061,6 +3188,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                           DataColumn2(
                             size: ColumnSize.L,
                             label: _leftAlignedHeader('Bezeichnung'),
+                            headingRowAlignment: MainAxisAlignment.start,
+                            onSort: _onCatalogueSort,
+                          ),
+                          DataColumn2(
+                            size: ColumnSize.M,
+                            label: _leftAlignedHeader('Kategorie'),
                             headingRowAlignment: MainAxisAlignment.start,
                             onSort: _onCatalogueSort,
                           ),
@@ -3135,6 +3268,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                 cells: [
                                   _catalogueDetailCell(Text(item.icId.toString()), item),
                                   _catalogueDetailCell(Text(item.icIdi), item),
+                                  _catalogueDetailCell(Text(item.category), item),
                                   _catalogueDetailCell(Text(item.icIdv), item),
                                   _catalogueDetailCell(Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPriceNet, 2)), item),
@@ -3153,6 +3287,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                           const iosHeaders = <String>[
                             'Artikel-ID',
                             'Bezeichnung',
+                            'Kategorie',
                             'Variante',
                             'Bruttopreis\nincl. 19%',
                             'Nettopreis',
@@ -3163,7 +3298,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                             'Bestand',
                             'Bild',
                           ];
-                          const iosColumnWidths = <double>[90, 220, 120, 130, 110, 150, 150, 100, 100, 90, 72];
+                          const iosColumnWidths = <double>[90, 200, 140, 120, 130, 110, 150, 150, 100, 100, 90, 72];
                           final iosColumnsTotalWidth = iosColumnWidths.fold<double>(0, (sum, width) => sum + width);
                           final iosTableWidth = iosColumnsTotalWidth > tableMinWidth ? iosColumnsTotalWidth : tableMinWidth;
                           final hideIosHeader = constraints.maxHeight < 140;
@@ -3252,15 +3387,16 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                                   children: [
                                                     buildIosCell(iosColumnWidths[0], Text(item.icId.toString()), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[1], Text(item.icIdi), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[2], Text(item.icIdv), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[3], Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[4], Text(_formatDecimal(item.icPriceNet, 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[5], Text(_formatDecimal(item.icPriceWholesaleNet, 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[6], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[7], Text(_formatDecimal(_displayWeight(item), 1)), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[8], _buildHtsLink(item.icHts), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[9], Text(item.icStock.toString()), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[10], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
+                                                    buildIosCell(iosColumnWidths[2], Text(item.category), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[3], Text(item.icIdv), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[4], Text(_formatDecimal(_grossPrice(item.icPriceNet), 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[5], Text(_formatDecimal(item.icPriceNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[6], Text(_formatDecimal(item.icPriceWholesaleNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[7], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[8], Text(_formatDecimal(_displayWeight(item), 1)), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[9], _buildHtsLink(item.icHts), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[10], Text(item.icStock.toString()), verticalPadding: 8),
+                                                    buildIosCell(iosColumnWidths[11], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
                                                   ],
                                                 ),
                                               ),
@@ -3651,48 +3787,61 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                   ? const Center(child: Text('Bitte zuerst oben einen Artikel auswaehlen.'))
                   : visibleBomRows.isEmpty
                       ? const Center(child: Text('Keine untergeordneten BOM-Eintraege gefunden.'))
-                      : SingleChildScrollView(
-                          controller: _bomHorizontalController,
-                          scrollDirection: Axis.horizontal,
-                          child: SingleChildScrollView(
-                            controller: _bomVerticalController,
-                            child: DataTable(
-                              showCheckboxColumn: false,
-                              sortColumnIndex: _bomSortColumnIndex,
-                              sortAscending: _bomSortAscending,
-                              columns: [
-                                DataColumn(label: const Text('ID'), onSort: _onBomSort),
-                                DataColumn(label: const Text('Artikel-ID'), onSort: _onBomSort),
-                                DataColumn(label: const Text('Eltern Artikel (Katalog)'), onSort: _onBomSort),
-                                DataColumn(label: const Text('Menge'), onSort: _onBomSort),
-                                DataColumn(label: const Text('Bezeichnung'), onSort: _onBomSort),
-                                DataColumn(label: const Text('Netto-Einkaufspreis'), onSort: _onBomSort),
-                                const DataColumn(label: Text('Bild')),
-                              ],
-                              rows: visibleBomRows
-                                  .map((row) {
-                                    final item = _catalogueById[row.ibItemId];
-                                    return DataRow(
-                                      selected: row.ibId == _selectedBomId,
-                                      onSelectChanged: (_) {
-                                        setState(() {
-                                          _selectedBomId = row.ibId;
-                                        });
-                                      },
-                                      cells: [
-                                        DataCell(Text('${row.ibId ?? 0}')),
-                                        DataCell(Text(row.ibItemId.toString())),
-                                        DataCell(Text(_parentArticleLabelOf(row))),
-                                        DataCell(Text(row.ibQuantity.toString())),
-                                        DataCell(Text(item?.icIdi ?? '')),
-                                        DataCell(Text(_formatDecimal(_bomNetPurchaseTotalOf(row), 2))),
-                                        DataCell(item == null ? _emptyImagePreview() : _buildCatalogueImagePreview(item)),
-                                      ],
-                                    );
-                                  })
-                                  .toList(growable: false),
+                      : DataTable2(
+                          showCheckboxColumn: false,
+                          sortColumnIndex: _bomSortColumnIndex,
+                          sortAscending: _bomSortAscending,
+                          scrollController: _bomVerticalController,
+                          horizontalScrollController: _bomHorizontalController,
+                          isVerticalScrollBarVisible: true,
+                          isHorizontalScrollBarVisible: true,
+                          fixedTopRows: 1,
+                          headingRowHeight: 44,
+                          headingRowColor: WidgetStateProperty.resolveWith(
+                            (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
+                          ),
+                          headingTextStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                          border: TableBorder(
+                            horizontalInside: BorderSide(
+                              color: Theme.of(context).dividerColor,
+                              width: 0.6,
                             ),
                           ),
+                          minWidth: 940,
+                          columns: [
+                            DataColumn2(label: const Text('ID'), onSort: _onBomSort, size: ColumnSize.S),
+                            DataColumn2(label: const Text('Artikel-ID'), onSort: _onBomSort, size: ColumnSize.S),
+                            DataColumn2(label: const Text('Eltern Artikel (Katalog)'), onSort: _onBomSort, size: ColumnSize.L),
+                            DataColumn2(label: const Text('Menge'), onSort: _onBomSort, size: ColumnSize.S),
+                            DataColumn2(label: const Text('Bezeichnung'), onSort: _onBomSort, size: ColumnSize.M),
+                            DataColumn2(label: const Text('Netto-Einkaufspreis'), onSort: _onBomSort, size: ColumnSize.M),
+                            const DataColumn2(label: Text('Bild'), fixedWidth: 72),
+                          ],
+                          rows: visibleBomRows
+                              .map((row) {
+                                final item = _catalogueById[row.ibItemId];
+                                return DataRow(
+                                  selected: row.ibId == _selectedBomId,
+                                  onSelectChanged: (_) {
+                                    setState(() {
+                                      _selectedBomId = row.ibId;
+                                    });
+                                  },
+                                  cells: [
+                                    DataCell(Text('${row.ibId ?? 0}')),
+                                    DataCell(Text(row.ibItemId.toString())),
+                                    DataCell(Text(_parentArticleLabelOf(row))),
+                                    DataCell(Text(row.ibQuantity.toString())),
+                                    DataCell(Text(item?.icIdi ?? '')),
+                                    DataCell(Text(_formatDecimal(_bomNetPurchaseTotalOf(row), 2))),
+                                    DataCell(item == null ? _emptyImagePreview() : _buildCatalogueImagePreview(item)),
+                                  ],
+                                );
+                              })
+                              .toList(growable: false),
                         ),
             ),
           ],
@@ -3909,6 +4058,12 @@ enum _VariantFilter {
   all,
   withVariants,
   withoutVariants,
+}
+
+enum _ArchiveFilter {
+  all,
+  activeOnly,
+  archivedOnly,
 }
 
 enum _DuplicateMode {

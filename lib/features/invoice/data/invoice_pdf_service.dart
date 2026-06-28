@@ -320,6 +320,7 @@ class InvoicePdfService {
                   '',
                   recipient,
                   useGerman: useGerman,
+                  isProforma: data.isProforma,
                   includeContacts: false,
                   includeVat: false,
                   boxed: false,
@@ -353,6 +354,7 @@ class InvoicePdfService {
                   '',
                   data.seller,
                   useGerman: useGerman,
+                  isProforma: data.isProforma,
                   includeContacts: true,
                   includeVat: true,
                   boxed: false,
@@ -387,6 +389,7 @@ class InvoicePdfService {
             useGerman ? 'Lieferadresse' : 'Shipping address',
             shippingParty,
             useGerman: useGerman,
+            isProforma: data.isProforma,
             includeContacts: false,
             includeVat: false,
             boxed: false,
@@ -441,10 +444,7 @@ class InvoicePdfService {
   }
 
   pw.Widget _buildInvoiceHeadline(InvoiceDocumentData data, bool useGerman) {
-    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
-    final label = isPackingList
-        ? (useGerman ? 'Lieferschein' : 'Packing List')
-        : (useGerman ? 'Bestellung / Rechnung-Nr.' : 'Order / Invoice no.');
+    final label = _buildInvoiceHeadlineLabel(data, useGerman);
     final documentNumber = data.orderId.trim();
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -457,6 +457,26 @@ class InvoicePdfService {
         ),
       ],
     );
+  }
+
+  @visibleForTesting
+  String debugBuildInvoiceHeadlineLabel(InvoiceDocumentData data, bool useGerman) {
+    return _buildInvoiceHeadlineLabel(data, useGerman);
+  }
+
+  String _buildInvoiceHeadlineLabel(InvoiceDocumentData data, bool useGerman) {
+    final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    if (isPackingList) {
+      return useGerman ? 'Lieferschein' : 'Packing List';
+    }
+
+    if (data.isProforma) {
+      return useGerman
+          ? 'Bestellung / Proforma Rechnung-Nr.'
+          : 'Order / Proforma invoice no.';
+    }
+
+    return useGerman ? 'Bestellung / Rechnung-Nr.' : 'Order / Invoice no.';
   }
 
   pw.Widget _buildIntroSection(InvoiceDocumentData data, bool useGerman) {
@@ -528,6 +548,7 @@ class InvoicePdfService {
     String title,
     InvoicePartyData party, {
     required bool useGerman,
+    bool isProforma = false,
     bool includeContacts = true,
     bool includeVat = true,
     bool boxed = true,
@@ -547,7 +568,11 @@ class InvoicePdfService {
       houseNumber: party.houseNumber,
       houseNumberFirst: houseNumberFirst,
     );
-    final postalCityLine = _postalCityLine(party, useGerman: useGerman);
+    final postalCityLine = _postalCityLine(
+      party,
+      useGerman: useGerman,
+      isProforma: isProforma,
+    );
     final widgets = <pw.Widget>[
       if (_valid(party.company))
         _partyLine(party.company, fontSize: bodyFontSize),
@@ -758,6 +783,9 @@ class InvoicePdfService {
   pw.Widget _buildTotalsSection(InvoiceDocumentData data, bool useGerman) {
     final totals = data.totals;
     final isGrossBasis = data.priceBasis.trim().toLowerCase() == 'gross';
+    final displayShipping = _displayShipping(data);
+    final displayPayPalFee = _displayPayPalFee(data);
+    final displayGrandTotal = _displayGrandTotal(data);
     final germanGoodsLabel = isGrossBasis
         ? 'Summe Warenwert'
         : 'Summe Warenwert netto';
@@ -796,19 +824,20 @@ class InvoicePdfService {
                         true,
                       ),
                     ),
-                    _totalsRow(
-                      'Versand',
-                      _formatMoney(totals.shipping, data.currency, true),
-                    ),
-                    if (totals.paypalFee.abs() > 0.0001)
+                    if (displayShipping.abs() > 0.0001)
+                      _totalsRow(
+                        'Versand',
+                        _formatMoney(displayShipping, data.currency, true),
+                      ),
+                    if (displayPayPalFee.abs() > 0.0001)
                       _totalsRow(
                         'PayPal-Gebühr',
-                        _formatMoney(totals.paypalFee, data.currency, true),
+                        _formatMoney(displayPayPalFee, data.currency, true),
                       ),
                     pw.Divider(color: PdfColors.grey600, height: 0.4),
                     _totalsRow(
                       'Endbetrag',
-                      _formatMoney(totals.grandTotal, data.currency, true),
+                      _formatMoney(displayGrandTotal, data.currency, true),
                       bold: true,
                     ),
                   ] else ...[
@@ -827,19 +856,20 @@ class InvoicePdfService {
                         isGrossBasis ? 'Goods value' : 'Goods gross',
                         _formatMoney(totals.itemsGross, data.currency, false),
                       ),
-                    _totalsRow(
-                      'Shipping',
-                      _formatMoney(totals.shipping, data.currency, false),
-                    ),
-                    if (totals.paypalFee.abs() > 0.0001)
+                    if (displayShipping.abs() > 0.0001)
+                      _totalsRow(
+                        'Shipping',
+                        _formatMoney(displayShipping, data.currency, false),
+                      ),
+                    if (displayPayPalFee.abs() > 0.0001)
                       _totalsRow(
                         'PayPal fee',
-                        _formatMoney(totals.paypalFee, data.currency, false),
+                        _formatMoney(displayPayPalFee, data.currency, false),
                       ),
                     pw.Divider(color: PdfColors.grey600, height: 0.4),
                     _totalsRow(
                       isGrossBasis ? 'Grand Total' : 'Grand total',
-                      _formatMoney(totals.grandTotal, data.currency, false),
+                      _formatMoney(displayGrandTotal, data.currency, false),
                       bold: true,
                     ),
                   ],
@@ -923,7 +953,8 @@ class InvoicePdfService {
 
     final hideGiroCode = _isEnglishNetOutsideEu(data);
     final giroCodePayload = _buildGiroCodePayload(data);
-    final showPayPalQr = _isPayPalPayment(data.paymentLabel);
+    final showPayPalQr =
+      _isPayPalPayment(data.paymentLabel) && !_hideShippingAndPayPalForProforma(data);
     final paypalCodePayload = showPayPalQr ? _buildPayPalQrPayload(data) : null;
 
     return pw.Column(
@@ -943,7 +974,7 @@ class InvoicePdfService {
                       '$noteTitle: ${data.note}',
                       style: const pw.TextStyle(fontSize: 9),
                     ),
-                  if (_valid(data.paymentLabel))
+                  if (_shouldShowPaymentLabel(data))
                     pw.Text(
                       '$paymentTitle: ${data.paymentLabel}',
                       style: const pw.TextStyle(fontSize: 9),
@@ -982,7 +1013,7 @@ class InvoicePdfService {
                 if (!hideGiroCode)
                   _buildGiroCodeBox(
                     giroCodePayload,
-                    hasPaypalFee: data.totals.paypalFee > 0.0001,
+                    hasPaypalFee: _displayPayPalFee(data) > 0.0001,
                     useGerman: useGerman,
                   ),
               ],
@@ -1050,8 +1081,8 @@ class InvoicePdfService {
   }
 
   String _buildGiroCodePayload(InvoiceDocumentData data) {
-    final paypalFee = data.totals.paypalFee > 0 ? data.totals.paypalFee : 0.0;
-    final effectiveAmount = data.totals.grandTotal - paypalFee;
+    final paypalFee = _displayPayPalFee(data) > 0 ? _displayPayPalFee(data) : 0.0;
+    final effectiveAmount = _displayGrandTotal(data) - paypalFee;
     final amount = effectiveAmount < 0 ? 0.0 : effectiveAmount;
     final amountToken = amount.toStringAsFixed(2);
     final iban = _giroIban.replaceAll(' ', '').trim();
@@ -1085,7 +1116,7 @@ class InvoicePdfService {
 
   String _buildPayPalQrPayload(InvoiceDocumentData data) {
     final reference = _giroPurpose(data);
-    final amount = data.totals.grandTotal < 0 ? 0.0 : data.totals.grandTotal;
+    final amount = _displayGrandTotal(data) < 0 ? 0.0 : _displayGrandTotal(data);
     final amountToken = amount.toStringAsFixed(2);
     final currency = data.currency.trim().isEmpty
         ? 'EUR'
@@ -1104,6 +1135,61 @@ class InvoicePdfService {
 
   bool _isPayPalPayment(String paymentLabel) {
     return paymentLabel.trim().toLowerCase() == 'paypal';
+  }
+
+  bool _hideShippingAndPayPalForProforma(InvoiceDocumentData data) {
+    final isInvoice = data.documentKind == InvoiceDocumentKind.invoice;
+    return isInvoice && data.isProforma;
+  }
+
+  bool _shouldShowPaymentLabel(InvoiceDocumentData data) {
+    if (!_valid(data.paymentLabel)) {
+      return false;
+    }
+    if (_hideShippingAndPayPalForProforma(data) &&
+        _isPayPalPayment(data.paymentLabel)) {
+      return false;
+    }
+    return true;
+  }
+
+  @visibleForTesting
+  bool debugShouldShowPaymentLabel(InvoiceDocumentData data) {
+    return _shouldShowPaymentLabel(data);
+  }
+
+  double _displayShipping(InvoiceDocumentData data) {
+    if (_hideShippingAndPayPalForProforma(data)) {
+      return 0.0;
+    }
+    return data.totals.shipping;
+  }
+
+  double _displayPayPalFee(InvoiceDocumentData data) {
+    if (_hideShippingAndPayPalForProforma(data)) {
+      return 0.0;
+    }
+    return data.totals.paypalFee;
+  }
+
+  double _displayGrandTotal(InvoiceDocumentData data) {
+    if (!_hideShippingAndPayPalForProforma(data)) {
+      return data.totals.grandTotal;
+    }
+
+    final adjusted =
+        data.totals.grandTotal - data.totals.shipping - data.totals.paypalFee;
+    return adjusted < 0 ? 0.0 : adjusted;
+  }
+
+  @visibleForTesting
+  ({double shipping, double paypalFee, double grandTotal})
+      debugDisplayTotals(InvoiceDocumentData data) {
+    return (
+      shipping: _displayShipping(data),
+      paypalFee: _displayPayPalFee(data),
+      grandTotal: _displayGrandTotal(data),
+    );
   }
 
   bool _isEnglishNetOutsideEu(InvoiceDocumentData data) {
@@ -1308,9 +1394,14 @@ class InvoicePdfService {
         upper == 'NIEDERLANDE';
   }
 
-  String _postalCityLine(InvoicePartyData party, {required bool useGerman}) {
+  String _postalCityLine(
+    InvoicePartyData party, {
+    required bool useGerman,
+    bool isProforma = false,
+  }) {
     final isItaly = _isItalianAddress(party.countryCode);
     final isSwitzerland = _isSwitzerlandAddress(party.countryCode);
+    final isUsAddress = _isUsAddress(party.countryCode);
     final isAustralianEnglish = !useGerman &&
         _isAustralianAddress(party.countryCode);
     final isUsOrAustralia = _isUsOrAustraliaAddress(party.countryCode);
@@ -1320,8 +1411,8 @@ class InvoicePdfService {
     final city = party.city.trim();
     final state = party.state.trim();
     final stateToken = isAustralianEnglish
-        ? _abbreviateAustralianState(state)
-        : state;
+      ? _abbreviateAustralianState(state)
+      : (isUsAddress ? _abbreviateUsState(state) : state);
     final swissCantonCode = _swissCantonCodeFromAdministrativeUnit(state);
     final cityWithSwissCanton =
       swissCantonCode == null || city.isEmpty || city == '-'
@@ -1334,6 +1425,17 @@ class InvoicePdfService {
     }
 
     if (isUsOrAustralia) {
+      if (isUsAddress) {
+        final cityAlreadyContainsState = _cityContainsUsStateCode(
+          city,
+          stateToken,
+        );
+        return _joinValid([
+          city,
+          if (!cityAlreadyContainsState) stateToken,
+          postalCode,
+        ]);
+      }
       return _joinValid([city, stateToken, postalCode]);
     }
 
@@ -1402,6 +1504,56 @@ class InvoicePdfService {
         upper == 'AUS' ||
         upper == 'AUSTRALIA' ||
         upper == 'AUSTRALIEN';
+  }
+
+  bool _isUsAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'US' ||
+        upper == 'USA' ||
+        upper == 'UNITED STATES' ||
+        upper == 'VEREINIGTE STAATEN';
+  }
+
+  String _abbreviateUsState(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return normalized;
+    }
+
+    final startCodeMatch = RegExp(r'^([A-Za-z]{2})\b').firstMatch(normalized);
+    if (startCodeMatch != null) {
+      return startCodeMatch.group(1)!.toUpperCase();
+    }
+
+    if (RegExp(r'^[A-Za-z]{2}$').hasMatch(normalized)) {
+      return normalized.toUpperCase();
+    }
+
+    return normalized;
+  }
+
+  bool _cityContainsUsStateCode(String city, String stateCode) {
+    final normalizedCity = city.trim().toUpperCase();
+    final normalizedState = stateCode.trim().toUpperCase();
+    if (normalizedCity.isEmpty || normalizedState.isEmpty) {
+      return false;
+    }
+    return normalizedCity.endsWith(', $normalizedState') ||
+        normalizedCity.endsWith(' $normalizedState') ||
+        normalizedCity == normalizedState;
+  }
+
+  @visibleForTesting
+  String debugPostalCityLine(
+    InvoicePartyData party, {
+    required bool useGerman,
+    bool isProforma = false,
+  }) {
+    return _postalCityLine(
+      party,
+      useGerman: useGerman,
+      isProforma: isProforma,
+    );
   }
 
   bool _isAustralianAddress(String countryCode) {

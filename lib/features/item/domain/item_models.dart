@@ -2,6 +2,7 @@ class ItemCatalogueRow {
   const ItemCatalogueRow({
     required this.icId,
     this.icIdi = '',
+    this.category = '',
     this.icIde = '',
     this.icIdv = '',
     this.icDescriptionDeLong = '',
@@ -16,10 +17,12 @@ class ItemCatalogueRow {
     this.icNote = '',
     this.icStock = 0,
     this.icIc = 0,
+    this.icArchive = 0,
   });
 
   final int icId;
   final String icIdi;
+  final String category;
   final String icIde;
   final String icIdv;
   final String icDescriptionDeLong;
@@ -34,11 +37,13 @@ class ItemCatalogueRow {
   final String icNote;
   final int icStock;
   final int icIc;
+  final int icArchive;
 
   factory ItemCatalogueRow.fromMap(Map<String, Object?> map) {
     return ItemCatalogueRow(
       icId: _int(map['ic_id']),
       icIdi: _string(map['ic_idi']),
+      category: _string(map['category']),
       icIde: _string(map['ic_ide']),
       icIdv: _string(map['ic_idv']),
       icDescriptionDeLong: _string(map['ic_description_de_long']),
@@ -53,6 +58,7 @@ class ItemCatalogueRow {
       icNote: _string(map['ic_note']),
       icStock: _int(map['ic_stock']),
       icIc: _int(map['ic_ic']),
+      icArchive: _int(map['ic_archive']),
     );
   }
 
@@ -60,6 +66,7 @@ class ItemCatalogueRow {
     return {
       'ic_id': icId,
       'ic_idi': icIdi,
+      'category': category,
       'ic_ide': icIde,
       'ic_idv': icIdv,
       'ic_description_de_long': icDescriptionDeLong,
@@ -74,12 +81,14 @@ class ItemCatalogueRow {
       'ic_note': icNote,
       'ic_stock': icStock,
       'ic_ic': icIc,
+      'ic_archive': icArchive,
     };
   }
 
   ItemCatalogueRow copyWith({
     int? icId,
     String? icIdi,
+    String? category,
     String? icIde,
     String? icIdv,
     String? icDescriptionDeLong,
@@ -94,10 +103,12 @@ class ItemCatalogueRow {
     String? icNote,
     int? icStock,
     int? icIc,
+    int? icArchive,
   }) {
     return ItemCatalogueRow(
       icId: icId ?? this.icId,
       icIdi: icIdi ?? this.icIdi,
+      category: category ?? this.category,
       icIde: icIde ?? this.icIde,
       icIdv: icIdv ?? this.icIdv,
       icDescriptionDeLong: icDescriptionDeLong ?? this.icDescriptionDeLong,
@@ -112,6 +123,7 @@ class ItemCatalogueRow {
       icNote: icNote ?? this.icNote,
       icStock: icStock ?? this.icStock,
       icIc: icIc ?? this.icIc,
+      icArchive: icArchive ?? this.icArchive,
     );
   }
 
@@ -119,6 +131,44 @@ class ItemCatalogueRow {
 
   static double _double(Object? value) =>
       double.tryParse(value?.toString().trim().replaceAll(',', '.') ?? '') ?? 0;
+
+  static String _string(Object? value) => value?.toString().trim() ?? '';
+}
+
+class ItemCategoryRow {
+  const ItemCategoryRow({
+    required this.icatId,
+    this.name = '',
+  });
+
+  final int icatId;
+  final String name;
+
+  factory ItemCategoryRow.fromMap(Map<String, Object?> map) {
+    return ItemCategoryRow(
+      icatId: _int(map['icat_id']),
+      name: _string(map['name']),
+    );
+  }
+
+  Map<String, Object?> toMap() {
+    return {
+      'icat_id': icatId,
+      'name': name,
+    };
+  }
+
+  ItemCategoryRow copyWith({
+    int? icatId,
+    String? name,
+  }) {
+    return ItemCategoryRow(
+      icatId: icatId ?? this.icatId,
+      name: name ?? this.name,
+    );
+  }
+
+  static int _int(Object? value) => int.tryParse(value?.toString().trim() ?? '') ?? 0;
 
   static String _string(Object? value) => value?.toString().trim() ?? '';
 }

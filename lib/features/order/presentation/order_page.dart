@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:data_table_2/data_table_2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -44,6 +45,10 @@ class _OrderPageState extends State<OrderPage> {
   bool _orderSortAscending = false;
   final TextEditingController _orderSearchController = TextEditingController();
   String _orderSearchQuery = '';
+  final ScrollController _ordersVerticalController = ScrollController();
+  final ScrollController _ordersHorizontalController = ScrollController();
+  final ScrollController _itemsVerticalController = ScrollController();
+  final ScrollController _itemsHorizontalController = ScrollController();
   double _splitterRatio = 0.55;
   bool _isDragging = false;
   String? _pendingInitialOrderId;
@@ -122,6 +127,10 @@ class _OrderPageState extends State<OrderPage> {
   @override
   void dispose() {
     _orderSearchController.dispose();
+    _ordersVerticalController.dispose();
+    _ordersHorizontalController.dispose();
+    _itemsVerticalController.dispose();
+    _itemsHorizontalController.dispose();
     super.dispose();
   }
 
@@ -416,6 +425,9 @@ class _OrderPageState extends State<OrderPage> {
       onTap: () => _openTrackingCode(normalized),
       child: Text(
         normalized,
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
         style: const TextStyle(
           color: Colors.blue,
           decoration: TextDecoration.underline,
@@ -426,6 +438,91 @@ class _OrderPageState extends State<OrderPage> {
 
   String _formatDecimal(double v, int digits) =>
       v.toStringAsFixed(digits).replaceAll('.', ',');
+
+  Uri _htsUri(String htsCode) {
+    final encodedHtsCode = Uri.encodeComponent(htsCode.trim());
+    return Uri.parse('https://www.zolltarifnummern.de/2026/$encodedHtsCode');
+  }
+
+  Future<void> _openHtsUrl(String htsCode) async {
+    final normalized = htsCode.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return;
+    }
+
+    final launched = await launchUrl(
+      _htsUri(normalized),
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('HTS-Link konnte nicht geöffnet werden: $normalized')),
+      );
+    }
+  }
+
+  DataCell _numericCell(
+    String value, {
+    VoidCallback? onTap,
+    VoidCallback? onDoubleTap,
+  }) {
+    return DataCell(
+      Align(
+        alignment: Alignment.centerRight,
+        child: Text(value),
+      ),
+      onTap: onTap,
+      onDoubleTap: onDoubleTap,
+    );
+  }
+
+  DataCell _singleLineCell(
+    String value, {
+    String? tooltip,
+    TextStyle? style,
+    VoidCallback? onTap,
+    VoidCallback? onDoubleTap,
+  }) {
+    final label = value.trim().isEmpty ? '-' : value;
+    final tooltipText = (tooltip ?? value).trim();
+    final textWidget = Text(
+      label,
+      style: style,
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,
+    );
+
+    return DataCell(
+      tooltipText.isEmpty || tooltipText == '-'
+          ? textWidget
+          : Tooltip(message: tooltipText, child: textWidget),
+      onTap: onTap,
+      onDoubleTap: onDoubleTap,
+    );
+  }
+
+  DataCell _htsLinkCell(
+    String htsCode, {
+    VoidCallback? onDoubleTap,
+  }) {
+    final normalized = htsCode.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return _singleLineCell('-', onDoubleTap: onDoubleTap);
+    }
+
+    return _singleLineCell(
+      normalized,
+      tooltip: normalized,
+      style: const TextStyle(
+        color: Colors.blue,
+        decoration: TextDecoration.underline,
+      ),
+      onTap: () => _openHtsUrl(normalized),
+      onDoubleTap: onDoubleTap,
+    );
+  }
 
   Widget _buildOrderedItemImageCell(String imagePath) {
     final normalized = imagePath.trim();
@@ -448,20 +545,76 @@ class _OrderPageState extends State<OrderPage> {
 
         return ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          child: Container(
-            width: 40,
-            height: 40,
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Image.file(
-              file,
-              fit: BoxFit.contain,
-              errorBuilder: (_, error, stackTrace) =>
-                  const Icon(Icons.broken_image_outlined, size: 18),
+          child: InkWell(
+            onTap: () => _showOrderedItemImageDialog(file),
+            child: Container(
+              width: 40,
+              height: 40,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Image.file(
+                file,
+                fit: BoxFit.contain,
+                errorBuilder: (_, error, stackTrace) =>
+                    const Icon(Icons.broken_image_outlined, size: 18),
+              ),
             ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _showOrderedItemImageDialog(File file) async {
+    if (!file.existsSync()) {
+      return;
+    }
+
+    final transformController = TransformationController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: 900,
+          height: 620,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  onDoubleTap: () {
+                    transformController.value = Matrix4.identity();
+                  },
+                  child: InteractiveViewer(
+                    transformationController: transformController,
+                    minScale: 0.6,
+                    maxScale: 5,
+                    child: Image.file(
+                      file,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => const Center(
+                        child: Text('Bild konnte nicht geladen werden.'),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: FilledButton.tonalIcon(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Schliessen'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    transformController.dispose();
   }
 
   String _paymentLabel(int code) {
@@ -899,122 +1052,139 @@ class _OrderPageState extends State<OrderPage> {
             Expanded(
               child: sorted.isEmpty
                   ? const Center(child: Text('Keine Bestellungen vorhanden.'))
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SingleChildScrollView(
-                        child: DataTable(
-                          showCheckboxColumn: false,
-                          sortColumnIndex: _orderSortColumnIndex,
-                          sortAscending: _orderSortAscending,
-                          columns: [
-                            DataColumn(label: const Text('Auftrags-ID'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('Kunde'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('Endkunde'), onSort: _onOrderSort),
-                            const DataColumn(label: Text('Maps')),
-                            DataColumn(label: const Text('Trade Show'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('Putt'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('Währung'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('Netto'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('Brutto'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('Versand'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('Trackingcode'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('Zahlart'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('PayPal-Gebühr'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('Gesamtpreis'), numeric: true, onSort: _onOrderSort),
-                            DataColumn(label: const Text('Bezahlt-Datum'), onSort: _onOrderSort),
-                            DataColumn(label: const Text('Versand-Datum'), onSort: _onOrderSort),
-                          ],
-                          rows: sorted.map((order) {
-                            final selected = order.oId == _selectedOrderId;
-                            final hasDeliveryDate = order.oDelivery.trim().isNotEmpty;
-                            final hasPayDate = order.oPayDate.trim().isNotEmpty;
-                            Future<void> handleSelectOrder() async {
-                              setState(() => _selectedOrderId = order.oId);
-                              await _loadItemsForSelected();
-                            }
-                            Future<void> handleOpenEdit() async {
-                              await handleSelectOrder();
-                              if (!mounted) return;
-                              await _showOrderForm(initialValue: order);
-                            }
-                            return DataRow(
-                              selected: selected,
-                              onSelectChanged: (isSelected) async {
-                                if (isSelected != true) {
-                                  return;
-                                }
-                                await handleSelectOrder();
-                              },
-                              cells: [
-                                DataCell(
-                                  Text(order.oId),
-                                  onTap: () => handleSelectOrder(),
-                                  onDoubleTap: () => handleOpenEdit(),
-                                ),
-                                DataCell(Text(_customerName(order.oCustomerId)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_endCustomerLabel(order)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(
-                                  Builder(
-                                    builder: (cellContext) {
-                                      final hasCoords = !(order.oDeliveryLat == 0 && order.oDeliveryLon == 0) &&
-                                          !order.oDeliveryLat.isNaN &&
-                                          !order.oDeliveryLon.isNaN;
-                                      return Tooltip(
-                                        message: hasCoords
-                                            ? 'Lieferadresse auf Karte anzeigen'
-                                            : 'Keine Koordinaten vorhanden',
-                                        child: IconButton(
-                                          onPressed: hasCoords
-                                              ? () => _showOrderDeliveryMapDialog(order)
-                                              : null,
-                                          icon: Icon(
-                                            Icons.location_on_outlined,
-                                            color: hasCoords
-                                                ? Theme.of(cellContext).colorScheme.primary
-                                                : Theme.of(cellContext).disabledColor,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                                DataCell(Text(order.oTradeShow.trim().isEmpty ? '-' : order.oTradeShow), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_puttLabel(order.oPutt)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(order.oCurrency), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oValueGoods, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oVat, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oValueGoods + order.oVat, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oShipping, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(_buildTrackingCodeCell(order.oTrackingCode), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_paymentLabel(order.oPayment)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oPaypalFee, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(Text(_formatDecimal(order.oTotalPrice, 2)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                                DataCell(
-                                  Text(
-                                    _formatDate(order.oPayDate),
-                                    style: TextStyle(
-                                      color: hasDeliveryDate ? Colors.black : Colors.green,
-                                    ),
-                                  ),
-                                  onTap: () => handleSelectOrder(),
-                                  onDoubleTap: () => handleOpenEdit(),
-                                ),
-                                DataCell(
-                                  Text(
-                                    _formatDate(order.oDelivery),
-                                    style: TextStyle(
-                                      color: hasPayDate ? Colors.black : Colors.red,
-                                    ),
-                                  ),
-                                  onTap: () => handleSelectOrder(),
-                                  onDoubleTap: () => handleOpenEdit(),
-                                ),
-                              ],
-                            );
-                          }).toList(growable: false),
+                  : DataTable2(
+                      showCheckboxColumn: false,
+                      sortColumnIndex: _orderSortColumnIndex,
+                      sortAscending: _orderSortAscending,
+                      scrollController: _ordersVerticalController,
+                      horizontalScrollController: _ordersHorizontalController,
+                      isVerticalScrollBarVisible: true,
+                      isHorizontalScrollBarVisible: true,
+                      fixedTopRows: 1,
+                      headingRowHeight: 56,
+                      headingRowColor: WidgetStateProperty.resolveWith(
+                        (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
+                      ),
+                      headingTextStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                      border: TableBorder(
+                        horizontalInside: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                          width: 0.6,
                         ),
                       ),
+                      minWidth: 2580,
+                      columns: [
+                        DataColumn2(label: const Text('Auftrags-ID'), onSort: _onOrderSort, fixedWidth: 140),
+                        DataColumn2(label: const Text('Kunde'), onSort: _onOrderSort, size: ColumnSize.L),
+                        DataColumn2(label: const Text('Endkunde'), onSort: _onOrderSort, size: ColumnSize.L),
+                        const DataColumn2(label: Text('Map'), fixedWidth: 86),
+                        DataColumn2(label: const Text('Trade Show'), onSort: _onOrderSort, size: ColumnSize.M),
+                        DataColumn2(label: const Text('Putt'), onSort: _onOrderSort, fixedWidth: 112),
+                        DataColumn2(label: const Text('Währung'), onSort: _onOrderSort, fixedWidth: 148),
+                        DataColumn2(label: const Text('Netto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
+                        DataColumn2(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
+                        DataColumn2(label: const Text('Brutto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
+                        DataColumn2(label: const Text('Versand'), numeric: true, onSort: _onOrderSort, fixedWidth: 132),
+                        DataColumn2(label: const Text('Trackingcode'), onSort: _onOrderSort, fixedWidth: 200),
+                        DataColumn2(label: const Text('Zahlart'), onSort: _onOrderSort, fixedWidth: 160),
+                        DataColumn2(label: const Text('PayPal-Gebühr'), numeric: true, onSort: _onOrderSort, fixedWidth: 166),
+                        DataColumn2(
+                          label: const Text('Gesamt-\npreis', textAlign: TextAlign.center),
+                          numeric: true,
+                          onSort: _onOrderSort,
+                          fixedWidth: 176,
+                        ),
+                        DataColumn2(label: const Text('Bezahlt-Datum'), onSort: _onOrderSort, fixedWidth: 182),
+                        DataColumn2(label: const Text('Versand-Datum'), onSort: _onOrderSort, fixedWidth: 178),
+                      ],
+                      rows: sorted.map((order) {
+                        final selected = order.oId == _selectedOrderId;
+                        final hasDeliveryDate = order.oDelivery.trim().isNotEmpty;
+                        final hasPayDate = order.oPayDate.trim().isNotEmpty;
+                        Future<void> handleSelectOrder() async {
+                          setState(() => _selectedOrderId = order.oId);
+                          await _loadItemsForSelected();
+                        }
+                        Future<void> handleOpenEdit() async {
+                          await handleSelectOrder();
+                          if (!mounted) return;
+                          await _showOrderForm(initialValue: order);
+                        }
+                        return DataRow(
+                          selected: selected,
+                          onSelectChanged: (isSelected) async {
+                            if (isSelected != true) {
+                              return;
+                            }
+                            await handleSelectOrder();
+                          },
+                          cells: [
+                            DataCell(
+                              Text(order.oId),
+                              onTap: () => handleSelectOrder(),
+                              onDoubleTap: () => handleOpenEdit(),
+                            ),
+                            _singleLineCell(_customerName(order.oCustomerId), tooltip: _customerName(order.oCustomerId), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _singleLineCell(_endCustomerLabel(order), tooltip: _endCustomerLabel(order), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            DataCell(
+                              Builder(
+                                builder: (cellContext) {
+                                  final hasCoords = !(order.oDeliveryLat == 0 && order.oDeliveryLon == 0) &&
+                                      !order.oDeliveryLat.isNaN &&
+                                      !order.oDeliveryLon.isNaN;
+                                  return Tooltip(
+                                    message: hasCoords
+                                        ? 'Lieferadresse auf Karte anzeigen'
+                                        : 'Keine Koordinaten vorhanden',
+                                    child: IconButton(
+                                      onPressed: hasCoords
+                                          ? () => _showOrderDeliveryMapDialog(order)
+                                          : null,
+                                      icon: Icon(
+                                        Icons.location_on_outlined,
+                                        color: hasCoords
+                                            ? Theme.of(cellContext).colorScheme.primary
+                                            : Theme.of(cellContext).disabledColor,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            DataCell(Text(order.oTradeShow.trim().isEmpty ? '-' : order.oTradeShow), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            DataCell(Text(_puttLabel(order.oPutt)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            DataCell(Text(order.oCurrency), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _numericCell(_formatDecimal(order.oValueGoods, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _numericCell(_formatDecimal(order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _numericCell(_formatDecimal(order.oValueGoods + order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _numericCell(_formatDecimal(order.oShipping, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            DataCell(_buildTrackingCodeCell(order.oTrackingCode), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _singleLineCell(_paymentLabel(order.oPayment), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _numericCell(_formatDecimal(order.oPaypalFee, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _numericCell(_formatDecimal(order.oTotalPrice, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _singleLineCell(
+                              _formatDate(order.oPayDate),
+                              style: TextStyle(
+                                color: hasDeliveryDate ? Colors.black : Colors.green,
+                              ),
+                              onTap: () => handleSelectOrder(),
+                              onDoubleTap: () => handleOpenEdit(),
+                            ),
+                            _singleLineCell(
+                              _formatDate(order.oDelivery),
+                              style: TextStyle(
+                                color: hasPayDate ? Colors.black : Colors.red,
+                              ),
+                              onTap: () => handleSelectOrder(),
+                              onDoubleTap: () => handleOpenEdit(),
+                            ),
+                          ],
+                        );
+                      }).toList(growable: false),
                     ),
             ),
           ],
@@ -1071,66 +1241,90 @@ class _OrderPageState extends State<OrderPage> {
                   ? const Center(child: Text('Bitte oben einen Auftrag auswählen.'))
                   : _items.isEmpty
                       ? const Center(child: Text('Keine Positionen vorhanden.'))
-                      : SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SingleChildScrollView(
-                            child: DataTable(
-                              showCheckboxColumn: false,
-                              columns: const [
-                                DataColumn(label: Text('Pos.')),
-                                DataColumn(label: Text('Artikel-\nID', textAlign: TextAlign.center)),
-                                DataColumn(label: Text('Bezeichnung')),
-                                DataColumn(label: Text('Beschreibung')),
-                                DataColumn(label: Text('HTS Code')),
-                                DataColumn(label: Text('Gesamtgewicht\nin g', textAlign: TextAlign.center), numeric: true),
-                                DataColumn(label: Text('Bild')),
-                                DataColumn(label: Text('Menge'), numeric: true),
-                                DataColumn(label: Text('Einzelpreis'), numeric: true),
-                                DataColumn(label: Text('Rabatt %'), numeric: true),
-                                DataColumn(label: Text('Gesamt-\npreis', textAlign: TextAlign.center), numeric: true),
-                                DataColumn(label: Text('Farbe')),
-                              ],
-                              rows: _items.map((item) {
-                                final isSelected = item.ioId != null && item.ioId == _selectedItemOrderedId;
-                                final description = _positionDescription(item, order.oLanguage);
-                                void handleOpenEdit() {
-                                  setState(() => _selectedItemOrderedId = item.ioId);
-                                  _showItemOrderedForm(initialValue: item);
-                                }
-                                return DataRow(
-                                  selected: isSelected,
-                                  onSelectChanged: (_) {
-                                    setState(() => _selectedItemOrderedId = item.ioId);
-                                  },
-                                  cells: [
-                                    DataCell(Text(item.ioPos.toString().padLeft(2, '0')), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(item.ioItemId.toString()), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(item.ioIdi), onDoubleTap: handleOpenEdit),
-                                    DataCell(
-                                      Tooltip(
-                                        message: 'Klicken zum Vergroessern',
-                                        child: Text(
-                                          description,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      onTap: () => _showPositionDescriptionDialog(description),
-                                      onDoubleTap: handleOpenEdit,
-                                    ),
-                                    DataCell(Text(item.ioHts), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(_formatDecimal(item.ioTotalWeight, 1)), onDoubleTap: handleOpenEdit),
-                                    DataCell(_buildOrderedItemImageCell(item.ioPhoto), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(item.ioQuantity.toString()), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(_formatDecimal(item.ioUnitPrice, 2)), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(_formatDecimal(item.ioDiscount, 2)), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(_formatDecimal(item.ioTotalPrice, 2)), onDoubleTap: handleOpenEdit),
-                                    DataCell(Text(item.ioColor), onDoubleTap: handleOpenEdit),
-                                  ],
-                                );
-                              }).toList(growable: false),
+                      : DataTable2(
+                          showCheckboxColumn: false,
+                          scrollController: _itemsVerticalController,
+                          horizontalScrollController: _itemsHorizontalController,
+                          isVerticalScrollBarVisible: true,
+                          isHorizontalScrollBarVisible: true,
+                          fixedTopRows: 1,
+                          headingRowHeight: 56,
+                          headingRowColor: WidgetStateProperty.resolveWith(
+                            (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
+                          ),
+                          headingTextStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                          border: TableBorder(
+                            horizontalInside: BorderSide(
+                              color: Theme.of(context).dividerColor,
+                              width: 0.6,
                             ),
                           ),
+                          minWidth: 1680,
+                          columns: const [
+                            DataColumn2(label: Text('Pos.'), fixedWidth: 70),
+                            DataColumn2(label: Text('Artikel-ID'), fixedWidth: 126),
+                            DataColumn2(label: Text('Bezeichnung'), fixedWidth: 170),
+                            DataColumn2(label: Text('Beschreibung'), size: ColumnSize.L),
+                            DataColumn2(label: Text('HTS Code'), fixedWidth: 126),
+                            DataColumn2(
+                              label: Text('Gesamtgewicht\nin g'),
+                              numeric: true,
+                              fixedWidth: 170,
+                            ),
+                            DataColumn2(label: Text('Bild'), fixedWidth: 84),
+                            DataColumn2(label: Text('Menge'), numeric: true, fixedWidth: 108),
+                            DataColumn2(label: Text('Einzelpreis'), numeric: true, fixedWidth: 136),
+                            DataColumn2(label: Text('Rabatt %'), numeric: true, fixedWidth: 96),
+                            DataColumn2(
+                              label: Text('Gesamt-\npreis', textAlign: TextAlign.center),
+                              numeric: true,
+                              fixedWidth: 122,
+                            ),
+                            DataColumn2(label: Text('Farbe'), size: ColumnSize.M),
+                          ],
+                          rows: _items.map((item) {
+                            final isSelected = item.ioId != null && item.ioId == _selectedItemOrderedId;
+                            final description = _positionDescription(item, order.oLanguage);
+                            void handleOpenEdit() {
+                              setState(() => _selectedItemOrderedId = item.ioId);
+                              _showItemOrderedForm(initialValue: item);
+                            }
+                            return DataRow(
+                              selected: isSelected,
+                              onSelectChanged: (_) {
+                                setState(() => _selectedItemOrderedId = item.ioId);
+                              },
+                              cells: [
+                                _numericCell(item.ioPos.toString().padLeft(2, '0'), onDoubleTap: handleOpenEdit),
+                                _numericCell(item.ioItemId.toString(), onDoubleTap: handleOpenEdit),
+                                _singleLineCell(item.ioIdi, tooltip: item.ioIdi, onDoubleTap: handleOpenEdit),
+                                DataCell(
+                                  Tooltip(
+                                    message: 'Klicken zum Vergroessern',
+                                    child: Text(
+                                      description,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  onTap: () => _showPositionDescriptionDialog(description),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _htsLinkCell(item.ioHts, onDoubleTap: handleOpenEdit),
+                                _numericCell(_formatDecimal(item.ioTotalWeight, 1), onDoubleTap: handleOpenEdit),
+                                DataCell(_buildOrderedItemImageCell(item.ioPhoto), onDoubleTap: handleOpenEdit),
+                                _numericCell(item.ioQuantity.toString(), onDoubleTap: handleOpenEdit),
+                                _numericCell(_formatDecimal(item.ioUnitPrice, 2), onDoubleTap: handleOpenEdit),
+                                _numericCell(_formatDecimal(item.ioDiscount, 2), onDoubleTap: handleOpenEdit),
+                                _numericCell(_formatDecimal(item.ioTotalPrice, 2), onDoubleTap: handleOpenEdit),
+                                DataCell(Text(item.ioColor), onDoubleTap: handleOpenEdit),
+                              ],
+                            );
+                          }).toList(growable: false),
                         ),
             ),
           ],

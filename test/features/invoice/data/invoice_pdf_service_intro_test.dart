@@ -117,6 +117,101 @@ void main() {
     });
   });
 
+  group('InvoicePdfService.debugBuildInvoiceHeadlineLabel', () {
+    const service = InvoicePdfService();
+
+    test('uses Proforma Rechnung label for DE invoice when proforma is enabled', () {
+      final data = _documentData(
+        language: 'DE',
+        kind: InvoiceDocumentKind.invoice,
+        isProforma: true,
+      );
+
+      final label = service.debugBuildInvoiceHeadlineLabel(data, true);
+
+      expect(label, equals('Bestellung / Proforma Rechnung-Nr.'));
+    });
+
+    test('uses Proforma invoice label for EN invoice when proforma is enabled', () {
+      final data = _documentData(
+        language: 'EN',
+        kind: InvoiceDocumentKind.invoice,
+        isProforma: true,
+      );
+
+      final label = service.debugBuildInvoiceHeadlineLabel(data, false);
+
+      expect(label, equals('Order / Proforma invoice no.'));
+    });
+  });
+
+  group('InvoicePdfService proforma shipping/payment behavior', () {
+    const service = InvoicePdfService();
+
+    test('removes shipping and paypal fee from displayed totals for proforma invoice', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.invoice,
+        isProforma: true,
+      );
+
+      final displayTotals = service.debugDisplayTotals(data);
+
+      expect(displayTotals.shipping, 0);
+      expect(displayTotals.paypalFee, 0);
+      expect(displayTotals.grandTotal, 100);
+    });
+
+    test('hides payment label when proforma invoice uses PayPal', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.invoice,
+        isProforma: true,
+        paymentLabel: 'PayPal',
+      );
+
+      expect(service.debugShouldShowPaymentLabel(data), isFalse);
+    });
+  });
+
+  group('InvoicePdfService US address formatting for proforma', () {
+    const service = InvoicePdfService();
+
+    test('reduces state token to abbreviation and avoids duplication in proforma', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        city: 'Ashley, IN',
+        state: 'IN-Indiana',
+        postalCode: '46705',
+        countryCode: 'US',
+      );
+
+      final line = service.debugPostalCityLine(
+        party,
+        useGerman: false,
+        isProforma: true,
+      );
+
+      expect(line, equals('Ashley, IN 46705'));
+    });
+
+    test('applies state deduplication also when proforma is disabled', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        city: 'Ashley, IN',
+        state: 'IN-Indiana',
+        postalCode: '46705',
+        countryCode: 'US',
+      );
+
+      final line = service.debugPostalCityLine(
+        party,
+        useGerman: false,
+        isProforma: false,
+      );
+
+      expect(line, equals('Ashley, IN 46705'));
+    });
+  });
+
   group('InvoicePdfService.buildDefaultFileName', () {
     const service = InvoicePdfService();
 
@@ -429,6 +524,8 @@ InvoiceDocumentData _documentData({
   String language = 'EN',
   bool isReseller = false,
   bool isNoVatCustomer = false,
+  bool isProforma = false,
+  String paymentLabel = '-',
   String buyerVatId = '-',
   String lastName = 'BuyerLastName',
   InvoiceDocumentKind kind = InvoiceDocumentKind.invoice,
@@ -445,6 +542,7 @@ InvoiceDocumentData _documentData({
 
   return InvoiceDocumentData(
     documentKind: kind,
+    isProforma: isProforma,
     invoiceNumber: 'INV-1',
     invoiceDate: '2026-06-20',
     orderDate: '2026-06-19',
@@ -464,10 +562,11 @@ InvoiceDocumentData _documentData({
       vatRate: 0,
       vatAmount: 0,
       itemsGross: 100,
-      shipping: 0,
-      paypalFee: 0,
-      grandTotal: 100,
+      shipping: 20,
+      paypalFee: 5,
+      grandTotal: 125,
       totalWeightInGram: 0,
     ),
+    paymentLabel: paymentLabel,
   );
 }

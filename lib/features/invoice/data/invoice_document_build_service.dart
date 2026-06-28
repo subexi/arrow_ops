@@ -79,6 +79,7 @@ class InvoiceDocumentBuildService {
   Future<InvoiceDocumentData> buildFromOrder({
     required String orderId,
     InvoiceDocumentKind documentKind = InvoiceDocumentKind.invoice,
+    bool isProforma = false,
     InvoiceSellerProfile sellerProfile = InvoiceSellerProfile.defaultProfile,
     String? invoiceNumber,
     String? invoiceDate,
@@ -93,6 +94,10 @@ class InvoiceDocumentBuildService {
     if (customer == null) {
       throw StateError('Customer not found for id: ${order.oCustomerId}');
     }
+
+    final countryNamesByCode = await _countryNamesByCode();
+    final documentLanguage = _normalizedOrFallback(order.oLanguage, 'DE');
+    final useEnglishCountryNames = documentLanguage.toUpperCase() == 'EN';
 
     final enforceEnglishLines = _shouldEnforceEnglishDescriptions(
       order: order,
@@ -117,6 +122,7 @@ class InvoiceDocumentBuildService {
 
     return InvoiceDocumentData(
       documentKind: documentKind,
+      isProforma: isProforma,
       invoiceNumber: _normalizedOrFallback(
         invoiceNumber,
         _defaultInvoiceNumber(order),
@@ -125,13 +131,22 @@ class InvoiceDocumentBuildService {
       orderDate: _normalizedOrFallback(order.oDate, ''),
       orderId: order.oId,
       currency: _normalizedOrFallback(order.oCurrency, 'EUR'),
-      language: _normalizedOrFallback(order.oLanguage, 'DE'),
+      language: documentLanguage,
         priceBasis: effectivePriceBasis,
         isReseller: isReseller,
       isNoVatCustomer: customer.cVat,
       seller: _buildSeller(sellerProfile),
-      buyer: _buildBuyer(customer),
-      delivery: _buildDelivery(order, customer),
+      buyer: _buildBuyer(
+        customer,
+        useEnglishCountryNames: useEnglishCountryNames,
+        countryNamesByCode: countryNamesByCode,
+      ),
+      delivery: _buildDelivery(
+        order,
+        customer,
+        useEnglishCountryNames: useEnglishCountryNames,
+        countryNamesByCode: countryNamesByCode,
+      ),
       footer: _buildFooter(sellerProfile),
       lines: lines,
       totals: totals,
@@ -163,8 +178,16 @@ class InvoiceDocumentBuildService {
     );
   }
 
-  InvoicePartyData _buildBuyer(Customer customer) {
+  InvoicePartyData _buildBuyer(
+    Customer customer, {
+    required bool useEnglishCountryNames,
+    required Map<String, String> countryNamesByCode,
+  }) {
     final buyerName = _customerName(customer);
+    final billingCountryCode = _normalizedOrFallback(
+      customer.cCountryBId,
+      '-',
+    ).toUpperCase();
 
     return InvoicePartyData(
       name: buyerName.isEmpty ? '-' : buyerName,
@@ -175,10 +198,11 @@ class InvoiceDocumentBuildService {
       postalCode: _normalizedOrFallback(customer.cPostalCodeB, '-'),
       city: _normalizedOrFallback(customer.cCityB, '-'),
       state: _normalizedOrFallback(customer.cStateB, ''),
-      countryCode: _normalizedOrFallback(
-        customer.cCountryBId,
-        '-',
-      ).toUpperCase(),
+      countryCode: _countryTokenForAddress(
+        token: billingCountryCode,
+        useEnglishCountryNames: useEnglishCountryNames,
+        countryNamesByCode: countryNamesByCode,
+      ),
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),
@@ -186,8 +210,14 @@ class InvoiceDocumentBuildService {
     );
   }
 
-  InvoicePartyData _buildDelivery(OrderRow order, Customer customer) {
+  InvoicePartyData _buildDelivery(
+    OrderRow order,
+    Customer customer, {
+    required bool useEnglishCountryNames,
+    required Map<String, String> countryNamesByCode,
+  }) {
     final deliveryName = _deliveryName(order, customer);
+    final deliveryCountryCode = _deliveryCountryToken(order, customer);
 
     return InvoicePartyData(
       name: deliveryName.isEmpty ? '-' : deliveryName,
@@ -213,7 +243,11 @@ class InvoiceDocumentBuildService {
         orderValue: order.oDeliveryState,
         customerValue: customer.cStateD,
       ),
-      countryCode: _deliveryCountryToken(order, customer),
+      countryCode: _countryTokenForAddress(
+        token: deliveryCountryCode,
+        useEnglishCountryNames: useEnglishCountryNames,
+        countryNamesByCode: countryNamesByCode,
+      ),
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
       phone: _normalizedOrFallback(customer.cPhone, '-'),
@@ -311,6 +345,38 @@ class InvoiceDocumentBuildService {
       return fallback;
     }
     return normalized;
+  }
+
+  Future<Map<String, String>> _countryNamesByCode() async {
+    final countries = await _customerRepository.getAllCountries();
+    final namesByCode = <String, String>{};
+    for (final country in countries) {
+      final code = country.coTld.trim().toUpperCase();
+      final name = country.coName.trim();
+      if (code.isEmpty || code == '-' || name.isEmpty || name == '-') {
+        continue;
+      }
+      namesByCode[code] = name;
+    }
+    return namesByCode;
+  }
+
+  String _countryTokenForAddress({
+    required String token,
+    required bool useEnglishCountryNames,
+    required Map<String, String> countryNamesByCode,
+  }) {
+    final normalizedToken = token.trim();
+    if (normalizedToken.isEmpty || normalizedToken == '-') {
+      return normalizedToken;
+    }
+
+    final upperToken = normalizedToken.toUpperCase();
+    if (!useEnglishCountryNames) {
+      return upperToken;
+    }
+
+    return countryNamesByCode[upperToken] ?? upperToken;
   }
 
   List<String> _normalizeLines(List<String> lines) {

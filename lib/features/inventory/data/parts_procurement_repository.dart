@@ -28,8 +28,8 @@ class PartsProcurementRepository {
     if (row.ppIdi.isNotEmpty) {
       final itemCatalogueRows = await db.query(
         'item_catalogue',
-        where: 'ic_idi = ?',
-        whereArgs: [row.ppIdi],
+        where: 'ic_idi = ? OR ic_ide = ? OR CAST(ic_id AS TEXT) = ?',
+        whereArgs: [row.ppIdi, row.ppIdi, row.ppIdi],
         limit: 1,
       );
       if (itemCatalogueRows.isEmpty) {
