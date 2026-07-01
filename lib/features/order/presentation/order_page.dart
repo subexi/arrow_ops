@@ -16,6 +16,53 @@ import '../domain/order_models.dart';
 import 'widgets/item_ordered_form_dialog.dart';
 import 'widgets/order_form_dialog.dart';
 
+class HtsCodeCellContent extends StatelessWidget {
+  const HtsCodeCellContent({
+    super.key,
+    required this.code,
+    required this.onOpen,
+    this.onDoubleTap,
+  });
+
+  final String code;
+  final VoidCallback onOpen;
+  final VoidCallback? onDoubleTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onDoubleTap: onDoubleTap,
+      child: Row(
+        children: [
+          Expanded(
+            child: SelectableText(
+              code,
+              maxLines: 1,
+              style: const TextStyle(
+                color: Colors.blue,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+          Tooltip(
+            message: 'HTS im Browser oeffnen',
+            child: IconButton(
+              visualDensity: VisualDensity.compact,
+              splashRadius: 16,
+              iconSize: 16,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              onPressed: onOpen,
+              icon: const Icon(Icons.open_in_new),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class OrderPage extends StatefulWidget {
   const OrderPage({super.key, this.initialOrderId});
 
@@ -477,6 +524,47 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
+  DataCell _selectableNumericCell(String value) {
+    return DataCell(
+      SelectionArea(
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: SelectableText(value),
+        ),
+      ),
+    );
+  }
+
+  DataCell _currencyCell(
+    OrderRow order, {
+    VoidCallback? onTap,
+    VoidCallback? onDoubleTap,
+  }) {
+    final isUsd = order.oCurrency.trim().toUpperCase() == 'USD';
+    final missingFx = isUsd && order.oFxToEur <= 0;
+
+    return DataCell(
+      Row(
+        children: [
+          Text(order.oCurrency),
+          if (missingFx) ...[
+            const SizedBox(width: 6),
+            const Tooltip(
+              message: 'USD ohne gueltigen USD→EUR Kurs',
+              child: Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: Colors.orange,
+              ),
+            ),
+          ],
+        ],
+      ),
+      onTap: onTap,
+      onDoubleTap: onDoubleTap,
+    );
+  }
+
   DataCell _singleLineCell(
     String value, {
     String? tooltip,
@@ -512,15 +600,12 @@ class _OrderPageState extends State<OrderPage> {
       return _singleLineCell('-', onDoubleTap: onDoubleTap);
     }
 
-    return _singleLineCell(
-      normalized,
-      tooltip: normalized,
-      style: const TextStyle(
-        color: Colors.blue,
-        decoration: TextDecoration.underline,
+    return DataCell(
+      HtsCodeCellContent(
+        code: normalized,
+        onOpen: () => _openHtsUrl(normalized),
+        onDoubleTap: onDoubleTap,
       ),
-      onTap: () => _openHtsUrl(normalized),
-      onDoubleTap: onDoubleTap,
     );
   }
 
@@ -711,18 +796,20 @@ class _OrderPageState extends State<OrderPage> {
         case 8:
           cmp = (a.oValueGoods + a.oVat).compareTo(b.oValueGoods + b.oVat);
         case 9:
-          cmp = a.oShipping.compareTo(b.oShipping);
+          cmp = a.oTotalWeight.compareTo(b.oTotalWeight);
         case 10:
-          cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
+          cmp = a.oShipping.compareTo(b.oShipping);
         case 11:
-          cmp = a.oPayment.compareTo(b.oPayment);
+          cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
         case 12:
-          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
+          cmp = a.oPayment.compareTo(b.oPayment);
         case 13:
-          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
+          cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
         case 14:
-          cmp = a.oPayDate.compareTo(b.oPayDate);
+          cmp = a.oTotalPrice.compareTo(b.oTotalPrice);
         case 15:
+          cmp = a.oPayDate.compareTo(b.oPayDate);
+        case 16:
           cmp = a.oDelivery.compareTo(b.oDelivery);
         default:
           cmp = a.oId.compareTo(b.oId);
@@ -1076,7 +1163,7 @@ class _OrderPageState extends State<OrderPage> {
                           width: 0.6,
                         ),
                       ),
-                      minWidth: 2580,
+                      minWidth: 2760,
                       columns: [
                         DataColumn2(label: const Text('Auftrags-ID'), onSort: _onOrderSort, fixedWidth: 140),
                         DataColumn2(label: const Text('Kunde'), onSort: _onOrderSort, size: ColumnSize.L),
@@ -1088,6 +1175,7 @@ class _OrderPageState extends State<OrderPage> {
                         DataColumn2(label: const Text('Netto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
                         DataColumn2(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
                         DataColumn2(label: const Text('Brutto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
+                        DataColumn2(label: const Text('Gesamtgewicht in g'), numeric: true, onSort: _onOrderSort, fixedWidth: 182),
                         DataColumn2(label: const Text('Versand'), numeric: true, onSort: _onOrderSort, fixedWidth: 132),
                         DataColumn2(label: const Text('Trackingcode'), onSort: _onOrderSort, fixedWidth: 200),
                         DataColumn2(label: const Text('Zahlart'), onSort: _onOrderSort, fixedWidth: 160),
@@ -1157,10 +1245,15 @@ class _OrderPageState extends State<OrderPage> {
                             ),
                             DataCell(Text(order.oTradeShow.trim().isEmpty ? '-' : order.oTradeShow), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             DataCell(Text(_puttLabel(order.oPutt)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            DataCell(Text(order.oCurrency), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _currencyCell(
+                              order,
+                              onTap: () => handleSelectOrder(),
+                              onDoubleTap: () => handleOpenEdit(),
+                            ),
                             _numericCell(_formatDecimal(order.oValueGoods, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _numericCell(_formatDecimal(order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _numericCell(_formatDecimal(order.oValueGoods + order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            _numericCell(_formatDecimal(order.oTotalWeight, 1), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _numericCell(_formatDecimal(order.oShipping, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             DataCell(_buildTrackingCodeCell(order.oTrackingCode), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _singleLineCell(_paymentLabel(order.oPayment), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
@@ -1263,20 +1356,25 @@ class _OrderPageState extends State<OrderPage> {
                               width: 0.6,
                             ),
                           ),
-                          minWidth: 1680,
+                          minWidth: 1810,
                           columns: const [
                             DataColumn2(label: Text('Pos.'), fixedWidth: 70),
                             DataColumn2(label: Text('Artikel-ID'), fixedWidth: 126),
                             DataColumn2(label: Text('Bezeichnung'), fixedWidth: 170),
                             DataColumn2(label: Text('Beschreibung'), size: ColumnSize.L),
+                            DataColumn2(label: Text('Bild'), fixedWidth: 84),
                             DataColumn2(label: Text('HTS Code'), fixedWidth: 126),
+                            DataColumn2(label: Text('Menge'), numeric: true, fixedWidth: 108),
+                            DataColumn2(
+                              label: Text('Gewicht\nin g'),
+                              numeric: true,
+                              fixedWidth: 120,
+                            ),
                             DataColumn2(
                               label: Text('Gesamtgewicht\nin g'),
                               numeric: true,
                               fixedWidth: 170,
                             ),
-                            DataColumn2(label: Text('Bild'), fixedWidth: 84),
-                            DataColumn2(label: Text('Menge'), numeric: true, fixedWidth: 108),
                             DataColumn2(label: Text('Einzelpreis'), numeric: true, fixedWidth: 136),
                             DataColumn2(label: Text('Rabatt %'), numeric: true, fixedWidth: 96),
                             DataColumn2(
@@ -1314,11 +1412,12 @@ class _OrderPageState extends State<OrderPage> {
                                   onTap: () => _showPositionDescriptionDialog(description),
                                   onDoubleTap: handleOpenEdit,
                                 ),
-                                _htsLinkCell(item.ioHts, onDoubleTap: handleOpenEdit),
-                                _numericCell(_formatDecimal(item.ioTotalWeight, 1), onDoubleTap: handleOpenEdit),
                                 DataCell(_buildOrderedItemImageCell(item.ioPhoto), onDoubleTap: handleOpenEdit),
+                                _htsLinkCell(item.ioHts, onDoubleTap: handleOpenEdit),
                                 _numericCell(item.ioQuantity.toString(), onDoubleTap: handleOpenEdit),
-                                _numericCell(_formatDecimal(item.ioUnitPrice, 2), onDoubleTap: handleOpenEdit),
+                                _selectableNumericCell(_formatDecimal(item.ioItemWeight, 1)),
+                                _numericCell(_formatDecimal(item.ioTotalWeight, 1), onDoubleTap: handleOpenEdit),
+                                _selectableNumericCell(_formatDecimal(item.ioUnitPrice, 2)),
                                 _numericCell(_formatDecimal(item.ioDiscount, 2), onDoubleTap: handleOpenEdit),
                                 _numericCell(_formatDecimal(item.ioTotalPrice, 2), onDoubleTap: handleOpenEdit),
                                 DataCell(Text(item.ioColor), onDoubleTap: handleOpenEdit),

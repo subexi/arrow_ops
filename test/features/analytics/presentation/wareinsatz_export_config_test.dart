@@ -42,4 +42,42 @@ void main() {
       );
     });
   });
+
+  group('wareinsatzPdfColumnFlexes', () {
+    test('maps all-scope columns in expected order', () {
+      expect(
+        wareinsatzPdfColumnFlexes(
+          showMengeOhneBomColumn: true,
+          showBomMengeColumn: true,
+          showGesamtmengeColumn: true,
+          showFinancialColumns: false,
+        ),
+        equals(const [0.9, 3.4, 1.0, 1.0, 1.0]),
+      );
+    });
+
+    test('maps bom-only scope columns in expected order', () {
+      expect(
+        wareinsatzPdfColumnFlexes(
+          showMengeOhneBomColumn: false,
+          showBomMengeColumn: true,
+          showGesamtmengeColumn: false,
+          showFinancialColumns: false,
+        ),
+        equals(const [0.9, 3.4, 1.0]),
+      );
+    });
+
+    test('maps without-bom scope columns with financial block aligned', () {
+      expect(
+        wareinsatzPdfColumnFlexes(
+          showMengeOhneBomColumn: true,
+          showBomMengeColumn: false,
+          showGesamtmengeColumn: false,
+          showFinancialColumns: true,
+        ),
+        equals(const [0.9, 3.4, 1.0, 1.1, 1.2, 1.2, 1.1]),
+      );
+    });
+  });
 }

@@ -5,6 +5,7 @@ class OrderRow {
     this.oDealer = 0,
     this.oDate = '',
     this.oCurrency = 'EUR',
+    this.oFxToEur = 1,
     this.oLanguage = 'DE',
     this.oPriceBasis = 'net',
     this.oVatRate = 0,
@@ -38,6 +39,7 @@ class OrderRow {
   final int oDealer;
   final String oDate;
   final String oCurrency;
+  final double oFxToEur;
   final String oLanguage;
   final String oPriceBasis;
   final double oVatRate;
@@ -72,6 +74,7 @@ class OrderRow {
       oDealer: _int(map['o_dealer']),
       oDate: _str(map['o_date']),
       oCurrency: _str(map['o_currency'], fallback: 'EUR'),
+      oFxToEur: _double(map['o_fx_to_eur']),
       oLanguage: _str(map['o_language'], fallback: 'DE'),
       oPriceBasis: _str(map['o_price_basis'], fallback: 'net'),
       oVatRate: _double(map['o_vat_rate']),
@@ -107,6 +110,7 @@ class OrderRow {
         'o_dealer': oDealer,
         'o_date': oDate,
         'o_currency': oCurrency,
+        'o_fx_to_eur': oFxToEur,
         'o_language': oLanguage,
         'o_price_basis': oPriceBasis,
         'o_vat_rate': oVatRate,
@@ -141,6 +145,7 @@ class OrderRow {
     int? oDealer,
     String? oDate,
     String? oCurrency,
+    double? oFxToEur,
     String? oLanguage,
     String? oPriceBasis,
     double? oVatRate,
@@ -174,6 +179,7 @@ class OrderRow {
         oDealer: oDealer ?? this.oDealer,
         oDate: oDate ?? this.oDate,
         oCurrency: oCurrency ?? this.oCurrency,
+        oFxToEur: oFxToEur ?? this.oFxToEur,
         oLanguage: oLanguage ?? this.oLanguage,
         oPriceBasis: oPriceBasis ?? this.oPriceBasis,
         oVatRate: oVatRate ?? this.oVatRate,

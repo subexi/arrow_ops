@@ -316,8 +316,6 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         case 8:
           result = compareString(a.ppMaterial, b.ppMaterial);
         case 9:
-          result = compareString(a.ppDrawing, b.ppDrawing);
-        case 10:
           result = compareString(a.ppNote, b.ppNote);
         default:
           result = 0;
@@ -387,10 +385,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         'Preis netto',
         'Gesamtpreis netto',
         'Beschreibung',
-        'Einsatzort',
-        'Quelle',
+        'Verwendung',
+        'Lieferant',
         'Material',
-        'Zeichnung',
         'Notiz',
       ];
 
@@ -406,7 +403,6 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
           row.ppPointOfUse,
           row.ppPartSource,
           row.ppMaterial,
-          row.ppDrawing,
           row.ppNote,
         ]));
       }
@@ -499,7 +495,8 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       for (int i = 1; i < lines.length; i++) {
         try {
           final fields = _parseCsvLine(lines[i]);
-          if (fields.length < 11) continue;
+          if (fields.length < 10) continue;
+          final hasLegacyDrawingColumn = fields.length >= 11;
 
           final nextId = await _repository.nextId();
           final newRow = PartsProcurementRow(
@@ -513,8 +510,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
             ppPointOfUse: fields[6].trim(),
             ppPartSource: fields[7].trim(),
             ppMaterial: fields[8].trim(),
-            ppDrawing: fields[9].trim(),
-            ppNote: fields[10].trim(),
+            ppNote: (hasLegacyDrawingColumn ? fields[10] : fields[9]).trim(),
           );
 
           await _repository.save(newRow);
@@ -586,10 +582,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                 'Preis netto',
                 'Gesamtpreis',
                 'Beschreibung',
-                'Einsatzort',
-                'Quelle',
+                'Verwendung',
+                'Lieferant',
                 'Material',
-                'Zeichnung',
                 'Notiz',
               ],
               data: rows
@@ -603,7 +598,6 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                         r.ppPointOfUse,
                         r.ppPartSource,
                         r.ppMaterial,
-                        r.ppDrawing,
                         r.ppNote,
                       ])
                   .toList(),
@@ -620,8 +614,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                 6: const pw.FlexColumnWidth(0.8),
                 7: const pw.FlexColumnWidth(0.8),
                 8: const pw.FlexColumnWidth(0.8),
-                9: const pw.FlexColumnWidth(0.8),
-                10: const pw.FlexColumnWidth(1.0),
+                9: const pw.FlexColumnWidth(1.0),
               },
             ),
           ],
@@ -770,8 +763,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                             _column('Verwendung', 6),
                             _column('Lieferant', 7),
                             _column('Materialbeschreibung', 8),
-                            _column('Zeichnung', 9),
-                            _column('Notiz', 10),
+                            _column('Notiz', 9),
                           ],
                           rows: _sortedRows
                               .map(
@@ -788,7 +780,6 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                                     _textCell(row, row.ppPointOfUse),
                                     _textCell(row, row.ppPartSource),
                                     _textCell(row, row.ppMaterial),
-                                    _textCell(row, row.ppDrawing, width: 220),
                                     _textCell(row, row.ppNote),
                                   ],
                                 ),

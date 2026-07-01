@@ -13,6 +13,7 @@ class ItemCatalogueRow {
     this.icWeight = 0,
     this.icSourceOfSupply = '',
     this.icHts = '',
+    this.icDrawing = '',
     this.icImagePath = '',
     this.icNote = '',
     this.icStock = 0,
@@ -33,6 +34,7 @@ class ItemCatalogueRow {
   final double icWeight;
   final String icSourceOfSupply;
   final String icHts;
+  final String icDrawing;
   final String icImagePath;
   final String icNote;
   final int icStock;
@@ -54,6 +56,7 @@ class ItemCatalogueRow {
       icWeight: _double(map['ic_weight']),
       icSourceOfSupply: _string(map['ic_source_of_supply']),
       icHts: _string(map['ic_hts']),
+      icDrawing: _string(map['ic_drawing']),
       icImagePath: _string(map['ic_image_path']),
       icNote: _string(map['ic_note']),
       icStock: _int(map['ic_stock']),
@@ -77,6 +80,7 @@ class ItemCatalogueRow {
       'ic_weight': icWeight,
       'ic_source_of_supply': icSourceOfSupply,
       'ic_hts': icHts,
+      'ic_drawing': icDrawing,
       'ic_image_path': icImagePath,
       'ic_note': icNote,
       'ic_stock': icStock,
@@ -99,6 +103,7 @@ class ItemCatalogueRow {
     double? icWeight,
     String? icSourceOfSupply,
     String? icHts,
+    String? icDrawing,
     String? icImagePath,
     String? icNote,
     int? icStock,
@@ -119,6 +124,7 @@ class ItemCatalogueRow {
       icWeight: icWeight ?? this.icWeight,
       icSourceOfSupply: icSourceOfSupply ?? this.icSourceOfSupply,
       icHts: icHts ?? this.icHts,
+      icDrawing: icDrawing ?? this.icDrawing,
       icImagePath: icImagePath ?? this.icImagePath,
       icNote: icNote ?? this.icNote,
       icStock: icStock ?? this.icStock,

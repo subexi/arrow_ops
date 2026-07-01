@@ -74,6 +74,7 @@ double cataloguePdfColumnFlexForFieldKey(String fieldKey) {
     // Text columns - moderately compact.
     case 'ic_description_en_long':
     case 'ic_note':
+    case 'ic_drawing':
     case 'ic_image_path':
     case 'ic_source_of_supply':
       return 1.2;
@@ -156,7 +157,6 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     'Netto Einkaufspreis',
     'Gewicht in g',
     'HTS Code',
-    'Bestand',
   ];
   static const List<String> _bomSortLabels = [
     'ID',
@@ -562,6 +562,12 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         label: 'HTS Code',
         csvHeader: 'ic_hts',
         value: (row) => row.icHts,
+      ),
+      _CatalogueExportField(
+        key: 'ic_drawing',
+        label: 'Zeichnung',
+        csvHeader: 'ic_drawing',
+        value: (row) => row.icDrawing,
       ),
       _CatalogueExportField(
         key: 'ic_image_path',
@@ -1443,6 +1449,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         return 18;
       case 'ic_description_en_long':
       case 'ic_note':
+      case 'ic_drawing':
       case 'ic_image_path':
       case 'ic_source_of_supply':
         return 20;
@@ -1480,6 +1487,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         return 26;
       case 'ic_description_en_long':
       case 'ic_note':
+      case 'ic_drawing':
       case 'ic_image_path':
       case 'ic_source_of_supply':
         return 42;
@@ -2081,8 +2089,6 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
         return _displayWeight(a).compareTo(_displayWeight(b));
       case 9:
         return a.icHts.toLowerCase().compareTo(b.icHts.toLowerCase());
-      case 10:
-        return a.icStock.compareTo(b.icStock);
       default:
         return a.icId.compareTo(b.icId);
     }
@@ -3240,12 +3246,6 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                             onSort: _onCatalogueSort,
                           ),
                           DataColumn2(
-                            size: ColumnSize.S,
-                            label: _leftAlignedHeader('Bestand'),
-                            headingRowAlignment: MainAxisAlignment.start,
-                            onSort: _onCatalogueSort,
-                          ),
-                          DataColumn2(
                             fixedWidth: 56,
                             label: _leftAlignedHeader('Bild'),
                             headingRowAlignment: MainAxisAlignment.start,
@@ -3276,7 +3276,6 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                   _catalogueDetailCell(Text(_formatDecimal(item.icPurchasePriceNet, 2)), item),
                                   _catalogueDetailCell(Text(_formatDecimal(_displayWeight(item), 1)), item),
                                   _catalogueDetailCell(_buildHtsLink(item.icHts), item),
-                                  _catalogueDetailCell(Text(item.icStock.toString()), item),
                                   _catalogueDetailCell(_buildCatalogueImagePreview(item, size: 32), item),
                                 ],
                               ),
@@ -3295,10 +3294,9 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                             'Netto\nEinkaufspreis',
                             'Gewicht in g',
                             'HTS Code',
-                            'Bestand',
                             'Bild',
                           ];
-                          const iosColumnWidths = <double>[90, 200, 140, 120, 130, 110, 150, 150, 100, 100, 90, 72];
+                          const iosColumnWidths = <double>[90, 200, 140, 120, 130, 110, 150, 150, 100, 100, 72];
                           final iosColumnsTotalWidth = iosColumnWidths.fold<double>(0, (sum, width) => sum + width);
                           final iosTableWidth = iosColumnsTotalWidth > tableMinWidth ? iosColumnsTotalWidth : tableMinWidth;
                           final hideIosHeader = constraints.maxHeight < 140;
@@ -3395,8 +3393,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                                                     buildIosCell(iosColumnWidths[7], Text(_formatDecimal(item.icPurchasePriceNet, 2)), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[8], Text(_formatDecimal(_displayWeight(item), 1)), verticalPadding: 8),
                                                     buildIosCell(iosColumnWidths[9], _buildHtsLink(item.icHts), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[10], Text(item.icStock.toString()), verticalPadding: 8),
-                                                    buildIosCell(iosColumnWidths[11], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
+                                                    buildIosCell(iosColumnWidths[10], _buildCatalogueImagePreview(item, size: 32), center: true, verticalPadding: 6),
                                                   ],
                                                 ),
                                               ),

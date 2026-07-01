@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 19;
+  static const int _currentVersion = 21;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -38,6 +38,8 @@ class AppDatabase {
     DatabaseMigration(version: 17, run: _migrationV17),
     DatabaseMigration(version: 18, run: _migrationV18),
     DatabaseMigration(version: 19, run: _migrationV19),
+    DatabaseMigration(version: 20, run: _migrationV20),
+    DatabaseMigration(version: 21, run: _migrationV21),
   ];
 
   Future<Database> get database async {
@@ -956,5 +958,98 @@ class AppDatabase {
         'ALTER TABLE item_catalogue ADD COLUMN ic_archive INTEGER NOT NULL DEFAULT 0',
       );
     }
+  }
+
+  static Future<void> _migrationV20(Database db) async {
+    final itemCatalogueColumns = await db.rawQuery('PRAGMA table_info(item_catalogue)');
+    final hasDrawingColumn = itemCatalogueColumns.any(
+      (column) => column['name'] == 'ic_drawing',
+    );
+    if (!hasDrawingColumn) {
+      await db.execute(
+        "ALTER TABLE item_catalogue ADD COLUMN ic_drawing TEXT NOT NULL DEFAULT ''",
+      );
+    }
+
+    final partsColumns = await db.rawQuery('PRAGMA table_info(parts_procurement)');
+    if (partsColumns.isEmpty) {
+      return;
+    }
+
+    final hasPartsDrawingColumn = partsColumns.any(
+      (column) => column['name'] == 'pp_drawing',
+    );
+    if (!hasPartsDrawingColumn) {
+      return;
+    }
+
+    await db.execute('''
+      CREATE TABLE parts_procurement_v20 (
+        pp_id INTEGER NOT NULL PRIMARY KEY,
+        pp_idi TEXT NOT NULL DEFAULT '',
+        pp_purchase_date TEXT NOT NULL DEFAULT '',
+        pp_quantity INTEGER NOT NULL DEFAULT 0,
+        pp_price_net REAL NOT NULL DEFAULT 0,
+        pp_total_price_net REAL NOT NULL DEFAULT 0,
+        pp_description_de_long TEXT NOT NULL DEFAULT '',
+        pp_point_of_use TEXT NOT NULL DEFAULT '',
+        pp_part_source TEXT NOT NULL DEFAULT '',
+        pp_material TEXT NOT NULL DEFAULT '',
+        pp_note TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+
+    await db.execute('''
+      INSERT INTO parts_procurement_v20 (
+        pp_id,
+        pp_idi,
+        pp_purchase_date,
+        pp_quantity,
+        pp_price_net,
+        pp_total_price_net,
+        pp_description_de_long,
+        pp_point_of_use,
+        pp_part_source,
+        pp_material,
+        pp_note
+      )
+      SELECT
+        pp_id,
+        pp_idi,
+        pp_purchase_date,
+        pp_quantity,
+        pp_price_net,
+        pp_total_price_net,
+        pp_description_de_long,
+        pp_point_of_use,
+        pp_part_source,
+        pp_material,
+        pp_note
+      FROM parts_procurement
+    ''');
+
+    await db.execute('DROP TABLE parts_procurement');
+    await db.execute('ALTER TABLE parts_procurement_v20 RENAME TO parts_procurement');
+  }
+
+  static Future<void> _migrationV21(Database db) async {
+    final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    final hasFxToEurColumn = orderColumns.any(
+      (column) => column['name'] == 'o_fx_to_eur',
+    );
+
+    if (!hasFxToEurColumn) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_fx_to_eur REAL NOT NULL DEFAULT 1',
+      );
+    }
+
+    // Force USD orders without explicit rate to be fixed manually.
+    await db.execute('''
+      UPDATE "order"
+      SET o_fx_to_eur = 0
+      WHERE UPPER(TRIM(COALESCE(o_currency, 'EUR'))) = 'USD'
+        AND COALESCE(o_fx_to_eur, 0) = 1
+    ''');
   }
 }

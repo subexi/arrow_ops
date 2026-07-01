@@ -11,7 +11,6 @@ class PartsProcurementRow {
     this.ppPartSource = '',
     this.ppMaterial = '',
     this.ppNote = '',
-    this.ppDrawing = '',
   });
 
   final int ppId;
@@ -25,7 +24,6 @@ class PartsProcurementRow {
   final String ppPartSource;
   final String ppMaterial;
   final String ppNote;
-  final String ppDrawing;
 
   factory PartsProcurementRow.fromMap(Map<String, Object?> map) {
     return PartsProcurementRow(
@@ -40,7 +38,6 @@ class PartsProcurementRow {
       ppPartSource: _string(map['pp_part_source']),
       ppMaterial: _string(map['pp_material']),
       ppNote: _string(map['pp_note']),
-      ppDrawing: _string(map['pp_drawing']),
     );
   }
 
@@ -57,7 +54,6 @@ class PartsProcurementRow {
       'pp_part_source': ppPartSource,
       'pp_material': ppMaterial,
       'pp_note': ppNote,
-      'pp_drawing': ppDrawing,
     };
   }
 
@@ -73,7 +69,6 @@ class PartsProcurementRow {
     String? ppPartSource,
     String? ppMaterial,
     String? ppNote,
-    String? ppDrawing,
   }) {
     return PartsProcurementRow(
       ppId: ppId ?? this.ppId,
@@ -87,7 +82,6 @@ class PartsProcurementRow {
       ppPartSource: ppPartSource ?? this.ppPartSource,
       ppMaterial: ppMaterial ?? this.ppMaterial,
       ppNote: ppNote ?? this.ppNote,
-      ppDrawing: ppDrawing ?? this.ppDrawing,
     );
   }
 

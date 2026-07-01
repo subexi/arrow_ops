@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/customer.dart';
 
@@ -150,7 +151,7 @@ class CustomerDetailDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildSection('Allgemein', [
-                      _buildField('ID', customer.cId),
+                      _buildCopyableField(context, 'ID', customer.cId),
                       _buildField('Firma', customer.cCompany),
                       _buildCheckboxField('Reseller', customer.cDealer),
                       _buildCheckboxField('Keine MwSt', customer.cVat),
@@ -303,6 +304,45 @@ class CustomerDetailDialog extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCopyableField(BuildContext context, String label, String value) {
+    final displayValue = value.isEmpty ? '-' : value;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              displayValue,
+              maxLines: 1,
+            ),
+          ),
+          if (displayValue != '-')
+            IconButton(
+              tooltip: 'ID kopieren',
+              icon: const Icon(CupertinoIcons.doc_on_doc, size: 18),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: displayValue));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('ID in Zwischenablage kopiert')),
+                );
+              },
+            ),
         ],
       ),
     );

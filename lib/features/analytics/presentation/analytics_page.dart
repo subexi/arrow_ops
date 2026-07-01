@@ -47,6 +47,100 @@ List<String> wareinsatzExportHeaders(WareinsatzScope scope) {
   };
 }
 
+List<double> wareinsatzPdfColumnFlexes({
+  required bool showMengeOhneBomColumn,
+  required bool showBomMengeColumn,
+  required bool showGesamtmengeColumn,
+  required bool showFinancialColumns,
+}) {
+  return <double>[
+    0.9,
+    3.4,
+    if (showMengeOhneBomColumn) 1.0,
+    if (showBomMengeColumn) 1.0,
+    if (showGesamtmengeColumn) 1.0,
+    if (showFinancialColumns) ...[
+      1.1,
+      1.2,
+      1.2,
+      1.1,
+    ],
+  ];
+}
+
+double wareinsatzOrderedItemNetSales(ItemOrderedRow? item) =>
+    item?.ioTotalPrice ?? 0;
+
+double wareinsatzSumOrderedItemNetSales(Iterable<ItemOrderedRow> items) =>
+    items.fold<double>(0, (sum, item) => sum + wareinsatzOrderedItemNetSales(item));
+
+double wareinsatzOrderedItemNetSalesForOrder({
+  required ItemOrderedRow item,
+  required OrderRow? order,
+}) {
+  final grossOrNet = wareinsatzOrderedItemNetSales(item);
+  if (order == null) {
+    return grossOrNet;
+  }
+
+  final isGrossBasis = order.oPriceBasis.trim().toLowerCase() == 'gross';
+  const cashPaymentCode = 4;
+  final cashSpecial = order.oPutt != 0 && order.oPayment == cashPaymentCode;
+
+  double normalizedNet = grossOrNet;
+  if (isGrossBasis && !cashSpecial) {
+    final divisor = 1 + (order.oVatRate / 100);
+    if (divisor > 0) {
+      normalizedNet = grossOrNet / divisor;
+    }
+  }
+
+  final currency = order.oCurrency.trim().toUpperCase();
+  if (currency == 'USD') {
+    final fxToEur = order.oFxToEur;
+    if (fxToEur <= 0) {
+      return 0;
+    }
+    return normalizedNet * fxToEur;
+  }
+
+  return normalizedNet;
+}
+
+DateTime? wareinsatzParseDeliveryDate(String raw) {
+  final normalized = raw.trim();
+  if (normalized.isEmpty || normalized == '-') {
+    return null;
+  }
+
+  final parsedIso = DateTime.tryParse(normalized);
+  if (parsedIso != null) {
+    return DateTime(parsedIso.year, parsedIso.month, parsedIso.day);
+  }
+
+  final dotMatch = RegExp(r'^(\d{2})\.(\d{2})\.(\d{4})$').firstMatch(normalized);
+  if (dotMatch == null) {
+    return null;
+  }
+
+  final day = int.tryParse(dotMatch.group(1) ?? '');
+  final month = int.tryParse(dotMatch.group(2) ?? '');
+  final year = int.tryParse(dotMatch.group(3) ?? '');
+  if (day == null || month == null || year == null) {
+    return null;
+  }
+  return DateTime(year, month, day);
+}
+
+bool wareinsatzMatchesDeliveryMonth(OrderRow order, String monthKey) {
+  final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
+  if (delivery == null) {
+    return false;
+  }
+  final key = '${delivery.year}-${delivery.month.toString().padLeft(2, '0')}';
+  return key == monthKey;
+}
+
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
 
@@ -228,6 +322,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       catalogueItems: _catalogueItems,
       bomItems: _bomItems,
     );
+    final scopeRows = _filterRowsByScope(allRows);
+    final scopedItemIds = scopeRows.map((row) => row.itemId).toSet();
+    final orderNetContributions = _buildOrderNetContributions(
+      filteredOrders: filteredOrders,
+      orderedItems: _orderedItems,
+      allowedItemIds: scopedItemIds,
+    );
     final rows = _sortWareinsatzRows(_filterRowsBySearch(_filterRowsByScope(allRows)));
     final showMengeOhneBomColumn = _selectedScope != WareinsatzScope.bomOnly;
     final showBomMengeColumn = _selectedScope != WareinsatzScope.withoutBom;
@@ -260,7 +361,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Aggregation nach Versand-Datum. Beruecksichtigt verkaufte Artikel und zugehoerige BOM-Komponenten.',
+            'Aggregation nach Versand-Datum. Σ Verkauf netto basiert auf den tatsaechlichen Positionswerten (io_total_price); BOM-Komponenten werden mengenmaessig beruecksichtigt.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),
@@ -370,6 +471,67 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               ],
             ],
           ),
+          if (showFinancialColumns) ...[
+            const SizedBox(height: 12),
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: ExpansionTile(
+                title: const Text('Diagnose: Auftragsbeitraege zu Σ Verkauf (netto, scope-konsistent)'),
+                subtitle: Text(
+                  '${orderNetContributions.length} Auftraege • Summe ${_formatMoney(orderNetContributions.fold<double>(0, (sum, row) => sum + row.netSalesEur))} EUR',
+                ),
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: FilledButton.tonalIcon(
+                        onPressed: orderNetContributions.isEmpty
+                            ? null
+                            : () => _exportOrderNetContributionsCsv(orderNetContributions),
+                        icon: const Icon(Icons.table_chart_outlined),
+                        label: const Text('Diagnose-CSV exportieren'),
+                      ),
+                    ),
+                  ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Auftrag')),
+                        DataColumn(label: Text('Versanddatum')),
+                        DataColumn(label: Text('Auftragsdatum')),
+                        DataColumn(label: Text('Waehrung')),
+                        DataColumn(label: Text('USD→EUR')),
+                        DataColumn(label: Text('Preisbasis')),
+                        DataColumn(label: Text('MwSt %'), numeric: true),
+                        DataColumn(label: Text('Pos.'), numeric: true),
+                        DataColumn(label: Text('Netto (EUR)'), numeric: true),
+                        DataColumn(label: Text('Hinweis')),
+                      ],
+                      rows: [
+                        for (final contribution in orderNetContributions)
+                          DataRow(
+                            cells: [
+                              DataCell(Text(contribution.orderId)),
+                              DataCell(Text(contribution.deliveryDate)),
+                              DataCell(Text(contribution.orderDate)),
+                              DataCell(Text(contribution.currency)),
+                              DataCell(Text(_formatMoney(contribution.fxToEur))),
+                              DataCell(Text(contribution.priceBasis)),
+                              DataCell(Text(_formatMoney(contribution.vatRate))),
+                              DataCell(Text(contribution.itemCount.toString())),
+                              DataCell(Text(_formatMoney(contribution.netSalesEur))),
+                              DataCell(Text(contribution.hint)),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: _searchController,
@@ -536,7 +698,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   List<OrderRow> _filterOrdersBySelectedPeriod(List<OrderRow> orders) {
     return orders.where((order) {
-      final delivery = _parseDate(order.oDelivery);
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
       if (delivery == null) {
         return false;
       }
@@ -561,7 +723,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   List<String> _availableMonthKeys(List<OrderRow> orders) {
     final keys = <String>{};
     for (final order in orders) {
-      final delivery = _parseDate(order.oDelivery);
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
       if (delivery == null) {
         continue;
       }
@@ -574,7 +736,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   List<String> _availableQuarterKeys(List<OrderRow> orders) {
     final keys = <String>{};
     for (final order in orders) {
-      final delivery = _parseDate(order.oDelivery);
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
       if (delivery == null) {
         continue;
       }
@@ -588,7 +750,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   List<String> _availableYearKeys(List<OrderRow> orders) {
     final keys = <String>{};
     for (final order in orders) {
-      final delivery = _parseDate(order.oDelivery);
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
       if (delivery == null) {
         continue;
       }
@@ -598,31 +760,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return list;
   }
 
-  DateTime? _parseDate(String raw) {
-    final normalized = raw.trim();
-    if (normalized.isEmpty || normalized == '-') {
-      return null;
-    }
-
-    final parsedIso = DateTime.tryParse(normalized);
-    if (parsedIso != null) {
-      return DateTime(parsedIso.year, parsedIso.month, parsedIso.day);
-    }
-
-    final dotMatch = RegExp(r'^(\d{2})\.(\d{2})\.(\d{4})$').firstMatch(normalized);
-    if (dotMatch == null) {
-      return null;
-    }
-
-    final day = int.tryParse(dotMatch.group(1) ?? '');
-    final month = int.tryParse(dotMatch.group(2) ?? '');
-    final year = int.tryParse(dotMatch.group(3) ?? '');
-    if (day == null || month == null || year == null) {
-      return null;
-    }
-    return DateTime(year, month, day);
-  }
-
   List<_WareinsatzRow> _buildWareinsatzRows({
     required List<OrderRow> filteredOrders,
     required List<ItemOrderedRow> orderedItems,
@@ -630,6 +767,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     required List<ItemBomRow> bomItems,
   }) {
     final filteredOrderIds = filteredOrders.map((order) => order.oId).toSet();
+    final orderById = {
+      for (final order in filteredOrders) order.oId: order,
+    };
     final filteredItems = orderedItems
         .where((item) => filteredOrderIds.contains(item.ioOrderId) && item.ioItemId > 0)
         .toList(growable: false);
@@ -663,10 +803,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           idi: catalogue?.icIdi ?? ordered?.ioIdi ?? 'Artikel #$itemId',
           description: catalogue?.icDescriptionDeLong ?? ordered?.ioDescriptionDeLong ?? '-',
           purchasePriceEur: catalogue?.icPurchasePriceNet ?? 0,
-          netSalePricePerUnit: catalogue?.icPriceNet ?? 0,
         );
       });
       aggregate.soldQuantity += quantity;
+      if (ordered != null) {
+        aggregate.soldNetValueEur += wareinsatzOrderedItemNetSalesForOrder(
+          item: ordered,
+          order: orderById[ordered.ioOrderId],
+        );
+      }
     }
 
     void addBom(int itemId, double quantity) {
@@ -680,7 +825,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           idi: catalogue?.icIdi ?? 'Artikel #$itemId',
           description: catalogue?.icDescriptionDeLong ?? '-',
           purchasePriceEur: catalogue?.icPurchasePriceNet ?? 0,
-          netSalePricePerUnit: catalogue?.icPriceNet ?? 0,
         );
       });
       aggregate.bomQuantity += quantity;
@@ -737,6 +881,140 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       });
 
     return rows;
+  }
+
+  List<_OrderNetContribution> _buildOrderNetContributions({
+    required List<OrderRow> filteredOrders,
+    required List<ItemOrderedRow> orderedItems,
+    required Set<int> allowedItemIds,
+  }) {
+    final orderById = {
+      for (final order in filteredOrders) order.oId: order,
+    };
+    final grouped = <String, _OrderNetContributionMutable>{};
+
+    for (final item in orderedItems) {
+      final order = orderById[item.ioOrderId];
+      if (order == null) {
+        continue;
+      }
+      if (!allowedItemIds.contains(item.ioItemId)) {
+        continue;
+      }
+
+      final entry = grouped.putIfAbsent(item.ioOrderId, () {
+        final hint = _orderDatePeriodHint(order);
+        return _OrderNetContributionMutable(
+          orderId: order.oId,
+          deliveryDate: order.oDelivery.trim().isEmpty ? '-' : order.oDelivery.trim(),
+          orderDate: order.oDate.trim().isEmpty ? '-' : order.oDate.trim(),
+          currency: order.oCurrency.trim().isEmpty ? 'EUR' : order.oCurrency.trim().toUpperCase(),
+          fxToEur: order.oFxToEur,
+          priceBasis: order.oPriceBasis.trim().isEmpty ? '-' : order.oPriceBasis.trim(),
+          vatRate: order.oVatRate,
+          hint: hint,
+        );
+      });
+
+      entry.itemCount += 1;
+      entry.netSalesEur += wareinsatzOrderedItemNetSalesForOrder(
+        item: item,
+        order: order,
+      );
+    }
+
+    final rows = grouped.values
+        .map((entry) => entry.toRow())
+        .toList(growable: false)
+      ..sort((a, b) => a.orderId.compareTo(b.orderId));
+
+    return rows;
+  }
+
+  Future<void> _exportOrderNetContributionsCsv(
+    List<_OrderNetContribution> rows,
+  ) async {
+    setState(() => _loading = true);
+    try {
+      const headers = [
+        'Auftrag',
+        'Versanddatum',
+        'Auftragsdatum',
+        'Waehrung',
+        'USD→EUR',
+        'Preisbasis',
+        'MwSt %',
+        'Positionen',
+        'Netto (EUR)',
+        'Hinweis',
+      ];
+
+      final buffer = StringBuffer();
+      buffer.writeln(headers.map(_csvEscape).join(';'));
+
+      for (final row in rows) {
+        final cells = <String>[
+          _csvEscape(row.orderId),
+          _csvEscape(row.deliveryDate),
+          _csvEscape(row.orderDate),
+          _csvEscape(row.currency),
+          _csvEscape(_formatMoney(row.fxToEur)),
+          _csvEscape(row.priceBasis),
+          _csvEscape(_formatMoney(row.vatRate)),
+          _csvEscape(row.itemCount.toString()),
+          _csvEscape(_formatMoney(row.netSalesEur)),
+          _csvEscape(row.hint),
+        ];
+        buffer.writeln(cells.join(';'));
+      }
+
+      final totalNet = rows.fold<double>(0, (sum, row) => sum + row.netSalesEur);
+      buffer.writeln(
+        [
+          _csvEscape('SUMME'),
+          _csvEscape('-'),
+          _csvEscape('-'),
+          _csvEscape('-'),
+          _csvEscape('-'),
+          _csvEscape('-'),
+          _csvEscape('-'),
+          _csvEscape('-'),
+          _csvEscape(_formatMoney(totalNet)),
+          _csvEscape('-'),
+        ].join(';'),
+      );
+
+      final fileName =
+          'wareneinsatz_diagnose_auftraege_${_periodLabelForExport()}_${_buildFileTimestamp(DateTime.now())}.csv';
+      final targetPath = await _pickExportTargetPath(
+        dialogTitle: 'Wareneinsatz-Diagnose als CSV exportieren',
+        fileName: fileName,
+        allowedExtensions: const ['csv'],
+      );
+      if (targetPath == null || targetPath.trim().isEmpty) {
+        return;
+      }
+
+      final csvWithBom = '\uFEFF${buffer.toString()}';
+      await File(targetPath).writeAsString(csvWithBom, encoding: utf8);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Wareneinsatz-Diagnose-CSV exportiert nach: $targetPath')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Wareneinsatz-Diagnose-CSV-Export fehlgeschlagen: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   Future<void> _exportWareinsatzCsv(List<_WareinsatzRow> rows) async {
@@ -813,6 +1091,45 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       final showGesamtmengeColumn = _selectedScope == WareinsatzScope.all;
       final showFinancialColumns = _selectedScope == WareinsatzScope.withoutBom;
       final headers = wareinsatzExportHeaders(_selectedScope);
+      final columnFlexes = wareinsatzPdfColumnFlexes(
+        showMengeOhneBomColumn: showMengeOhneBomColumn,
+        showBomMengeColumn: showBomMengeColumn,
+        showGesamtmengeColumn: showGesamtmengeColumn,
+        showFinancialColumns: showFinancialColumns,
+      );
+      final columnWidths = <int, pw.TableColumnWidth>{
+        for (var i = 0; i < columnFlexes.length; i++) i: pw.FlexColumnWidth(columnFlexes[i]),
+      };
+      final totalMengeOhneBom = rows.fold<double>(
+        0,
+        (sum, row) => sum + _displayMengeOhneBom(row),
+      );
+      final totalBomMenge = rows.fold<double>(
+        0,
+        (sum, row) => sum + _displayBomMenge(row),
+      );
+      final totalGesamtmenge = rows.fold<double>(
+        0,
+        (sum, row) => sum + row.totalQuantity,
+      );
+      final totalEkNetto = rows.fold<double>(
+        0,
+        (sum, row) => sum + row.purchasePriceEur,
+      );
+      final totalEkWert = rows.fold<double>(
+        0,
+        (sum, row) => sum + row.totalValueEur,
+      );
+      final totalVerkaufNetto = rows.fold<double>(
+        0,
+        (sum, row) => sum + row.soldNetValueEur,
+      );
+      final totalMargeEur = rows.fold<double>(
+        0,
+        (sum, row) => sum + row.marginEur,
+      );
+      final totalMargePercent = totalEkWert > 0 ? (totalMargeEur / totalEkWert) * 100 : 0.0;
+
       final tableData = rows
           .map(
             (row) => <String>[
@@ -832,6 +1149,27 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             ],
           )
           .toList(growable: false);
+      final summaryRow = <String>[
+        'SUMME',
+        'Aufsummierung',
+        if (showMengeOhneBomColumn) _formatQuantity(totalMengeOhneBom),
+        if (showBomMengeColumn) _formatQuantity(totalBomMenge),
+        if (showGesamtmengeColumn) _formatQuantity(totalGesamtmenge),
+        if (showFinancialColumns) ...[
+          _formatMoney(totalEkNetto),
+          _formatMoney(totalEkWert),
+          _formatMoney(totalVerkaufNetto),
+          _selectedMarginDisplay == _MarginDisplay.percent
+              ? _formatPercent(totalMargePercent)
+              : _formatMoney(totalMargeEur),
+        ],
+      ];
+      final quantityColumnStart = 2;
+      final quantityColumnCount =
+          (showMengeOhneBomColumn ? 1 : 0) +
+          (showBomMengeColumn ? 1 : 0) +
+          (showGesamtmengeColumn ? 1 : 0);
+      final financialColumnStart = quantityColumnStart + quantityColumnCount;
 
       document.addPage(
         pw.MultiPage(
@@ -851,32 +1189,42 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               cellStyle: const pw.TextStyle(fontSize: 7),
               cellAlignment: pw.Alignment.centerLeft,
               cellPadding: const pw.EdgeInsets.all(3),
-              columnWidths: {
-                0: const pw.FlexColumnWidth(0.9),
-                1: const pw.FlexColumnWidth(3.4),
-                if (showMengeOhneBomColumn) 2: const pw.FlexColumnWidth(1.0),
-                if (showBomMengeColumn) ...{
-                  if (showMengeOhneBomColumn) 3: const pw.FlexColumnWidth(1.0),
-                  if (!showMengeOhneBomColumn) 2: const pw.FlexColumnWidth(1.0),
-                },
-                if (showGesamtmengeColumn) ...{
-                  if (showMengeOhneBomColumn && showBomMengeColumn) 4: const pw.FlexColumnWidth(1.0),
-                  if (!showMengeOhneBomColumn && showBomMengeColumn) 3: const pw.FlexColumnWidth(1.0),
-                },
-                if (showFinancialColumns) ...{
-                  if (showGesamtmengeColumn) ...{
-                    5: const pw.FlexColumnWidth(1.1),
-                    6: const pw.FlexColumnWidth(1.2),
-                    7: const pw.FlexColumnWidth(1.2),
-                    8: const pw.FlexColumnWidth(1.1),
-                  } else ...{
-                    4: const pw.FlexColumnWidth(1.1),
-                    5: const pw.FlexColumnWidth(1.2),
-                    6: const pw.FlexColumnWidth(1.2),
-                    7: const pw.FlexColumnWidth(1.1),
-                  },
-                },
-              },
+              columnWidths: columnWidths,
+            ),
+            pw.Table(
+              columnWidths: columnWidths,
+              border: pw.TableBorder(
+                left: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
+                right: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
+                bottom: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
+                horizontalInside: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
+                verticalInside: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
+              ),
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                  children: [
+                    for (var index = 0; index < summaryRow.length; index++)
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(3),
+                        child: pw.Align(
+                          alignment: index >= quantityColumnStart &&
+                                  (index < quantityColumnStart + quantityColumnCount ||
+                                      index >= financialColumnStart)
+                              ? pw.Alignment.centerRight
+                              : pw.Alignment.centerLeft,
+                          child: pw.Text(
+                            summaryRow[index],
+                            style: pw.TextStyle(
+                              fontSize: 7,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
@@ -1105,6 +1453,27 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return sorted;
   }
 
+  String _orderDatePeriodHint(OrderRow order) {
+    final orderDate = wareinsatzParseDeliveryDate(order.oDate);
+    if (orderDate == null) {
+      return 'Auftragsdatum fehlt/ungueltig';
+    }
+
+    final inPeriod = switch (_selectedGranularity) {
+      _PeriodGranularity.total => true,
+      _PeriodGranularity.month =>
+        _selectedMonthKey != null &&
+        '${orderDate.year}-${orderDate.month.toString().padLeft(2, '0')}' == _selectedMonthKey,
+      _PeriodGranularity.quarter =>
+        _selectedQuarterKey != null &&
+        '${orderDate.year}-Q${((orderDate.month - 1) ~/ 3) + 1}' == _selectedQuarterKey,
+      _PeriodGranularity.year =>
+        _selectedYearKey != null && orderDate.year.toString() == _selectedYearKey,
+    };
+
+    return inPeriod ? '-' : 'Auftragsdatum ausserhalb Zeitraum';
+  }
+
   String _truncateBeschreibung(String value, {int maxChars = 60}) {
     final flat = value.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (flat.length <= maxChars) {
@@ -1144,17 +1513,16 @@ class _WareinsatzMutable {
     required this.idi,
     required this.description,
     required this.purchasePriceEur,
-    required this.netSalePricePerUnit,
   });
 
   final int itemId;
   final String idi;
   final String description;
   final double purchasePriceEur;
-  final double netSalePricePerUnit;
 
   double soldQuantity = 0;
   double bomQuantity = 0;
+  double soldNetValueEur = 0;
 
   _WareinsatzRow toRow() {
     final normalizedBeschreibung = _stripBezeichnungFromBeschreibung(
@@ -1168,9 +1536,75 @@ class _WareinsatzMutable {
       soldQuantity: soldQuantity,
       bomQuantity: bomQuantity,
       purchasePriceEur: purchasePriceEur,
-      netSalePricePerUnit: netSalePricePerUnit,
+      soldNetValueEur: soldNetValueEur,
     );
   }
+}
+
+class _OrderNetContributionMutable {
+  _OrderNetContributionMutable({
+    required this.orderId,
+    required this.deliveryDate,
+    required this.orderDate,
+    required this.currency,
+    required this.fxToEur,
+    required this.priceBasis,
+    required this.vatRate,
+    required this.hint,
+  });
+
+  final String orderId;
+  final String deliveryDate;
+  final String orderDate;
+  final String currency;
+  final double fxToEur;
+  final String priceBasis;
+  final double vatRate;
+  final String hint;
+
+  int itemCount = 0;
+  double netSalesEur = 0;
+
+  _OrderNetContribution toRow() {
+    return _OrderNetContribution(
+      orderId: orderId,
+      deliveryDate: deliveryDate,
+      orderDate: orderDate,
+      currency: currency,
+      fxToEur: fxToEur,
+      priceBasis: priceBasis,
+      vatRate: vatRate,
+      itemCount: itemCount,
+      netSalesEur: netSalesEur,
+      hint: hint,
+    );
+  }
+}
+
+class _OrderNetContribution {
+  const _OrderNetContribution({
+    required this.orderId,
+    required this.deliveryDate,
+    required this.orderDate,
+    required this.currency,
+    required this.fxToEur,
+    required this.priceBasis,
+    required this.vatRate,
+    required this.itemCount,
+    required this.netSalesEur,
+    required this.hint,
+  });
+
+  final String orderId;
+  final String deliveryDate;
+  final String orderDate;
+  final String currency;
+  final double fxToEur;
+  final String priceBasis;
+  final double vatRate;
+  final int itemCount;
+  final double netSalesEur;
+  final String hint;
 }
 
 class _WareinsatzRow {
@@ -1181,7 +1615,7 @@ class _WareinsatzRow {
     required this.soldQuantity,
     required this.bomQuantity,
     required this.purchasePriceEur,
-    required this.netSalePricePerUnit,
+    required this.soldNetValueEur,
   });
 
   final int itemId;
@@ -1190,10 +1624,9 @@ class _WareinsatzRow {
   final double soldQuantity;
   final double bomQuantity;
   final double purchasePriceEur;
-  final double netSalePricePerUnit;
+  final double soldNetValueEur;
 
   double get totalValueEur => totalQuantity * purchasePriceEur;
-  double get soldNetValueEur => netSalePricePerUnit * totalQuantity;
   double get marginEur => soldNetValueEur <= 0 ? 0 : soldNetValueEur - totalValueEur;
   double get marginPercent => (soldNetValueEur <= 0 || totalValueEur <= 0) ? 0 : (marginEur / totalValueEur) * 100;
 

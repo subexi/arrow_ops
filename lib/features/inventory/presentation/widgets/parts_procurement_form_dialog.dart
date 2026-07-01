@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 
 import '../../../item/domain/item_models.dart';
 import '../../domain/parts_procurement_models.dart';
@@ -32,7 +31,6 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
   late final TextEditingController _partSourceController;
   late final TextEditingController _materialController;
   late final TextEditingController _noteController;
-  late final TextEditingController _drawingController;
   late final FocusNode _purchaseDateFocusNode;
 
   late final Map<String, _CatalogueSelectionOption> _optionById;
@@ -116,7 +114,6 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     _partSourceController = TextEditingController(text: initial?.ppPartSource ?? '');
     _materialController = TextEditingController(text: initial?.ppMaterial ?? '');
     _noteController = TextEditingController(text: initial?.ppNote ?? '');
-    _drawingController = TextEditingController(text: initial?.ppDrawing ?? '');
     _purchaseDateFocusNode = FocusNode();
     _purchaseDateFocusNode.addListener(() {
       if (_purchaseDateFocusNode.hasFocus) {
@@ -147,7 +144,6 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     _partSourceController.dispose();
     _materialController.dispose();
     _noteController.dispose();
-    _drawingController.dispose();
     _purchaseDateFocusNode.dispose();
     super.dispose();
   }
@@ -223,31 +219,6 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     _totalPriceNetController.text = totalText;
   }
 
-  Future<void> _pickDrawingFile() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const [
-        'pdf',
-        'dwg',
-        'dxf',
-        'svg',
-        'png',
-        'jpg',
-        'jpeg',
-        'webp',
-      ],
-    );
-
-    final selectedPath = result?.files.single.path?.trim() ?? '';
-    if (selectedPath.isEmpty) {
-      return;
-    }
-
-    setState(() {
-      _drawingController.text = selectedPath;
-    });
-  }
-
   Widget _field(
     TextEditingController controller,
     String label, {
@@ -316,7 +287,6 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
       ppPartSource: _text(_partSourceController),
       ppMaterial: _text(_materialController),
       ppNote: _text(_noteController),
-      ppDrawing: _text(_drawingController),
     );
     Navigator.of(context).pop(row);
   }
@@ -498,20 +468,6 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
                 ]),
                 const SizedBox(height: 12),
                 _field(_materialController, 'Materialbeschreibung'),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _drawingController,
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    labelText: 'Zeichnung',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      tooltip: 'Datei wählen',
-                      onPressed: _pickDrawingFile,
-                      icon: const Icon(Icons.attach_file),
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 12),
                 _field(_noteController, 'Notiz', maxLines: 3),
               ],

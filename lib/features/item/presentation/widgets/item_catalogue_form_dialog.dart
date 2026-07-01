@@ -44,6 +44,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   late final TextEditingController _weightController;
   late final TextEditingController _sourceOfSupplyController;
   late final TextEditingController _htsController;
+  late final TextEditingController _drawingPathController;
   late final TextEditingController _imagePathController;
   late final TextEditingController _noteController;
   late final TextEditingController _stockController;
@@ -68,6 +69,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     _weightController = TextEditingController(text: _decimalText(initialValue?.icWeight, 1));
     _sourceOfSupplyController = TextEditingController(text: initialValue?.icSourceOfSupply ?? '');
     _htsController = TextEditingController(text: initialValue?.icHts ?? '');
+    _drawingPathController = TextEditingController(text: initialValue?.icDrawing ?? '');
     _imagePathController = TextEditingController(text: initialValue?.icImagePath ?? '');
     _noteController = TextEditingController(text: initialValue?.icNote ?? '');
     _stockController = TextEditingController(text: (initialValue?.icStock ?? 0).toString());
@@ -89,6 +91,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     _weightController.dispose();
     _sourceOfSupplyController.dispose();
     _htsController.dispose();
+    _drawingPathController.dispose();
     _imagePathController.dispose();
     _noteController.dispose();
     _stockController.dispose();
@@ -210,6 +213,52 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     setState(() {
       _imagePathController.text = pickedPath;
     });
+  }
+
+  Future<void> _pickDrawingPath() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf', 'dwg', 'dxf', 'svg', 'png', 'jpg', 'jpeg', 'webp'],
+      allowMultiple: false,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    final pickedPath = result?.files.single.path;
+    if (pickedPath == null || pickedPath.trim().isEmpty) {
+      TransientFeedback.show(
+        context,
+        message: 'Kein gueltiger Zeichnungspfad ausgewaehlt.',
+      );
+      return;
+    }
+
+    setState(() {
+      _drawingPathController.text = pickedPath;
+    });
+  }
+
+  Widget _drawingPathField() {
+    final readOnly = widget.readOnly;
+
+    return TextFormField(
+      controller: _drawingPathController,
+      enabled: true,
+      readOnly: readOnly,
+      enableInteractiveSelection: true,
+      decoration: InputDecoration(
+        labelText: 'Zeichnung',
+        border: const OutlineInputBorder(),
+        suffixIcon: readOnly
+            ? null
+            : IconButton(
+                tooltip: 'Datei waehlen',
+                onPressed: _pickDrawingPath,
+                icon: const Icon(Icons.attach_file),
+              ),
+      ),
+    );
   }
 
   Widget _imagePathField() {
@@ -567,6 +616,8 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                   _imagePathField(),
                 ]),
                 const SizedBox(height: 12),
+                _drawingPathField(),
+                const SizedBox(height: 12),
                 _field(_noteController, 'Notiz', maxLines: 4, enabled: canEdit, readOnly: readOnly),
                 const SizedBox(height: 12),
                 _compactRow([
@@ -637,6 +688,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                 icWeight: _parseDouble(_weightController),
                 icSourceOfSupply: _text(_sourceOfSupplyController),
                 icHts: _text(_htsController),
+                icDrawing: _text(_drawingPathController),
                 icImagePath: _text(_imagePathController),
                 icNote: _text(_noteController),
                 icStock: _parseInt(_stockController),

@@ -32,6 +32,9 @@ class OrderFormDialog extends StatefulWidget {
 class _OrderFormDialogState extends State<OrderFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _orderIdFocusNode = FocusNode();
+  final _customerSearchFocusNode = FocusNode();
+  final _payDateFocusNode = FocusNode();
+  final _deliveryDateFocusNode = FocusNode();
   final _noteFocusNode = FocusNode();
   final _paypalFeeFocusNode = FocusNode();
   Timer? _customerSearchDebounce;
@@ -41,6 +44,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   late final TextEditingController _orderIdController;
   late final TextEditingController _customerSearchController;
   late final TextEditingController _dateController;
+  late final TextEditingController _fxToEurController;
   late final TextEditingController _vatRateController;
   late final TextEditingController _shippingController;
   late final TextEditingController _valueGoodsController;
@@ -101,6 +105,9 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _orderIdController = TextEditingController(text: v?.oId ?? _generateOrderId());
     _customerSearchController = TextEditingController();
     _dateController = TextEditingController(text: v?.oDate ?? _todayString());
+    _fxToEurController = TextEditingController(
+      text: _decimalText(v?.oFxToEur ?? 1),
+    );
     _vatRateController = TextEditingController(text: _decimalText(v?.oVatRate ?? 19));
     _shippingController = TextEditingController(text: _decimalText(v?.oShipping ?? 0));
     _valueGoodsController = TextEditingController(text: _decimalText(v?.oValueGoods ?? 0));
@@ -148,6 +155,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _dealer = (v?.oDealer ?? 0) != 0;
     _deliveryAddressDifferent = (v?.oDeliveryAddressDifferent ?? 0) != 0;
 
+    _syncFxRateWithCurrency(forceUsdReset: false);
     _syncPriceBasisWithCurrency();
     _setVatRateForPriceBasis();
     _orderIdController.addListener(_syncDateFromOrderId);
@@ -155,6 +163,12 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       if (!_orderIdFocusNode.hasFocus) {
         _syncDateFromOrderId();
       }
+    });
+    _payDateFocusNode.addListener(() {
+      _normalizeDateControllerOnBlur(_payDateFocusNode, _payDateController);
+    });
+    _deliveryDateFocusNode.addListener(() {
+      _normalizeDateControllerOnBlur(_deliveryDateFocusNode, _deliveryController);
     });
     _refreshTotalWeightFromAssignedItems();
     _refreshGoodsValuesForCurrentBasis();
@@ -165,6 +179,15 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _paypalFeeController.addListener(_refreshTotalPriceForCurrentBasis);
     _totalPriceController.addListener(_recalculatePaypalFeeFromTotalIfApplicable);
     _noteFocusNode.addListener(_clearNotePlaceholderOnFocus);
+
+    if (!_isEditing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _customerSearchFocusNode.requestFocus();
+      });
+    }
 
     if (v != null) {
       final existing = widget.allCustomers.cast<Customer?>().firstWhere(
@@ -192,6 +215,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _orderIdController.dispose();
     _customerSearchController.dispose();
     _dateController.dispose();
+    _fxToEurController.dispose();
     _vatRateController.dispose();
     _shippingController.dispose();
     _valueGoodsController.dispose();
@@ -214,9 +238,28 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _deliveryLonController.dispose();
     _deliveryCountryController.dispose();
     _orderIdFocusNode.dispose();
+    _customerSearchFocusNode.dispose();
+    _payDateFocusNode.dispose();
+    _deliveryDateFocusNode.dispose();
     _paypalFeeFocusNode.dispose();
     _noteFocusNode.dispose();
     super.dispose();
+  }
+
+  void _normalizeDateControllerOnBlur(
+    FocusNode focusNode,
+    TextEditingController controller,
+  ) {
+    if (focusNode.hasFocus) {
+      return;
+    }
+
+    final normalized = _normalizeDateForStorage(controller.text);
+    if (normalized == controller.text) {
+      return;
+    }
+
+    controller.text = normalized;
   }
 
   void _syncDateFromOrderId() {
@@ -346,6 +389,20 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   void _syncPriceBasisWithCurrency() {
     if (_isUsdCurrency) {
       _priceBasis = 'net';
+    }
+  }
+
+  void _syncFxRateWithCurrency({required bool forceUsdReset}) {
+    if (_isEurCurrency) {
+      final eurRate = _decimalText(1);
+      if (_fxToEurController.text != eurRate) {
+        _fxToEurController.text = eurRate;
+      }
+      return;
+    }
+
+    if (forceUsdReset || _parseDecimal(_fxToEurController) <= 0) {
+      _fxToEurController.text = _decimalText(0);
     }
   }
 
@@ -518,20 +575,15 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       return;
     }
 
-    final existingFee = _parseDecimal(_paypalFeeController);
-    if (existingFee != 0) {
-      return;
-    }
-
     final goodsGross = _parseDecimal(_valueGoodsGrossController);
     final shipping = _parseDecimal(_shippingController);
-    final feeBase = goodsGross + shipping;
-    if (feeBase <= 0) {
+    final netTarget = goodsGross + shipping;
+    if (netTarget <= 0) {
       return;
     }
 
-    final fee = PayPalFeeRules.feeFromBaseAmountEur(
-      baseAmountEur: feeBase,
+    final fee = PayPalFeeRules.feeFromNetTargetEur(
+      netTargetEur: netTarget,
       countryToken: _deliveryCountryToken(),
     );
     final feeText = _decimalText(fee);
@@ -987,6 +1039,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                   children: [
                     TextFormField(
                       controller: _customerSearchController,
+                      focusNode: _customerSearchFocusNode,
+                      autofocus: !_isEditing,
                       decoration: InputDecoration(
                         labelText: 'Kunde suchen (Name, Vorname, Ort)',
                         border: const OutlineInputBorder(),
@@ -1006,6 +1060,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                             : const Icon(Icons.search),
                       ),
                       validator: (_) => _selectedCustomer == null ? 'Bitte einen Kunden auswählen.' : null,
+                      onTap: () => _customerSearchFocusNode.requestFocus(),
                       onChanged: _filterCustomers,
                     ),
                     if (_showCustomerDropdown) ...[
@@ -1190,6 +1245,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     onChanged: (v) {
                       setState(() {
                         _currency = v ?? 'EUR';
+                        _syncFxRateWithCurrency(forceUsdReset: _isUsdCurrency);
                         _syncPriceBasisWithCurrency();
                         _applyNoVatCustomerRules();
                         _setVatRateForPriceBasis();
@@ -1198,6 +1254,29 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                       });
                     },
                   ),
+                ),
+                const SizedBox(height: 12),
+
+                _row2(
+                  _field(
+                    _fxToEurController,
+                    'USD→EUR Kurs',
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    readOnly: _isEurCurrency,
+                    validator: (value) {
+                      if (_isEurCurrency) {
+                        return null;
+                      }
+                      final parsed = double.tryParse(
+                        (value ?? '').trim().replaceAll(',', '.'),
+                      );
+                      if (parsed == null || parsed <= 0) {
+                        return 'Bitte gueltigen USD→EUR Kurs > 0 eingeben.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox.shrink(),
                 ),
                 const SizedBox(height: 12),
 
@@ -1312,6 +1391,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     'PayPal-Gebühr',
                     focusNode: _paypalFeeFocusNode,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    readOnly: true,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1333,8 +1413,18 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
 
                 // ── Bezahldatum & Auslieferungsdatum
                 _row2(
-                  _field(_payDateController, 'Bezahlt-Datum (JJJJ-MM-TT)'),
-                  _field(_deliveryController, 'Versand-Datum (JJJJ-MM-TT)'),
+                  _field(
+                    _payDateController,
+                    'Bezahlt-Datum (JJJJ-MM-TT)',
+                    keyboardType: TextInputType.datetime,
+                    focusNode: _payDateFocusNode,
+                  ),
+                  _field(
+                    _deliveryController,
+                    'Versand-Datum (JJJJ-MM-TT)',
+                    keyboardType: TextInputType.datetime,
+                    focusNode: _deliveryDateFocusNode,
+                  ),
                 ),
                 const SizedBox(height: 12),
 
@@ -1421,6 +1511,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
               oDealer: (_selectedCustomer?.cDealer ?? _dealer) ? 1 : 0,
               oDate: _normalizeDateForStorage(_dateController.text),
               oCurrency: _currency,
+              oFxToEur: _isEurCurrency ? 1 : _parseDecimal(_fxToEurController),
               oLanguage: _language,
               oPriceBasis: _priceBasis,
               oVatRate: _parseDecimal(_vatRateController),

@@ -42,6 +42,25 @@ Ausfuehrung:
 sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_us_state_city_suffixes.sql
 ```
 
+## Migrations-Check USD zu EUR Kursfeld
+
+Nach dem Update auf die Datenbankmigration mit `o_fx_to_eur` kann das Skript
+`scripts/sql/check_usd_fx_to_eur.sql`
+fuer einen schnellen Release-Check verwendet werden.
+
+Es prueft:
+
+1. Ob die Spalte `o_fx_to_eur` existiert.
+2. Wie viele USD-Auftraege insgesamt vorliegen.
+3. Wie viele USD-Auftraege bereits einen gueltigen Kurs > 0 haben.
+4. Welche USD-Auftraege noch ohne gueltigen Kurs sind.
+
+Ausfuehrung:
+
+```bash
+sqlite3 -header -column /Pfad/zur/arrow_ops.db < scripts/sql/check_usd_fx_to_eur.sql
+```
+
 ## Artikelbilder und iCloud
 
 Der Katalog speichert in `ic_image_path` einen relativen Pfad (z. B. `item_images/item_123_...jpg`).
