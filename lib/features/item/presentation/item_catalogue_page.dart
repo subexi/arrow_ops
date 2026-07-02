@@ -135,6 +135,8 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   _CatalogueFilter _catalogueFilter = _CatalogueFilter.all;
   _ArchiveFilter _archiveFilter = _ArchiveFilter.activeOnly;
   _VariantFilter _variantFilter = _VariantFilter.all;
+  String? _selectedCategoryValueFilter;
+  String? _selectedVariantValueFilter;
   int _catalogueSortColumnIndex = 0;
   bool _catalogueSortAscending = true;
   int _bomSortColumnIndex = 0;
@@ -184,7 +186,10 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       if (nextQuery == _searchQuery) {
         return;
       }
-      setState(() => _searchQuery = nextQuery);
+      setState(() {
+        _searchQuery = nextQuery;
+        _clampSelectedCatalogueToVisible();
+      });
     });
 
     if (!widget.loadOnInit) {
@@ -261,6 +266,14 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       }
 
       setState(() {
+        if (_selectedCategoryValueFilter != null &&
+            !catalogueItems.any((item) => item.category.trim() == _selectedCategoryValueFilter)) {
+          _selectedCategoryValueFilter = null;
+        }
+        if (_selectedVariantValueFilter != null &&
+            !catalogueItems.any((item) => item.icIdv.trim() == _selectedVariantValueFilter)) {
+          _selectedVariantValueFilter = null;
+        }
         _catalogueItems = catalogueItems;
         _itemCategories = itemCategories;
         _bomItems = bomItems;
@@ -2016,6 +2029,11 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
   bool _matchesVariantFilter(ItemCatalogueRow item) {
     final variantValue = item.icIdv.trim();
+
+    if (_selectedVariantValueFilter != null && variantValue != _selectedVariantValueFilter) {
+      return false;
+    }
+
     switch (_variantFilter) {
       case _VariantFilter.all:
         return true;
@@ -2024,6 +2042,14 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       case _VariantFilter.withoutVariants:
         return variantValue == '-';
     }
+  }
+
+  bool _matchesCategoryValueFilter(ItemCatalogueRow item) {
+    final selectedCategoryValueFilter = _selectedCategoryValueFilter;
+    if (selectedCategoryValueFilter == null) {
+      return true;
+    }
+    return item.category.trim() == selectedCategoryValueFilter;
   }
 
   bool _matchesArchiveFilter(ItemCatalogueRow item) {
@@ -2043,6 +2069,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
             _matchesCatalogueQuery(item) &&
             _matchesCatalogueFilter(item) &&
             _matchesArchiveFilter(item) &&
+        _matchesCategoryValueFilter(item) &&
             _matchesVariantFilter(item))
         .toList();
     result.sort((a, b) {
@@ -2050,6 +2077,49 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       return _catalogueSortAscending ? compare : -compare;
     });
     return result;
+  }
+
+  List<String> _variantFilterOptions() {
+    final values = _catalogueItems
+        .map((item) => item.icIdv.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false)
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return values;
+  }
+
+  List<String> _categoryFilterOptions() {
+    final values = _catalogueItems
+        .map((item) => item.category.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false)
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return values;
+  }
+
+  void _clampSelectedCatalogueToVisible() {
+    final visibleRows = _visibleCatalogueRows();
+    if (visibleRows.isEmpty) {
+      _selectedCatalogueId = null;
+      _selectedBomId = null;
+      return;
+    }
+
+    final isSelectedVisible = _selectedCatalogueId != null &&
+        visibleRows.any((row) => row.icId == _selectedCatalogueId);
+    if (!isSelectedVisible) {
+      _selectedCatalogueId = visibleRows.first.icId;
+      _selectedBomId = null;
+    }
+  }
+
+  void _updateCatalogueFilters(VoidCallback update) {
+    setState(() {
+      update();
+      _clampSelectedCatalogueToVisible();
+    });
   }
 
   List<ItemBomRow> _visibleBomRows() {
@@ -2729,7 +2799,18 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
 
   Widget _buildCatalogueSection() {
     final visibleItems = _visibleCatalogueRows();
-    final selectedItem = _selectedCatalogueId == null ? null : _catalogueById[_selectedCatalogueId!];
+    final selectedItem = _selectedCatalogueId == null
+        ? null
+        : (() {
+            for (final item in visibleItems) {
+              if (item.icId == _selectedCatalogueId) {
+                return item;
+              }
+            }
+            return null;
+          })();
+    final variantOptions = _variantFilterOptions();
+    final categoryOptions = _categoryFilterOptions();
 
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -3005,17 +3086,49 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                       ChoiceChip(
                         label: const Text('Alle Artikel'),
                         selected: _catalogueFilter == _CatalogueFilter.all,
-                        onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.all),
+                        onSelected: (_) => _updateCatalogueFilters(() => _catalogueFilter = _CatalogueFilter.all),
                       ),
                       ChoiceChip(
                         label: const Text('ZB-Komponenten'),
                         selected: _catalogueFilter == _CatalogueFilter.zbOnly,
-                        onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.zbOnly),
+                        onSelected: (_) => _updateCatalogueFilters(() => _catalogueFilter = _CatalogueFilter.zbOnly),
                       ),
                       ChoiceChip(
                         label: const Text('ohne ZB-Komponenten'),
                         selected: _catalogueFilter == _CatalogueFilter.withoutZb,
-                        onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                        onSelected: (_) => _updateCatalogueFilters(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          key: const ValueKey('category-value-filter'),
+                          initialValue: _selectedCategoryValueFilter,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Konkrete Kategorie',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('Alle Kategorien'),
+                            ),
+                            ...categoryOptions.map(
+                              (category) => DropdownMenuItem<String>(
+                                value: category,
+                                child: Text(category),
+                              ),
+                            ),
+                          ],
+                          onChanged: (value) => _updateCatalogueFilters(
+                            () => _selectedCategoryValueFilter = value,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -3027,17 +3140,17 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                       ChoiceChip(
                         label: const Text('Aktive Artikel'),
                         selected: _archiveFilter == _ArchiveFilter.activeOnly,
-                        onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.activeOnly),
+                        onSelected: (_) => _updateCatalogueFilters(() => _archiveFilter = _ArchiveFilter.activeOnly),
                       ),
                       ChoiceChip(
                         label: const Text('Archivierte Artikel'),
                         selected: _archiveFilter == _ArchiveFilter.archivedOnly,
-                        onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.archivedOnly),
+                        onSelected: (_) => _updateCatalogueFilters(() => _archiveFilter = _ArchiveFilter.archivedOnly),
                       ),
                       ChoiceChip(
                         label: const Text('Alle (aktiv + archiviert)'),
                         selected: _archiveFilter == _ArchiveFilter.all,
-                        onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.all),
+                        onSelected: (_) => _updateCatalogueFilters(() => _archiveFilter = _ArchiveFilter.all),
                       ),
                     ],
                   ),
@@ -3050,19 +3163,54 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                         key: const ValueKey('variant-filter-all'),
                         label: const Text('Alle Varianten'),
                         selected: _variantFilter == _VariantFilter.all,
-                        onSelected: (_) => setState(() => _variantFilter = _VariantFilter.all),
+                        onSelected: (_) => _updateCatalogueFilters(() {
+                          _variantFilter = _VariantFilter.all;
+                          _selectedVariantValueFilter = null;
+                        }),
                       ),
                       ChoiceChip(
                         key: const ValueKey('variant-filter-with'),
                         label: const Text('Varianten'),
                         selected: _variantFilter == _VariantFilter.withVariants,
-                        onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withVariants),
+                        onSelected: (_) => _updateCatalogueFilters(() => _variantFilter = _VariantFilter.withVariants),
                       ),
                       ChoiceChip(
                         key: const ValueKey('variant-filter-without'),
                         label: const Text('ohne Varianten'),
                         selected: _variantFilter == _VariantFilter.withoutVariants,
-                        onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withoutVariants),
+                        onSelected: (_) => _updateCatalogueFilters(() => _variantFilter = _VariantFilter.withoutVariants),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          key: const ValueKey('variant-value-filter'),
+                          initialValue: _selectedVariantValueFilter,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Konkrete Variante',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('Alle Variantenwerte'),
+                            ),
+                            ...variantOptions.map(
+                              (variant) => DropdownMenuItem<String>(
+                                value: variant,
+                                child: Text(variant),
+                              ),
+                            ),
+                          ],
+                          onChanged: (value) => _updateCatalogueFilters(
+                            () => _selectedVariantValueFilter = value,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -3094,19 +3242,45 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                   ChoiceChip(
                     label: const Text('Alle Artikel'),
                     selected: _catalogueFilter == _CatalogueFilter.all,
-                    onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.all),
+                    onSelected: (_) => _updateCatalogueFilters(() => _catalogueFilter = _CatalogueFilter.all),
                   ),
                   ChoiceChip(
                     label: const Text('ZB-Komponenten'),
                     selected: _catalogueFilter == _CatalogueFilter.zbOnly,
-                    onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.zbOnly),
+                    onSelected: (_) => _updateCatalogueFilters(() => _catalogueFilter = _CatalogueFilter.zbOnly),
                   ),
                   ChoiceChip(
                     label: const Text('ohne ZB-Komponenten'),
                     selected: _catalogueFilter == _CatalogueFilter.withoutZb,
-                    onSelected: (_) => setState(() => _catalogueFilter = _CatalogueFilter.withoutZb),
+                    onSelected: (_) => _updateCatalogueFilters(() => _catalogueFilter = _CatalogueFilter.withoutZb),
                   ),
                 ],
+              ),
+              SizedBox(height: compactVerticalSpacing ? 6 : 10),
+              DropdownButtonFormField<String>(
+                key: const ValueKey('category-value-filter'),
+                initialValue: _selectedCategoryValueFilter,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Konkrete Kategorie',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('Alle Kategorien'),
+                  ),
+                  ...categoryOptions.map(
+                    (category) => DropdownMenuItem<String>(
+                      value: category,
+                      child: Text(category),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => _updateCatalogueFilters(
+                  () => _selectedCategoryValueFilter = value,
+                ),
               ),
               SizedBox(height: compactVerticalSpacing ? 6 : 10),
               Wrap(
@@ -3116,17 +3290,17 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                   ChoiceChip(
                     label: const Text('Aktive Artikel'),
                     selected: _archiveFilter == _ArchiveFilter.activeOnly,
-                    onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.activeOnly),
+                    onSelected: (_) => _updateCatalogueFilters(() => _archiveFilter = _ArchiveFilter.activeOnly),
                   ),
                   ChoiceChip(
                     label: const Text('Archivierte Artikel'),
                     selected: _archiveFilter == _ArchiveFilter.archivedOnly,
-                    onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.archivedOnly),
+                    onSelected: (_) => _updateCatalogueFilters(() => _archiveFilter = _ArchiveFilter.archivedOnly),
                   ),
                   ChoiceChip(
                     label: const Text('Alle (aktiv + archiviert)'),
                     selected: _archiveFilter == _ArchiveFilter.all,
-                    onSelected: (_) => setState(() => _archiveFilter = _ArchiveFilter.all),
+                    onSelected: (_) => _updateCatalogueFilters(() => _archiveFilter = _ArchiveFilter.all),
                   ),
                 ],
               ),
@@ -3139,21 +3313,50 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
                     key: const ValueKey('variant-filter-all'),
                     label: const Text('Alle Varianten'),
                     selected: _variantFilter == _VariantFilter.all,
-                    onSelected: (_) => setState(() => _variantFilter = _VariantFilter.all),
+                    onSelected: (_) => _updateCatalogueFilters(() {
+                      _variantFilter = _VariantFilter.all;
+                      _selectedVariantValueFilter = null;
+                    }),
                   ),
                   ChoiceChip(
                     key: const ValueKey('variant-filter-with'),
                     label: const Text('Varianten'),
                     selected: _variantFilter == _VariantFilter.withVariants,
-                    onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withVariants),
+                    onSelected: (_) => _updateCatalogueFilters(() => _variantFilter = _VariantFilter.withVariants),
                   ),
                   ChoiceChip(
                     key: const ValueKey('variant-filter-without'),
                     label: const Text('ohne Varianten'),
                     selected: _variantFilter == _VariantFilter.withoutVariants,
-                    onSelected: (_) => setState(() => _variantFilter = _VariantFilter.withoutVariants),
+                    onSelected: (_) => _updateCatalogueFilters(() => _variantFilter = _VariantFilter.withoutVariants),
                   ),
                 ],
+              ),
+              SizedBox(height: compactVerticalSpacing ? 6 : 10),
+              DropdownButtonFormField<String>(
+                key: const ValueKey('variant-value-filter'),
+                initialValue: _selectedVariantValueFilter,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Konkrete Variante',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('Alle Variantenwerte'),
+                  ),
+                  ...variantOptions.map(
+                    (variant) => DropdownMenuItem<String>(
+                      value: variant,
+                      child: Text(variant),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => _updateCatalogueFilters(
+                  () => _selectedVariantValueFilter = value,
+                ),
               ),
               SizedBox(height: sectionGap),
               Wrap(

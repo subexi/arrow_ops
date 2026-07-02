@@ -16,30 +16,53 @@ For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
 
+## SQL-Skript-Konvention
+
+In `scripts/sql` gelten folgende Konventionen:
+
+1. `*.sqlite` = ausfuehrbare SQLite-Migrations-/Backfill-Skripte.
+2. `*.sql` = linter-neutrale Hinweisdateien (Pointer) fuer VS Code,
+   falls der MSSQL-Parser SQLite-Syntax falsch als T-SQL markiert.
+
+Bitte fuer Datenaenderungen immer die `*.sqlite`-Dateien ausfuehren.
+
 ## Datenmigration Italienische Stadt-Suffixe
 
 Fuer bestehende Daten kann das Skript
-`scripts/sql/normalize_italian_city_suffixes.sql`
+`scripts/sql/normalize_italian_city_suffixes.sqlite`
 italienische Stadtfelder auf das Format `Stadtname (XX)` normieren,
 wobei `XX` aus `c_state_b` oder `c_state_d` (Format `XX-...`) stammt.
 
 Ausfuehrung:
 
 ```bash
-sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_italian_city_suffixes.sql
+sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_italian_city_suffixes.sqlite
 ```
 
 ## Datenmigration USA Verwaltungseinheit und Stadt-Suffixe
 
 Fuer bestehende US-Daten kann das Skript
-`scripts/sql/normalize_us_state_city_suffixes.sql`
+`scripts/sql/normalize_us_state_city_suffixes.sqlite`
 die Verwaltungseinheit auf `ST-StateName` und die Stadt auf `City, ST`
 normalisieren.
 
 Ausfuehrung:
 
 ```bash
-sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_us_state_city_suffixes.sql
+sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_us_state_city_suffixes.sqlite
+```
+
+## Datenmigration Australien Verwaltungseinheit
+
+Fuer bestehende AU-Daten kann das Skript
+`scripts/sql/normalize_au_state_units.sqlite`
+die Verwaltungseinheit auf `CODE-StateName` normalisieren und fehlende Werte
+per City-/State-/PLZ-Heuristik auffuellen.
+
+Ausfuehrung:
+
+```bash
+sqlite3 /Pfad/zur/arrow_ops.db < scripts/sql/normalize_au_state_units.sqlite
 ```
 
 ## Migrations-Check USD zu EUR Kursfeld
@@ -59,6 +82,24 @@ Ausfuehrung:
 
 ```bash
 sqlite3 -header -column /Pfad/zur/arrow_ops.db < scripts/sql/check_usd_fx_to_eur.sql
+```
+
+## Datenmigration USD PayPal-Gebuehr Backfill
+
+Fuer bestehende USD-PayPal-Auftraege ohne Gebuehr kann das Skript
+`scripts/sql/backfill_usd_paypal_fee.sqlite`
+die Felder `o_paypal_fee` und `o_total_price` nachziehen.
+
+Das Skript:
+
+1. erstellt eine Preview der betroffenen Auftraege,
+2. berechnet die Gebuehr analog zur App-Logik (inkl. `o_fx_to_eur`),
+3. aktualisiert die Auftragswerte in einer Transaktion.
+
+Ausfuehrung:
+
+```bash
+sqlite3 -header -column /Pfad/zur/arrow_ops.db < scripts/sql/backfill_usd_paypal_fee.sqlite
 ```
 
 ## Artikelbilder und iCloud

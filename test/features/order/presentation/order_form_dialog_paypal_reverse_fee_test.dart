@@ -23,11 +23,17 @@ void main() {
     );
   }
 
-  OrderRow buildInitialOrder() {
-    return const OrderRow(
+  OrderRow buildInitialOrder({
+    String currency = 'EUR',
+    String language = 'DE',
+    double fxToEur = 1,
+  }) {
+    return OrderRow(
       oId: '2601011000',
       oCustomerId: 'C001',
-      oCurrency: 'EUR',
+      oCurrency: currency,
+      oFxToEur: fxToEur,
+      oLanguage: language,
       oPayment: 1,
       oPriceBasis: 'net',
       oVatRate: 0,
@@ -41,7 +47,13 @@ void main() {
 
   String decimalText(double value) => value.toStringAsFixed(2).replaceAll('.', ',');
 
-  Future<void> pumpDialog(WidgetTester tester, {String deliveryCountryId = 'DE'}) async {
+  Future<void> pumpDialog(
+    WidgetTester tester, {
+    String deliveryCountryId = 'DE',
+    String currency = 'EUR',
+    String language = 'DE',
+    double fxToEur = 1,
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -49,7 +61,11 @@ void main() {
             child: OrderFormDialog(
               allCustomers: [buildCustomer(deliveryCountryId: deliveryCountryId)],
               allCountries: const [],
-              initialValue: buildInitialOrder(),
+              initialValue: buildInitialOrder(
+                currency: currency,
+                language: language,
+                fxToEur: fxToEur,
+              ),
             ),
           ),
         ),
@@ -120,5 +136,43 @@ void main() {
 
     expect(paypalFeeField.controller?.text, decimalText(expectedFee));
     expect(totalField.controller?.text, decimalText(expectedTotal));
+  });
+
+  testWidgets('berechnet PayPal-Gebuehr auch fuer USD mit USD→EUR-Kurs und EN Sprache', (
+    tester,
+  ) async {
+    const fxToEur = 0.87;
+    await pumpDialog(
+      tester,
+      deliveryCountryId: 'DE',
+      currency: 'USD',
+      language: 'EN',
+      fxToEur: fxToEur,
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Warenwert netto'),
+      '100,00',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Versandkosten'),
+      '10,00',
+    );
+    await tester.pumpAndSettle();
+
+    const amountUsd = 110.0;
+    final amountEur = amountUsd * fxToEur;
+    final expectedFeeEur = PayPalFeeRules.feeFromNetTargetEur(
+      netTargetEur: amountEur,
+      countryToken: 'DE',
+    );
+    final expectedFeeUsd = expectedFeeEur / fxToEur;
+    final expectedTotalUsd = amountUsd + expectedFeeUsd;
+
+    final paypalFeeField = fieldByLabel(tester, 'PayPal-Gebühr');
+    final totalField = fieldByLabel(tester, 'Gesamtpreis');
+
+    expect(paypalFeeField.controller?.text, decimalText(expectedFeeUsd));
+    expect(totalField.controller?.text, decimalText(expectedTotalUsd));
   });
 }

@@ -177,6 +177,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _vatRateController.addListener(_refreshGoodsValuesForCurrentBasis);
     _shippingController.addListener(_refreshTotalPriceForCurrentBasis);
     _paypalFeeController.addListener(_refreshTotalPriceForCurrentBasis);
+    _fxToEurController.addListener(_recalculatePaypalFeeFromTotalIfApplicable);
     _totalPriceController.addListener(_recalculatePaypalFeeFromTotalIfApplicable);
     _noteFocusNode.addListener(_clearNotePlaceholderOnFocus);
 
@@ -571,22 +572,35 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     if (_paypalFeeFocusNode.hasFocus) {
       return;
     }
-    if (_payment != _paypalPaymentCode || !_isEurCurrency) {
+    if (_payment != _paypalPaymentCode) {
       return;
     }
 
     final goodsGross = _parseDecimal(_valueGoodsGrossController);
     final shipping = _parseDecimal(_shippingController);
-    final netTarget = goodsGross + shipping;
-    if (netTarget <= 0) {
+    final amountInOrderCurrency = goodsGross + shipping;
+    if (amountInOrderCurrency <= 0) {
       return;
     }
 
-    final fee = PayPalFeeRules.feeFromNetTargetEur(
-      netTargetEur: netTarget,
+    // PayPal rules are defined in EUR. For USD orders we convert the base amount
+    // to EUR, compute the fee, then convert the fee back to USD.
+    final fxToEur = _parseDecimal(_fxToEurController);
+    final amountInEur = _isEurCurrency
+        ? amountInOrderCurrency
+      : (fxToEur > 0 ? amountInOrderCurrency * fxToEur : 0.0);
+    if (amountInEur <= 0) {
+      return;
+    }
+
+    final feeEur = PayPalFeeRules.feeFromNetTargetEur(
+      netTargetEur: amountInEur,
       countryToken: _deliveryCountryToken(),
     );
-    final feeText = _decimalText(fee);
+    final feeInOrderCurrency = _isEurCurrency
+        ? feeEur
+      : (fxToEur > 0 ? feeEur / fxToEur : 0.0);
+    final feeText = _decimalText(feeInOrderCurrency);
 
     if (_paypalFeeController.text == feeText) {
       return;

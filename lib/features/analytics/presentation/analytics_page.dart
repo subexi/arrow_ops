@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:data_table_2/data_table_2.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -349,6 +350,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final totalSalesNet = rows.fold<double>(0, (sum, row) => sum + row.soldNetValueEur);
     final totalMargin = rows.fold<double>(0, (sum, row) => sum + row.marginEur);
     final totalMarginPercent = totalValue <= 0 ? 0.0 : (totalMargin / totalValue) * 100;
+    final diagnosticsTableMaxHeight =
+      (MediaQuery.sizeOf(context).height * 0.34).clamp(220.0, 420.0).toDouble();
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -494,20 +497,73 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       ),
                     ),
                   ),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
+                  SizedBox(
+                    height: diagnosticsTableMaxHeight,
+                    child: DataTable2(
+                      minWidth: 1250,
+                      fixedTopRows: 1,
+                      headingRowHeight: 68,
+                      columnSpacing: 14,
+                      horizontalMargin: 10,
+                      headingTextStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        height: 1.2,
+                      ),
+                      headingRowColor: WidgetStateProperty.resolveWith(
+                        (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
+                      ),
                       columns: const [
-                        DataColumn(label: Text('Auftrag')),
-                        DataColumn(label: Text('Versanddatum')),
-                        DataColumn(label: Text('Auftragsdatum')),
-                        DataColumn(label: Text('Waehrung')),
-                        DataColumn(label: Text('USD→EUR')),
-                        DataColumn(label: Text('Preisbasis')),
-                        DataColumn(label: Text('MwSt %'), numeric: true),
-                        DataColumn(label: Text('Pos.'), numeric: true),
-                        DataColumn(label: Text('Netto (EUR)'), numeric: true),
-                        DataColumn(label: Text('Hinweis')),
+                        DataColumn2(
+                          label: Text('Auftrag', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          fixedWidth: 130,
+                        ),
+                        DataColumn2(
+                          label: Text('Versanddatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          fixedWidth: 150,
+                        ),
+                        DataColumn2(
+                          label: Text('Auftragsdatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          fixedWidth: 150,
+                        ),
+                        DataColumn2(
+                          label: Text('Waehrung', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          fixedWidth: 95,
+                        ),
+                        DataColumn2(
+                          label: Text('USD→EUR', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          numeric: true,
+                          fixedWidth: 125,
+                        ),
+                        DataColumn2(
+                          label: Text(
+                            'Berechnungsbasis\n(EUR)',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          numeric: true,
+                          fixedWidth: 200,
+                        ),
+                        DataColumn2(
+                          label: Text('MwSt %', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          numeric: true,
+                          fixedWidth: 95,
+                        ),
+                        DataColumn2(
+                          label: Text('Pos.', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          numeric: true,
+                          fixedWidth: 70,
+                        ),
+                        DataColumn2(
+                          label: Text('Netto (EUR)', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          numeric: true,
+                          fixedWidth: 145,
+                        ),
+                        DataColumn2(
+                          label: Text('Hinweis', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          size: ColumnSize.L,
+                        ),
                       ],
                       rows: [
                         for (final contribution in orderNetContributions)
@@ -518,7 +574,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                               DataCell(Text(contribution.orderDate)),
                               DataCell(Text(contribution.currency)),
                               DataCell(Text(_formatMoney(contribution.fxToEur))),
-                              DataCell(Text(contribution.priceBasis)),
+                              DataCell(Text(_formatMoney(contribution.priceBasisValue))),
                               DataCell(Text(_formatMoney(contribution.vatRate))),
                               DataCell(Text(contribution.itemCount.toString())),
                               DataCell(Text(_formatMoney(contribution.netSalesEur))),
@@ -553,113 +609,173 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           Expanded(
             child: rows.isEmpty
                 ? const Center(child: Text('Keine Daten fuer den ausgewaehlten Zeitraum.'))
-                : SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
-                      child: DataTable(
-                        sortColumnIndex: effectiveSortColumnIndex,
-                        sortAscending: _tableSortAscending,
-                        columns: [
-                          DataColumn(
-                            label: const Text('Bezeichnung'),
-                            onSort: (columnIndex, ascending) =>
-                                _onWareneinsatzSortChanged(columnIndex, ascending),
-                          ),
-                          DataColumn(
-                            label: const Text('Beschreibung'),
-                            onSort: (columnIndex, ascending) =>
-                                _onWareneinsatzSortChanged(columnIndex, ascending),
-                          ),
-                          if (showMengeOhneBomColumn)
-                            DataColumn(
-                              numeric: true,
-                              label: const Text('Menge ohne BOM'),
-                              onSort: (columnIndex, ascending) =>
-                                  _onWareneinsatzSortChanged(columnIndex, ascending),
-                            ),
-                          if (showBomMengeColumn)
-                            DataColumn(
-                              numeric: true,
-                              label: const Text('BOM-Menge'),
-                              onSort: (columnIndex, ascending) =>
-                                  _onWareneinsatzSortChanged(columnIndex, ascending),
-                            ),
-                          if (showGesamtmengeColumn)
-                            DataColumn(
-                              numeric: true,
-                              label: const Text('Gesamtmenge'),
-                              onSort: (columnIndex, ascending) =>
-                                  _onWareneinsatzSortChanged(columnIndex, ascending),
-                            ),
-                          if (showFinancialColumns) ...[
-                            DataColumn(
-                              numeric: true,
-                              label: const Text('EK netto (EUR)'),
-                              onSort: (columnIndex, ascending) =>
-                                  _onWareneinsatzSortChanged(columnIndex, ascending),
-                            ),
-                            DataColumn(
-                              numeric: true,
-                              label: const Text('Σ EK netto (EUR)'),
-                              onSort: (columnIndex, ascending) =>
-                                  _onWareneinsatzSortChanged(columnIndex, ascending),
-                            ),
-                            DataColumn(
-                              numeric: true,
-                              label: const Text('Σ Verkauf netto (EUR)'),
-                              onSort: (columnIndex, ascending) =>
-                                  _onWareneinsatzSortChanged(columnIndex, ascending),
-                            ),
-                            DataColumn(
-                              numeric: true,
-                              label: Text(
-                                _selectedMarginDisplay == _MarginDisplay.percent
-                                    ? 'Marge % auf EK'
-                                    : 'Marge EUR',
-                              ),
-                              onSort: (columnIndex, ascending) =>
-                                  _onWareneinsatzSortChanged(columnIndex, ascending),
-                            ),
-                          ],
-                        ],
-                        rows: [
-                          for (final row in rows)
-                            DataRow(
-                              cells: [
-                                DataCell(Text(row.bezeichnung)),
-                                DataCell(
-                                  Tooltip(
-                                    message: row.beschreibung,
-                                    child: Text(
-                                      _truncateBeschreibung(row.beschreibung),
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                    ),
-                                  ),
-                                ),
-                                if (showMengeOhneBomColumn)
-                                  DataCell(Text(_formatQuantity(_displayMengeOhneBom(row)))),
-                                if (showBomMengeColumn)
-                                  DataCell(Text(_formatQuantity(_displayBomMenge(row)))),
-                                if (showGesamtmengeColumn)
-                                  DataCell(Text(_formatQuantity(row.totalQuantity))),
-                                if (showFinancialColumns) ...[
-                                  DataCell(Text(_formatMoney(row.purchasePriceEur))),
-                                  DataCell(Text(_formatMoney(row.totalValueEur))),
-                                  DataCell(Text(_formatMoney(row.soldNetValueEur))),
-                                  DataCell(
-                                    Text(
-                                      _selectedMarginDisplay == _MarginDisplay.percent
-                                          ? _formatPercent(row.marginPercent)
-                                          : _formatMoney(row.marginEur),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                        ],
-                      ),
+                : DataTable2(
+                    minWidth: showFinancialColumns ? 1450 : 1050,
+                    fixedTopRows: 1,
+                    headingRowHeight: 68,
+                    headingRowColor: WidgetStateProperty.resolveWith(
+                      (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
                     ),
+                    columnSpacing: 14,
+                    horizontalMargin: 10,
+                    headingTextStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      height: 1.2,
+                    ),
+                    sortColumnIndex: effectiveSortColumnIndex,
+                    sortAscending: _tableSortAscending,
+                    columns: [
+                      DataColumn2(
+                        label: const Text(
+                          'Bezeichnung',
+                          maxLines: 2,
+                          softWrap: true,
+                          overflow: TextOverflow.visible,
+                        ),
+                        fixedWidth: 160,
+                        onSort: (columnIndex, ascending) =>
+                            _onWareneinsatzSortChanged(columnIndex, ascending),
+                      ),
+                      DataColumn2(
+                        label: const Text(
+                          'Beschreibung',
+                          maxLines: 2,
+                          softWrap: true,
+                          overflow: TextOverflow.visible,
+                        ),
+                        size: ColumnSize.L,
+                        onSort: (columnIndex, ascending) =>
+                            _onWareneinsatzSortChanged(columnIndex, ascending),
+                      ),
+                      if (showMengeOhneBomColumn)
+                        DataColumn2(
+                          numeric: true,
+                          label: const Text(
+                            'Menge ohne BOM',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          fixedWidth: 140,
+                          onSort: (columnIndex, ascending) =>
+                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                        ),
+                      if (showBomMengeColumn)
+                        DataColumn2(
+                          numeric: true,
+                          label: const Text(
+                            'BOM-Menge',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          fixedWidth: 120,
+                          onSort: (columnIndex, ascending) =>
+                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                        ),
+                      if (showGesamtmengeColumn)
+                        DataColumn2(
+                          numeric: true,
+                          label: const Text(
+                            'Gesamtmenge',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          fixedWidth: 130,
+                          onSort: (columnIndex, ascending) =>
+                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                        ),
+                      if (showFinancialColumns) ...[
+                        DataColumn2(
+                          numeric: true,
+                          label: const Text(
+                            'EK netto\n(EUR)',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          fixedWidth: 130,
+                          onSort: (columnIndex, ascending) =>
+                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                        ),
+                        DataColumn2(
+                          numeric: true,
+                          label: const Text(
+                            'Σ EK netto\n(EUR)',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          fixedWidth: 145,
+                          onSort: (columnIndex, ascending) =>
+                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                        ),
+                        DataColumn2(
+                          numeric: true,
+                          label: const Text(
+                            'Σ Verkauf netto\n(EUR)',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          fixedWidth: 165,
+                          onSort: (columnIndex, ascending) =>
+                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                        ),
+                        DataColumn2(
+                          numeric: true,
+                          label: Text(
+                            _selectedMarginDisplay == _MarginDisplay.percent
+                                ? 'Marge % auf EK'
+                                : 'Marge EUR',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
+                          fixedWidth: 130,
+                          onSort: (columnIndex, ascending) =>
+                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                        ),
+                      ],
+                    ],
+                    rows: [
+                      for (final row in rows)
+                        DataRow(
+                          cells: [
+                            DataCell(Text(row.bezeichnung)),
+                            DataCell(
+                              Tooltip(
+                                message: row.beschreibung,
+                                child: Text(
+                                  _truncateBeschreibung(row.beschreibung),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ),
+                            if (showMengeOhneBomColumn)
+                              DataCell(Text(_formatQuantity(_displayMengeOhneBom(row)))),
+                            if (showBomMengeColumn)
+                              DataCell(Text(_formatQuantity(_displayBomMenge(row)))),
+                            if (showGesamtmengeColumn)
+                              DataCell(Text(_formatQuantity(row.totalQuantity))),
+                            if (showFinancialColumns) ...[
+                              DataCell(Text(_formatMoney(row.purchasePriceEur))),
+                              DataCell(Text(_formatMoney(row.totalValueEur))),
+                              DataCell(Text(_formatMoney(row.soldNetValueEur))),
+                              DataCell(
+                                Text(
+                                  _selectedMarginDisplay == _MarginDisplay.percent
+                                      ? _formatPercent(row.marginPercent)
+                                      : _formatMoney(row.marginEur),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                    ],
                   ),
           ),
         ],
@@ -910,13 +1026,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           orderDate: order.oDate.trim().isEmpty ? '-' : order.oDate.trim(),
           currency: order.oCurrency.trim().isEmpty ? 'EUR' : order.oCurrency.trim().toUpperCase(),
           fxToEur: order.oFxToEur,
-          priceBasis: order.oPriceBasis.trim().isEmpty ? '-' : order.oPriceBasis.trim(),
+          priceBasisValue: 0,
           vatRate: order.oVatRate,
           hint: hint,
         );
       });
 
       entry.itemCount += 1;
+      entry.priceBasisValue += wareinsatzOrderedItemNetSales(item);
       entry.netSalesEur += wareinsatzOrderedItemNetSalesForOrder(
         item: item,
         order: order,
@@ -942,7 +1059,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         'Auftragsdatum',
         'Waehrung',
         'USD→EUR',
-        'Preisbasis',
+        'Berechnungsbasis (EUR)',
         'MwSt %',
         'Positionen',
         'Netto (EUR)',
@@ -959,7 +1076,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           _csvEscape(row.orderDate),
           _csvEscape(row.currency),
           _csvEscape(_formatMoney(row.fxToEur)),
-          _csvEscape(row.priceBasis),
+          _csvEscape(_formatMoney(row.priceBasisValue)),
           _csvEscape(_formatMoney(row.vatRate)),
           _csvEscape(row.itemCount.toString()),
           _csvEscape(_formatMoney(row.netSalesEur)),
@@ -1548,7 +1665,7 @@ class _OrderNetContributionMutable {
     required this.orderDate,
     required this.currency,
     required this.fxToEur,
-    required this.priceBasis,
+    required this.priceBasisValue,
     required this.vatRate,
     required this.hint,
   });
@@ -1558,7 +1675,7 @@ class _OrderNetContributionMutable {
   final String orderDate;
   final String currency;
   final double fxToEur;
-  final String priceBasis;
+  double priceBasisValue;
   final double vatRate;
   final String hint;
 
@@ -1572,7 +1689,7 @@ class _OrderNetContributionMutable {
       orderDate: orderDate,
       currency: currency,
       fxToEur: fxToEur,
-      priceBasis: priceBasis,
+      priceBasisValue: priceBasisValue,
       vatRate: vatRate,
       itemCount: itemCount,
       netSalesEur: netSalesEur,
@@ -1588,7 +1705,7 @@ class _OrderNetContribution {
     required this.orderDate,
     required this.currency,
     required this.fxToEur,
-    required this.priceBasis,
+    required this.priceBasisValue,
     required this.vatRate,
     required this.itemCount,
     required this.netSalesEur,
@@ -1600,7 +1717,7 @@ class _OrderNetContribution {
   final String orderDate;
   final String currency;
   final double fxToEur;
-  final String priceBasis;
+  final double priceBasisValue;
   final double vatRate;
   final int itemCount;
   final double netSalesEur;

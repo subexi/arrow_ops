@@ -1,0 +1,273 @@
+-- Backfill PayPal fee for existing USD PayPal orders.
+--
+-- What it does:
+-- 1) Builds a candidate set for USD orders with payment=PayPal and missing fee.
+-- 2) Uses customer delivery/billing country token to select PayPal rate.
+-- 3) Converts base amount to EUR using o_fx_to_eur, computes fee in EUR,
+--    converts fee back to USD and updates o_paypal_fee + o_total_price.
+--
+-- Safety:
+-- - Runs inside one transaction.
+-- - Only updates rows where o_paypal_fee <= 0, o_fx_to_eur > 0, and base > 0.
+-- - Base amount is reconstructed as (o_total_price - o_paypal_fee), which is
+--   consistent with app logic where total = base + fee.
+--
+-- Usage:
+--   sqlite3 -header -column /path/to/arrow_ops.db < scripts/sql/backfill_usd_paypal_fee.sqlite
+
+BEGIN TRANSACTION;
+
+DROP TABLE IF EXISTS _paypal_usd_backfill_calc;
+
+CREATE TABLE _paypal_usd_backfill_calc (
+  o_id TEXT PRIMARY KEY,
+  o_customer_id TEXT,
+  country_token TEXT,
+  fx_to_eur REAL,
+  paypal_rate REAL,
+  base_usd REAL,
+  base_eur REAL,
+  old_paypal_fee REAL,
+  old_total_price REAL,
+  new_paypal_fee REAL,
+  new_total_price REAL
+);
+
+INSERT INTO _paypal_usd_backfill_calc (
+  o_id,
+  o_customer_id,
+  country_token,
+  fx_to_eur,
+  paypal_rate,
+  base_usd,
+  base_eur,
+  old_paypal_fee,
+  old_total_price,
+  new_paypal_fee,
+  new_total_price
+)
+SELECT
+  src.o_id,
+  src.o_customer_id,
+  src.country_token,
+  src.fx_to_eur,
+  CASE
+    WHEN src.country_token_norm IN ('GB', 'UK', 'GBR', 'UNITED KINGDOM', 'VEREINIGTES KOENIGREICH') THEN 0.0378
+    WHEN src.country_token_norm IN ('US', 'USA', 'UNITED STATES', 'VEREINIGTE STAATEN', 'CA', 'CAN', 'CANADA') THEN 0.0448
+    WHEN src.country_token_norm IN (
+      'DE','DEU','GERMANY','DEUTSCHLAND',
+      'AT','AUT','AUSTRIA',
+      'BE','BEL','BELGIUM',
+      'BG','BGR','BULGARIA',
+      'HR','HRV','CROATIA',
+      'CY','CYP','CYPRUS',
+      'CZ','CZE','CZECHIA','CZECH REPUBLIC',
+      'DK','DNK','DENMARK',
+      'EE','EST','ESTONIA',
+      'FI','FIN','FINLAND',
+      'FR','FRA','FRANCE',
+      'GR','GRC','GREECE','EL',
+      'HU','HUN','HUNGARY',
+      'IE','IRL','IRELAND',
+      'IT','ITA','ITALY','ITALIA',
+      'LV','LVA','LATVIA',
+      'LT','LTU','LITHUANIA',
+      'LU','LUX','LUXEMBOURG',
+      'MT','MLT','MALTA',
+      'NL','NLD','NETHERLANDS','HOLLAND','NIEDERLANDE',
+      'PL','POL','POLAND',
+      'PT','PRT','PORTUGAL',
+      'RO','ROU','ROMANIA',
+      'SK','SVK','SLOVAKIA',
+      'SI','SVN','SLOVENIA',
+      'ES','ESP','SPAIN',
+      'SE','SWE','SWEDEN',
+      'NO','NOR','NORWAY',
+      'IS','ISL','ICELAND',
+      'LI','LIE','LIECHTENSTEIN'
+    ) THEN 0.0249
+    ELSE 0.0548
+  END AS paypal_rate,
+  src.base_usd,
+  ROUND(src.base_usd * src.fx_to_eur, 6) AS base_eur,
+  src.old_paypal_fee,
+  src.old_total_price,
+  ROUND(
+    ROUND(
+      (((src.base_usd * src.fx_to_eur) + 0.35) /
+        (1 - CASE
+               WHEN src.country_token_norm IN ('GB', 'UK', 'GBR', 'UNITED KINGDOM', 'VEREINIGTES KOENIGREICH') THEN 0.0378
+               WHEN src.country_token_norm IN ('US', 'USA', 'UNITED STATES', 'VEREINIGTE STAATEN', 'CA', 'CAN', 'CANADA') THEN 0.0448
+               WHEN src.country_token_norm IN (
+                 'DE','DEU','GERMANY','DEUTSCHLAND',
+                 'AT','AUT','AUSTRIA',
+                 'BE','BEL','BELGIUM',
+                 'BG','BGR','BULGARIA',
+                 'HR','HRV','CROATIA',
+                 'CY','CYP','CYPRUS',
+                 'CZ','CZE','CZECHIA','CZECH REPUBLIC',
+                 'DK','DNK','DENMARK',
+                 'EE','EST','ESTONIA',
+                 'FI','FIN','FINLAND',
+                 'FR','FRA','FRANCE',
+                 'GR','GRC','GREECE','EL',
+                 'HU','HUN','HUNGARY',
+                 'IE','IRL','IRELAND',
+                 'IT','ITA','ITALY','ITALIA',
+                 'LV','LVA','LATVIA',
+                 'LT','LTU','LITHUANIA',
+                 'LU','LUX','LUXEMBOURG',
+                 'MT','MLT','MALTA',
+                 'NL','NLD','NETHERLANDS','HOLLAND','NIEDERLANDE',
+                 'PL','POL','POLAND',
+                 'PT','PRT','PORTUGAL',
+                 'RO','ROU','ROMANIA',
+                 'SK','SVK','SLOVAKIA',
+                 'SI','SVN','SLOVENIA',
+                 'ES','ESP','SPAIN',
+                 'SE','SWE','SWEDEN',
+                 'NO','NOR','NORWAY',
+                 'IS','ISL','ICELAND',
+                 'LI','LIE','LIECHTENSTEIN'
+               ) THEN 0.0249
+               ELSE 0.0548
+             END)
+      ) - (src.base_usd * src.fx_to_eur),
+      2
+    ) / src.fx_to_eur,
+    2
+  ) AS new_paypal_fee,
+  ROUND(
+    src.base_usd + ROUND(
+      ROUND(
+        (((src.base_usd * src.fx_to_eur) + 0.35) /
+          (1 - CASE
+                 WHEN src.country_token_norm IN ('GB', 'UK', 'GBR', 'UNITED KINGDOM', 'VEREINIGTES KOENIGREICH') THEN 0.0378
+                 WHEN src.country_token_norm IN ('US', 'USA', 'UNITED STATES', 'VEREINIGTE STAATEN', 'CA', 'CAN', 'CANADA') THEN 0.0448
+                 WHEN src.country_token_norm IN (
+                   'DE','DEU','GERMANY','DEUTSCHLAND',
+                   'AT','AUT','AUSTRIA',
+                   'BE','BEL','BELGIUM',
+                   'BG','BGR','BULGARIA',
+                   'HR','HRV','CROATIA',
+                   'CY','CYP','CYPRUS',
+                   'CZ','CZE','CZECHIA','CZECH REPUBLIC',
+                   'DK','DNK','DENMARK',
+                   'EE','EST','ESTONIA',
+                   'FI','FIN','FINLAND',
+                   'FR','FRA','FRANCE',
+                   'GR','GRC','GREECE','EL',
+                   'HU','HUN','HUNGARY',
+                   'IE','IRL','IRELAND',
+                   'IT','ITA','ITALY','ITALIA',
+                   'LV','LVA','LATVIA',
+                   'LT','LTU','LITHUANIA',
+                   'LU','LUX','LUXEMBOURG',
+                   'MT','MLT','MALTA',
+                   'NL','NLD','NETHERLANDS','HOLLAND','NIEDERLANDE',
+                   'PL','POL','POLAND',
+                   'PT','PRT','PORTUGAL',
+                   'RO','ROU','ROMANIA',
+                   'SK','SVK','SLOVAKIA',
+                   'SI','SVN','SLOVENIA',
+                   'ES','ESP','SPAIN',
+                   'SE','SWE','SWEDEN',
+                   'NO','NOR','NORWAY',
+                   'IS','ISL','ICELAND',
+                   'LI','LIE','LIECHTENSTEIN'
+                 ) THEN 0.0249
+                 ELSE 0.0548
+               END)
+        ) - (src.base_usd * src.fx_to_eur),
+        2
+      ) / src.fx_to_eur,
+      2
+    ),
+    2
+  ) AS new_total_price
+FROM (
+  SELECT
+    o.o_id,
+    o.o_customer_id,
+    UPPER(TRIM(COALESCE(c.c_country_d_id, c.c_country_b_id, ''))) AS country_token,
+    REPLACE(
+      REPLACE(
+        REPLACE(
+          REPLACE(
+            REPLACE(
+              REPLACE(
+                UPPER(TRIM(COALESCE(c.c_country_d_id, c.c_country_b_id, ''))),
+                char(228),
+                'AE'
+              ),
+              char(196),
+              'AE'
+            ),
+            char(246),
+            'OE'
+          ),
+          char(214),
+          'OE'
+        ),
+        char(252),
+        'UE'
+      ),
+      char(220),
+      'UE'
+    ) AS country_token_norm,
+    ROUND(COALESCE(o.o_total_price, 0) - COALESCE(o.o_paypal_fee, 0), 6) AS base_usd,
+    COALESCE(o.o_fx_to_eur, 0) AS fx_to_eur,
+    COALESCE(o.o_paypal_fee, 0) AS old_paypal_fee,
+    COALESCE(o.o_total_price, 0) AS old_total_price
+  FROM "order" o
+  LEFT JOIN customer c ON c.c_id = o.o_customer_id
+  WHERE UPPER(TRIM(COALESCE(o.o_currency, 'EUR'))) = 'USD'
+    AND COALESCE(o.o_payment, 0) = 1
+    AND COALESCE(o.o_fx_to_eur, 0) > 0
+    AND COALESCE(o.o_paypal_fee, 0) <= 0
+    AND (COALESCE(o.o_total_price, 0) - COALESCE(o.o_paypal_fee, 0)) > 0
+) src;
+
+DELETE FROM _paypal_usd_backfill_calc
+WHERE COALESCE(new_paypal_fee, 0) <= 0;
+
+SELECT 'preview_rows' AS check_name, COUNT(*) AS value
+FROM _paypal_usd_backfill_calc;
+
+SELECT
+  o_id,
+  o_customer_id,
+  country_token,
+  fx_to_eur,
+  paypal_rate,
+  base_usd,
+  old_paypal_fee,
+  new_paypal_fee,
+  old_total_price,
+  new_total_price
+FROM _paypal_usd_backfill_calc
+ORDER BY o_id;
+
+UPDATE "order"
+SET
+  o_paypal_fee = (
+    SELECT c.new_paypal_fee
+    FROM _paypal_usd_backfill_calc c
+    WHERE c.o_id = "order".o_id
+  ),
+  o_total_price = (
+    SELECT c.new_total_price
+    FROM _paypal_usd_backfill_calc c
+    WHERE c.o_id = "order".o_id
+  )
+WHERE EXISTS (
+  SELECT 1
+  FROM _paypal_usd_backfill_calc c
+  WHERE c.o_id = "order".o_id
+);
+
+SELECT 'updated_rows' AS check_name, changes() AS value;
+
+DROP TABLE IF EXISTS _paypal_usd_backfill_calc;
+
+COMMIT;

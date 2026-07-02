@@ -5,7 +5,7 @@
 -- als T-SQL und erzeugt dadurch falsche Syntaxfehler.
 --
 -- Bitte das eigentliche SQLite-Skript ausfuehren:
---   scripts/sql/normalize_au_state_units.sqlite
+--   scripts/sql/backfill_usd_paypal_fee.sqlite
 --
 -- Ausfuehrung:
---   sqlite3 /pfad/zur/arrow_ops.db < scripts/sql/normalize_au_state_units.sqlite
+--   sqlite3 -header -column /path/to/arrow_ops.db < scripts/sql/backfill_usd_paypal_fee.sqlite
