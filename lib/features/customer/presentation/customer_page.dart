@@ -46,17 +46,34 @@ double computeEffectiveOrderNetGoods(OrderRow order) {
 }
 
 class CustomerPage extends StatefulWidget {
-  const CustomerPage({super.key, this.showModuleNavigation = true});
+  const CustomerPage({
+    super.key,
+    this.initialCustomerId,
+    this.openInitialCustomerDetails = false,
+    this.showModuleNavigation = true,
+    this.enableBackgroundNormalization = true,
+    this.reloadOnVisibilityChange = true,
+    this.initializeDatabasePath = true,
+    this.customerRepository = const CustomerRepository(),
+    this.orderRepository = const OrderRepository(),
+  });
 
+  final String? initialCustomerId;
+  final bool openInitialCustomerDetails;
   final bool showModuleNavigation;
+  final bool enableBackgroundNormalization;
+  final bool reloadOnVisibilityChange;
+  final bool initializeDatabasePath;
+  final CustomerRepository customerRepository;
+  final OrderRepository orderRepository;
 
   @override
   State<CustomerPage> createState() => _CustomerPageState();
 }
 
 class _CustomerPageState extends State<CustomerPage> {
-  final CustomerRepository _repository = const CustomerRepository();
-  final OrderRepository _orderRepository = const OrderRepository();
+  late final CustomerRepository _repository;
+  late final OrderRepository _orderRepository;
   final CustomerCsvService _csvService = CustomerCsvService();
   final CountryCsvService _countryCsvService = CountryCsvService();
 
@@ -86,6 +103,16 @@ class _CustomerPageState extends State<CustomerPage> {
   List<OrderRow> _selectedCustomerOrders = const [];
   List<ItemOrderedRow> _selectedOrderItems = const [];
   bool _wasVisibleInBuild = false;
+  String? _pendingInitialCustomerId;
+  bool _pendingOpenInitialCustomerDetails = false;
+
+  String _normalizeCustomerId(String? value) {
+    return (value ?? '').trim().toLowerCase();
+  }
+
+  bool _isSameCustomerId(String? a, String? b) {
+    return _normalizeCustomerId(a) == _normalizeCustomerId(b);
+  }
 
   static final RegExp _validCountryCodePattern = RegExp(r'^[a-z]{2,}$');
 
@@ -238,10 +265,20 @@ class _CustomerPageState extends State<CustomerPage> {
   @override
   void initState() {
     super.initState();
+    final initialCustomerId = widget.initialCustomerId?.trim();
+    _pendingInitialCustomerId =
+      (initialCustomerId == null || initialCustomerId.isEmpty)
+        ? null
+        : initialCustomerId;
+    _pendingOpenInitialCustomerDetails = widget.openInitialCustomerDetails;
+    _repository = widget.customerRepository;
+    _orderRepository = widget.orderRepository;
     _searchController = TextEditingController();
     _searchFocusNode = FocusNode(debugLabel: 'customerSearch');
     _searchController.addListener(_onSearchChanged);
-    _loadDatabasePath();
+    if (widget.initializeDatabasePath) {
+      _loadDatabasePath();
+    }
     _loadCustomers();
   }
 
@@ -352,6 +389,31 @@ class _CustomerPageState extends State<CustomerPage> {
           (index) => index,
         );
       });
+
+      final pendingInitialCustomerId = _pendingInitialCustomerId;
+      if (pendingInitialCustomerId != null) {
+        final initialCustomer = customers.cast<Customer?>().firstWhere(
+              (customer) => _isSameCustomerId(
+                customer?.cId,
+                pendingInitialCustomerId,
+              ),
+              orElse: () => null,
+            );
+        _pendingInitialCustomerId = null;
+        if (initialCustomer != null) {
+          await _selectCustomer(initialCustomer);
+          if (_pendingOpenInitialCustomerDetails && mounted) {
+            _pendingOpenInitialCustomerDetails = false;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) {
+                return;
+              }
+              _showCustomerDetails(initialCustomer);
+            });
+          }
+        }
+      }
+
       _filterCustomers(traceTag: traceTag);
 
       _logPerf(
@@ -368,7 +430,7 @@ class _CustomerPageState extends State<CustomerPage> {
         traceTag: traceTag,
       );
 
-      if (runBackgroundNormalization) {
+      if (runBackgroundNormalization && widget.enableBackgroundNormalization) {
         unawaited(
           _runAdministrativeUnitNormalizationInBackground(
             traceTag: traceTag,
@@ -634,7 +696,7 @@ class _CustomerPageState extends State<CustomerPage> {
           .toList(growable: false)
         ..sort((a, b) => b.oId.compareTo(a.oId));
 
-      if (!mounted || _selectedCustomerId != customer.cId) {
+      if (!mounted || !_isSameCustomerId(_selectedCustomerId, customer.cId)) {
         return;
       }
 
@@ -642,7 +704,7 @@ class _CustomerPageState extends State<CustomerPage> {
         _selectedCustomerOrders = customerOrders;
       });
     } catch (error) {
-      if (!mounted || _selectedCustomerId != customer.cId) {
+      if (!mounted || !_isSameCustomerId(_selectedCustomerId, customer.cId)) {
         return;
       }
       _showFeedback('Aufträge konnten nicht geladen werden: $error');
@@ -678,6 +740,18 @@ class _CustomerPageState extends State<CustomerPage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => OrderPage(initialOrderId: order.oId),
+      ),
+    );
+  }
+
+  Future<void> _showCustomerDetails(Customer customer) {
+    return showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CustomerDetailDialog(
+        customer: customer,
+        countryNameByCode: _countryNameByCode,
+        onEdit: () => _editCustomer(customer),
+        onDelete: () => _deleteCustomer(customer),
       ),
     );
   }
@@ -851,15 +925,7 @@ class _CustomerPageState extends State<CustomerPage> {
         ].join(' · ');
         return CupertinoButton(
           padding: EdgeInsets.zero,
-          onPressed: () => showCupertinoDialog(
-            context: context,
-            builder: (context) => CustomerDetailDialog(
-              customer: c,
-              countryNameByCode: _countryNameByCode,
-              onEdit: () => _editCustomer(c),
-              onDelete: () => _deleteCustomer(c),
-            ),
-          ),
+          onPressed: () => _showCustomerDetails(c),
           child: Container(
             decoration: BoxDecoration(
               color: CupertinoColors.secondarySystemGroupedBackground
@@ -2068,7 +2134,11 @@ class _CustomerPageState extends State<CustomerPage> {
   Widget build(BuildContext context) {
     final tickerMode = TickerMode.valuesOf(context);
     final isVisibleInShell = tickerMode.enabled;
-    if (isVisibleInShell && !_wasVisibleInBuild && !_loading) {
+    if (
+        widget.reloadOnVisibilityChange &&
+        isVisibleInShell &&
+        !_wasVisibleInBuild &&
+        !_loading) {
       unawaited(_loadCustomers(runBackgroundNormalization: false));
     }
     _wasVisibleInBuild = isVisibleInShell;

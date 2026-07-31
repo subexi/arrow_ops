@@ -4,10 +4,21 @@ class PayPalFeeRules {
   // Empfängerland DE, Währung EUR, Geschäftszahlung.
   // Gebührenbasis: Warenwert brutto + Versandkosten.
   static const double fixedFeeEur = 0.35;
-  static const double rateEea = 0.0249;
+  static const double rateEeaDomestic = 0.0249;
+  static const double rateEeaCrossBorder = 0.0305;
   static const double rateUk = 0.0378;
   static const double rateUsCa = 0.0448;
   static const double rateRest = 0.0548;
+
+  // Backwards-compatible alias used by existing callers/tests that mean DE domestic.
+  static const double rateEea = rateEeaDomestic;
+
+  static const Set<String> _deCountryTokens = <String>{
+    'DE',
+    'DEU',
+    'GERMANY',
+    'DEUTSCHLAND',
+  };
 
   static const Set<String> _ukCountryTokens = <String>{
     'GB',
@@ -137,7 +148,10 @@ class PayPalFeeRules {
       return rateUsCa;
     }
     if (_eeaCountryTokens.contains(token)) {
-      return rateEea;
+      if (_deCountryTokens.contains(token)) {
+        return rateEeaDomestic;
+      }
+      return rateEeaCrossBorder;
     }
 
     return rateRest;

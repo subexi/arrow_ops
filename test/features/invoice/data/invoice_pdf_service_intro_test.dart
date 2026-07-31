@@ -210,6 +210,106 @@ void main() {
 
       expect(line, equals('Ashley, IN 46705'));
     });
+
+    test('places house number before street for US addresses in German layout', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        street: 'Main Street',
+        houseNumber: '42',
+        countryCode: 'US',
+      );
+
+      final line = service.debugStreetAddressLine(
+        party,
+        useGerman: true,
+      );
+
+      expect(line, equals('42 Main Street'));
+    });
+
+    test('places house number before street for US addresses in English layout', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        street: 'Main Street',
+        houseNumber: '42',
+        countryCode: 'US',
+      );
+
+      final line = service.debugStreetAddressLine(
+        party,
+        useGerman: false,
+      );
+
+      expect(line, equals('42 Main Street'));
+    });
+  });
+
+  group('InvoicePdfService Italy address formatting', () {
+    const service = InvoicePdfService();
+
+    test('formats city with province abbreviation in parentheses', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        city: 'Parma',
+        state: 'PR-Parma',
+        postalCode: '43121',
+        countryCode: 'IT',
+      );
+
+      final line = service.debugPostalCityLine(
+        party,
+        useGerman: true,
+      );
+
+      expect(line, equals('43121 Parma (PR)'));
+    });
+
+    test('does not duplicate province when city already contains abbreviation', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        city: 'Parma (PR)',
+        state: 'PR-Parma',
+        postalCode: '43121',
+        countryCode: 'IT',
+      );
+
+      final line = service.debugPostalCityLine(
+        party,
+        useGerman: true,
+      );
+
+      expect(line, equals('43121 Parma (PR)'));
+    });
+
+    test('applies same formatting for packing list delivery recipient', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        buyer: const InvoicePartyData(
+          name: 'Buyer',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        ),
+        delivery: const InvoicePartyData(
+          name: 'Recipient',
+          street: 'Via Roma',
+          houseNumber: '10',
+          postalCode: '43121',
+          city: 'Parma',
+          state: 'PR-Parma',
+          countryCode: 'IT',
+        ),
+      );
+
+      final line = service.debugPostalCityLine(
+        data.delivery,
+        useGerman: true,
+      );
+
+      expect(line, equals('43121 Parma (PR)'));
+    });
   });
 
   group('InvoicePdfService.buildDefaultFileName', () {

@@ -29,6 +29,8 @@ class CustomerRepository {
         customer.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+
+      await _syncCustomerNetRevenueInTransaction(txn);
     });
   }
 
@@ -71,6 +73,7 @@ class CustomerRepository {
 
         debugPrint('⏳ Führe Batch-Commit aus...');
         final result = await batch.commit();
+        await _syncCustomerNetRevenueInTransaction(txn);
         debugPrint('✅ Batch-Commit erfolgreich: ${result.length} Einträge');
         
         return result.length;
@@ -132,6 +135,8 @@ class CustomerRepository {
         where: 'c_id = ?',
         whereArgs: [customer.cId],
       );
+
+      await _syncCustomerNetRevenueInTransaction(txn);
     });
   }
 
@@ -761,5 +766,16 @@ class CustomerRepository {
       },
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+  }
+
+  Future<void> _syncCustomerNetRevenueInTransaction(DatabaseExecutor db) async {
+    await db.execute('''
+      UPDATE customer
+      SET c_total_value_eur = COALESCE((
+        SELECT SUM(o.o_value_goods)
+        FROM "order" o
+        WHERE TRIM(COALESCE(o.o_customer_id, '')) = TRIM(COALESCE(customer.c_id, ''))
+      ), 0)
+    ''');
   }
 }

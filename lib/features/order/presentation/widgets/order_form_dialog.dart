@@ -78,6 +78,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   List<Customer> _filteredCustomers = [];
   bool _showCustomerDropdown = false;
   bool _isRecalculatingPaypalFee = false;
+  bool _isPaypalFeeManuallyOverridden = false;
   bool _isUpdatingDateFromOrderId = false;
   bool _deliveryAddressDifferent = false;
   bool _isFetchingDeliveryCoordinates = false;
@@ -177,6 +178,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _vatRateController.addListener(_refreshGoodsValuesForCurrentBasis);
     _shippingController.addListener(_refreshTotalPriceForCurrentBasis);
     _paypalFeeController.addListener(_refreshTotalPriceForCurrentBasis);
+    _paypalFeeController.addListener(_markPaypalFeeAsManuallyOverridden);
     _fxToEurController.addListener(_recalculatePaypalFeeFromTotalIfApplicable);
     _totalPriceController.addListener(_recalculatePaypalFeeFromTotalIfApplicable);
     _noteFocusNode.addListener(_clearNotePlaceholderOnFocus);
@@ -203,6 +205,14 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
         _applyNoVatCustomerRules();
         _setVatRateForPriceBasis();
         _refreshGoodsValuesForCurrentBasis();
+
+        final calculatedFee = _calculatedPaypalFeeForCurrentInputs();
+        if (_payment == _paypalPaymentCode && calculatedFee != null) {
+          final savedFee = _parseDecimal(_paypalFeeController);
+          _isPaypalFeeManuallyOverridden =
+              (savedFee - calculatedFee).abs() > 0.005;
+        }
+
         _recalculatePaypalFeeFromTotalIfApplicable();
       }
     }
@@ -543,6 +553,13 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     }
   }
 
+  void _markPaypalFeeAsManuallyOverridden() {
+    if (_isRecalculatingPaypalFee) {
+      return;
+    }
+    _isPaypalFeeManuallyOverridden = true;
+  }
+
   String _deliveryCountryToken() {
     final customer = _selectedCustomer;
     if (customer == null) {
@@ -562,25 +579,19 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     return '';
   }
 
-  void _recalculatePaypalFeeFromTotalIfApplicable() {
+  double? _calculatedPaypalFeeForCurrentInputs() {
     if (_isPuttCashOrder) {
-      return;
-    }
-    if (_isRecalculatingPaypalFee) {
-      return;
-    }
-    if (_paypalFeeFocusNode.hasFocus) {
-      return;
+      return null;
     }
     if (_payment != _paypalPaymentCode) {
-      return;
+      return null;
     }
 
     final goodsGross = _parseDecimal(_valueGoodsGrossController);
     final shipping = _parseDecimal(_shippingController);
     final amountInOrderCurrency = goodsGross + shipping;
     if (amountInOrderCurrency <= 0) {
-      return;
+      return null;
     }
 
     // PayPal rules are defined in EUR. For USD orders we convert the base amount
@@ -588,18 +599,45 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     final fxToEur = _parseDecimal(_fxToEurController);
     final amountInEur = _isEurCurrency
         ? amountInOrderCurrency
-      : (fxToEur > 0 ? amountInOrderCurrency * fxToEur : 0.0);
+        : (fxToEur > 0 ? amountInOrderCurrency * fxToEur : 0.0);
     if (amountInEur <= 0) {
-      return;
+      return null;
     }
 
     final feeEur = PayPalFeeRules.feeFromNetTargetEur(
       netTargetEur: amountInEur,
       countryToken: _deliveryCountryToken(),
     );
-    final feeInOrderCurrency = _isEurCurrency
-        ? feeEur
-      : (fxToEur > 0 ? feeEur / fxToEur : 0.0);
+    if (_isEurCurrency) {
+      return feeEur;
+    }
+    if (fxToEur <= 0) {
+      return null;
+    }
+    return feeEur / fxToEur;
+  }
+
+  void _recalculatePaypalFeeFromTotalIfApplicable({bool force = false}) {
+    if (_isPuttCashOrder) {
+      return;
+    }
+    if (_isRecalculatingPaypalFee) {
+      return;
+    }
+    if (_paypalFeeFocusNode.hasFocus && !force) {
+      return;
+    }
+    if (_payment != _paypalPaymentCode) {
+      return;
+    }
+    if (!force && _isPaypalFeeManuallyOverridden) {
+      return;
+    }
+
+    final feeInOrderCurrency = _calculatedPaypalFeeForCurrentInputs();
+    if (feeInOrderCurrency == null) {
+      return;
+    }
     final feeText = _decimalText(feeInOrderCurrency);
 
     if (_paypalFeeController.text == feeText) {
@@ -609,6 +647,16 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _isRecalculatingPaypalFee = true;
     _paypalFeeController.text = feeText;
     _isRecalculatingPaypalFee = false;
+  }
+
+  void _recalculatePaypalFeeFromButton() {
+    if (_payment != _paypalPaymentCode) {
+      return;
+    }
+    setState(() {
+      _isPaypalFeeManuallyOverridden = false;
+      _recalculatePaypalFeeFromTotalIfApplicable(force: true);
+    });
   }
 
   String _customerLabel(Customer c) {
@@ -739,6 +787,14 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     final firstName = customer.cFirstName.trim();
     final lastName = customer.cLastName.trim();
     return '$lastName $firstName'.trim();
+  }
+
+  void _openSelectedCustomer() {
+    final customerId = _selectedCustomer?.cId.trim() ?? '';
+    if (customerId.isEmpty) {
+      return;
+    }
+    Navigator.of(context).pop('open_customer:$customerId');
   }
 
   String _normalizeCountryId(String? value) {
@@ -1115,9 +1171,22 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     if (_selectedCustomer != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 4, bottom: 2),
-                        child: Text(
-                          'Kunden-ID: ${_selectedCustomer!.cId}',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _openSelectedCustomer,
+                            icon: const Icon(Icons.open_in_new, size: 16),
+                            label: Text('Kunden-ID: ${_selectedCustomer!.cId}'),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
                         ),
                       ),
                   ],
@@ -1390,8 +1459,10 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                       setState(() {
                         _payment = v ?? 0;
                         if (_payment != _paypalPaymentCode) {
+                          _isPaypalFeeManuallyOverridden = false;
                           _paypalFeeController.text = _decimalText(0);
                         } else {
+                          _isPaypalFeeManuallyOverridden = false;
                           _recalculatePaypalFeeFromTotalIfApplicable();
                         }
 
@@ -1400,12 +1471,22 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                       });
                     },
                   ),
-                  _field(
-                    _paypalFeeController,
-                    'PayPal-Gebühr',
+                  TextFormField(
+                    controller: _paypalFeeController,
                     focusNode: _paypalFeeFocusNode,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    readOnly: true,
+                    readOnly: _payment != _paypalPaymentCode,
+                    decoration: InputDecoration(
+                      labelText: 'PayPal-Gebühr',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        tooltip: 'PayPal-Gebühr neu berechnen',
+                        onPressed: _payment == _paypalPaymentCode
+                            ? _recalculatePaypalFeeFromButton
+                            : null,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),

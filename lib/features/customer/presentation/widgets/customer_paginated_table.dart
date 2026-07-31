@@ -1,5 +1,6 @@
 import 'package:data_table_2/data_table_2.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/customer.dart';
@@ -140,6 +141,35 @@ class CustomerDataTableSource extends DataTableSource {
   final ValueChanged<Customer> onOpenDetails;
   final ValueChanged<Customer> onOpenMap;
 
+  Widget _buildSelectableCopyCell({
+    required String value,
+    required String copyTooltip,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: SelectableText(
+            value,
+            maxLines: 1,
+            enableInteractiveSelection: true,
+          ),
+        ),
+        Tooltip(
+          message: copyTooltip,
+          child: IconButton(
+            iconSize: 16,
+            visualDensity: VisualDensity.compact,
+            tooltip: copyTooltip,
+            icon: const Icon(CupertinoIcons.doc_on_doc),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: value));
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   String _formatMoney(double value) {
     return value.toStringAsFixed(2).replaceAll('.', ',');
   }
@@ -168,7 +198,10 @@ class CustomerDataTableSource extends DataTableSource {
       onSelectChanged: loading ? null : (_) => onSelectCustomer(customer),
       cells: [
         DataCell(
-          Text(customer.cId, softWrap: false, overflow: TextOverflow.ellipsis),
+          _buildSelectableCopyCell(
+            value: customer.cId,
+            copyTooltip: 'ID kopieren',
+          ),
         ),
         DataCell(
           Text(
@@ -209,10 +242,9 @@ class CustomerDataTableSource extends DataTableSource {
           Text(countryName, softWrap: false, overflow: TextOverflow.ellipsis),
         ),
         DataCell(
-          Text(
-            customer.cMail,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
+          _buildSelectableCopyCell(
+            value: customer.cMail,
+            copyTooltip: 'E-Mail kopieren',
           ),
         ),
         DataCell(

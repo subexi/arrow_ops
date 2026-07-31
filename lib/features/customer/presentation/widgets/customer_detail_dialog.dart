@@ -78,21 +78,27 @@ class CustomerDetailDialog extends StatelessWidget {
 
     final billingSection = _buildSection('Rechnungsadresse', [
       _buildField('℅', customer.cCareofB),
-      _buildField(
+      _buildCopyableField(
+        context,
         'Straße',
         _buildStreetLine(
           street: customer.cStreetB,
           houseNumber: customer.cHouseNumberB,
           isUsa: leadingHouseNumberBilling,
         ),
+        copyTooltip: 'Straße kopieren',
+        copiedMessage: 'Straße in Zwischenablage kopiert',
       ),
-      _buildField(
+      _buildCopyableField(
+        context,
         'Ort',
         _buildCityLine(
           postalCode: customer.cPostalCodeB,
           city: customer.cCityB,
           isUsa: cityBeforePostalBilling,
         ),
+        copyTooltip: 'Ort kopieren',
+        copiedMessage: 'Ort in Zwischenablage kopiert',
       ),
       _buildField('Verwaltungseinheit', customer.cStateB),
       _buildField('Land', _resolveCountryName(customer.cCountryBId)),
@@ -100,21 +106,27 @@ class CustomerDetailDialog extends StatelessWidget {
 
     final deliverySection = _buildSection('Lieferadresse', [
       _buildField('Name', customer.cCareofD),
-      _buildField(
+      _buildCopyableField(
+        context,
         'Straße',
         _buildStreetLine(
           street: customer.cStreetD,
           houseNumber: customer.cHouseNumberD,
           isUsa: leadingHouseNumberDelivery,
         ),
+        copyTooltip: 'Straße kopieren',
+        copiedMessage: 'Straße in Zwischenablage kopiert',
       ),
-      _buildField(
+      _buildCopyableField(
+        context,
         'Ort',
         _buildCityLine(
           postalCode: customer.cPostalCodeD,
           city: customer.cCityD,
           isUsa: cityBeforePostalDelivery,
         ),
+        copyTooltip: 'Ort kopieren',
+        copiedMessage: 'Ort in Zwischenablage kopiert',
       ),
       _buildField('Verwaltungseinheit', customer.cStateD),
       _buildField('Land', _resolveCountryName(customer.cCountryDId)),
@@ -151,7 +163,13 @@ class CustomerDetailDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildSection('Allgemein', [
-                      _buildCopyableField(context, 'ID', customer.cId),
+                      _buildCopyableField(
+                        context,
+                        'ID',
+                        customer.cId,
+                        copyTooltip: 'ID kopieren',
+                        copiedMessage: 'ID in Zwischenablage kopiert',
+                      ),
                       _buildField('Firma', customer.cCompany),
                       _buildCheckboxField('Reseller', customer.cDealer),
                       _buildCheckboxField('Keine MwSt', customer.cVat),
@@ -178,7 +196,13 @@ class CustomerDetailDialog extends StatelessWidget {
                     ],
                     const SizedBox(height: 16),
                     _buildSection('Kontakt', [
-                      _buildField('E-Mail', customer.cMail),
+                      _buildCopyableField(
+                        context,
+                        'E-Mail',
+                        customer.cMail,
+                        copyTooltip: 'E-Mail kopieren',
+                        copiedMessage: 'E-Mail in Zwischenablage kopiert',
+                      ),
                       _buildField('Telefon', customer.cPhone),
                     ]),
                     const SizedBox(height: 8),
@@ -309,7 +333,13 @@ class CustomerDetailDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildCopyableField(BuildContext context, String label, String value) {
+  Widget _buildCopyableField(
+    BuildContext context,
+    String label,
+    String value, {
+    required String copyTooltip,
+    required String copiedMessage,
+  }) {
     final displayValue = value.isEmpty ? '-' : value;
 
     return Padding(
@@ -334,12 +364,12 @@ class CustomerDetailDialog extends StatelessWidget {
           ),
           if (displayValue != '-')
             IconButton(
-              tooltip: 'ID kopieren',
+              tooltip: copyTooltip,
               icon: const Icon(CupertinoIcons.doc_on_doc, size: 18),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: displayValue));
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('ID in Zwischenablage kopiert')),
+                  SnackBar(content: Text(copiedMessage)),
                 );
               },
             ),

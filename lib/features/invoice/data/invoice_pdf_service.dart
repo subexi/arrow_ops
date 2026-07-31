@@ -926,19 +926,36 @@ class InvoicePdfService {
 
   pw.Widget _buildMetaSection(InvoiceDocumentData data, bool useGerman) {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    final displayTrackingCode = _displayTrackingCode(data.trackingCode);
     if (isPackingList) {
+      final trackingTitle = useGerman ? 'Trackingcode' : 'Tracking';
       return pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Divider(color: PdfColors.grey500, height: 0.3),
           pw.SizedBox(height: 4),
-          pw.Row(
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text(
-                '${useGerman ? 'Warengewicht' : 'Total weight of goods'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
-                style: const pw.TextStyle(fontSize: 9),
+              pw.Row(
+                children: [
+                  pw.Text(
+                    '${useGerman ? 'Warengewicht' : 'Total weight of goods'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Expanded(child: pw.SizedBox()),
+                ],
               ),
-              pw.Expanded(child: pw.SizedBox()),
+              if (_valid(displayTrackingCode)) ...[
+                pw.SizedBox(height: 3),
+                pw.Text(
+                  '$trackingTitle: $displayTrackingCode',
+                  style: const pw.TextStyle(fontSize: 9),
+                ),
+              ],
             ],
           ),
         ],
@@ -989,9 +1006,9 @@ class InvoicePdfService {
                       '$deliveryTitle: ${data.deliveryDate}',
                       style: const pw.TextStyle(fontSize: 9),
                     ),
-                  if (_valid(data.trackingCode))
+                  if (_valid(displayTrackingCode))
                     pw.Text(
-                      '$trackingTitle: ${data.trackingCode}',
+                      '$trackingTitle: $displayTrackingCode',
                       style: const pw.TextStyle(fontSize: 9),
                     ),
                   pw.SizedBox(height: 6),
@@ -1363,6 +1380,9 @@ class InvoicePdfService {
     required String countryCode,
     required bool useGerman,
   }) {
+    if (_isUsAddress(countryCode)) {
+      return true;
+    }
     if (_isDutchAddress(countryCode)) {
       return true;
     }
@@ -1444,12 +1464,8 @@ class InvoicePdfService {
     }
 
     final cityToken =
-        isItaly &&
-            city.isNotEmpty &&
-            city != '-' &&
-            state.isNotEmpty &&
-            state != '-'
-        ? '$city ($state)'
+      isItaly
+        ? _formatItalianCityWithProvinceCode(city: city, administrativeUnit: state)
         : city;
 
     return _joinValid([postalCode, cityToken]);
@@ -1483,6 +1499,60 @@ class InvoicePdfService {
     }
 
     return null;
+  }
+
+  String _formatItalianCityWithProvinceCode({
+    required String city,
+    required String administrativeUnit,
+  }) {
+    final trimmedCity = city.trim();
+    if (trimmedCity.isEmpty || trimmedCity == '-') {
+      return trimmedCity;
+    }
+
+    final provinceCode = _italianProvinceCodeFromAdministrativeUnit(
+      administrativeUnit,
+    );
+    if (provinceCode == null) {
+      return trimmedCity;
+    }
+
+    final cleanedCity = trimmedCity
+        .replaceFirst(RegExp(r'\s*\([A-Za-z]{2}\)\s*$'), '')
+        .trim();
+    if (cleanedCity.isEmpty) {
+      return trimmedCity;
+    }
+
+    return '$cleanedCity ($provinceCode)';
+  }
+
+  String? _italianProvinceCodeFromAdministrativeUnit(String administrativeUnit) {
+    final normalized = administrativeUnit.trim();
+    if (normalized.isEmpty || normalized == '-') {
+      return null;
+    }
+
+    final startCodeMatch = RegExp(r'^([A-Za-z]{2})\b').firstMatch(normalized);
+    if (startCodeMatch != null) {
+      return startCodeMatch.group(1)?.toUpperCase();
+    }
+
+    final parenthesizedCodeMatch = RegExp(r'\(([A-Za-z]{2})\)')
+        .firstMatch(normalized);
+    if (parenthesizedCodeMatch != null) {
+      return parenthesizedCodeMatch.group(1)?.toUpperCase();
+    }
+
+    final isoCodeMatch = RegExp(r'\bIT[-\s]?([A-Za-z]{2})\b', caseSensitive: false)
+        .firstMatch(normalized);
+    if (isoCodeMatch != null) {
+      return isoCodeMatch.group(1)?.toUpperCase();
+    }
+
+    return RegExp(r'^[A-Za-z]{2}$').hasMatch(normalized)
+        ? normalized.toUpperCase()
+        : null;
   }
 
   bool _isItalianAddress(String countryCode) {
@@ -1553,6 +1623,22 @@ class InvoicePdfService {
       party,
       useGerman: useGerman,
       isProforma: isProforma,
+    );
+  }
+
+  @visibleForTesting
+  String debugStreetAddressLine(
+    InvoicePartyData party, {
+    required bool useGerman,
+  }) {
+    final houseNumberFirst = _shouldPlaceHouseNumberFirst(
+      countryCode: party.countryCode,
+      useGerman: useGerman,
+    );
+    return _streetAddressLine(
+      street: party.street,
+      houseNumber: party.houseNumber,
+      houseNumberFirst: houseNumberFirst,
     );
   }
 
@@ -1769,6 +1855,16 @@ class InvoicePdfService {
   String _formatWeight(double gram, bool useGerman) {
     final fixed = gram.toStringAsFixed(1);
     return useGerman ? '${fixed.replaceAll('.', ',')} g' : '$fixed g';
+  }
+
+  String _displayTrackingCode(String rawTrackingCode) {
+    final normalized = rawTrackingCode.trim();
+    if (!_valid(normalized)) {
+      return '-';
+    }
+
+    final cleaned = normalized.replaceFirst(RegExp(r'^[A-Za-z\s]+'), '').trim();
+    return cleaned.isEmpty ? '-' : cleaned;
   }
 
   bool _useLegacyGermanResellerLayout(InvoiceDocumentData data, bool useGerman) {

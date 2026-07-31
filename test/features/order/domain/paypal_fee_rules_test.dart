@@ -4,14 +4,21 @@ import 'package:arrow_ops/features/order/domain/paypal_fee_rules.dart';
 
 void main() {
   group('PayPalFeeRules.rateByCountry', () {
-    test('returns EEA rate for EEA country tokens', () {
+    test('returns EEA domestic rate for DE tokens', () {
       expect(PayPalFeeRules.rateByCountry('DE'), PayPalFeeRules.rateEea);
       expect(PayPalFeeRules.rateByCountry('deu'), PayPalFeeRules.rateEea);
       expect(PayPalFeeRules.rateByCountry('Germany'), PayPalFeeRules.rateEea);
-      expect(PayPalFeeRules.rateByCountry('AT'), PayPalFeeRules.rateEea);
-      expect(PayPalFeeRules.rateByCountry('NO'), PayPalFeeRules.rateEea);
-      expect(PayPalFeeRules.rateByCountry('ISL'), PayPalFeeRules.rateEea);
-      expect(PayPalFeeRules.rateByCountry('LIECHTENSTEIN'), PayPalFeeRules.rateEea);
+    });
+
+    test('returns EEA cross-border rate for non-DE EEA country tokens', () {
+      expect(PayPalFeeRules.rateByCountry('AT'), PayPalFeeRules.rateEeaCrossBorder);
+      expect(PayPalFeeRules.rateByCountry('NO'), PayPalFeeRules.rateEeaCrossBorder);
+      expect(PayPalFeeRules.rateByCountry('ISL'), PayPalFeeRules.rateEeaCrossBorder);
+      expect(
+        PayPalFeeRules.rateByCountry('LIECHTENSTEIN'),
+        PayPalFeeRules.rateEeaCrossBorder,
+      );
+      expect(PayPalFeeRules.rateByCountry('FR'), PayPalFeeRules.rateEeaCrossBorder);
     });
 
     test('returns UK rate for UK tokens', () {
@@ -107,6 +114,15 @@ void main() {
         ),
         0,
       );
+    });
+
+    test('matches observed France order fee for 46.40 EUR net target', () {
+      final fee = PayPalFeeRules.feeFromNetTargetEur(
+        netTargetEur: 46.40,
+        countryToken: 'FR',
+      );
+
+      expect(fee, 1.82);
     });
   });
 }

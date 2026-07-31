@@ -292,9 +292,9 @@ class OrderRepository {
         SET c_total_value_eur = COALESCE((
           SELECT SUM(o_value_goods)
           FROM "order"
-          WHERE o_customer_id = ?
+          WHERE TRIM(COALESCE(o_customer_id, '')) = ?
         ), 0)
-        WHERE c_id = ?
+        WHERE TRIM(COALESCE(c_id, '')) = ?
         ''',
         [normalizedId, normalizedId],
       );

@@ -22,6 +22,63 @@ enum WareinsatzScope { all, bomOnly, withoutBom }
 
 enum _MarginDisplay { absolute, percent }
 
+enum WareinsatzPuttFilter { all, onlyPutt, withoutPutt }
+
+List<String> wareinsatzAvailableTradeShowOptions(List<OrderRow> orders) {
+  final values = <String>{};
+  for (final order in orders) {
+    final tradeShow = order.oTradeShow.trim();
+    if (tradeShow.isEmpty || tradeShow == '-') {
+      continue;
+    }
+    values.add(tradeShow);
+  }
+  final list = values.toList(growable: false)
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return list;
+}
+
+List<OrderRow> wareinsatzFilterOrdersByTradeShowAndPutt({
+  required List<OrderRow> orders,
+  required Set<String> selectedTradeShows,
+  required WareinsatzPuttFilter puttFilter,
+}) {
+  return orders.where((order) {
+    if (selectedTradeShows.isNotEmpty) {
+      final tradeShow = order.oTradeShow.trim();
+      if (!selectedTradeShows.contains(tradeShow)) {
+        return false;
+      }
+    }
+
+    switch (puttFilter) {
+      case WareinsatzPuttFilter.all:
+        return true;
+      case WareinsatzPuttFilter.onlyPutt:
+        return order.oPutt != 0;
+      case WareinsatzPuttFilter.withoutPutt:
+        return order.oPutt == 0;
+    }
+  }).toList(growable: false);
+}
+
+bool wareinsatzRowMatchesScope({
+  required WareinsatzScope scope,
+  required double soldQuantity,
+  required double bomQuantity,
+}) {
+  switch (scope) {
+    case WareinsatzScope.all:
+      return true;
+    case WareinsatzScope.bomOnly:
+      return bomQuantity > 0;
+    case WareinsatzScope.withoutBom:
+      // Keep all sold rows. A sold item can also appear as BOM component in
+      // other rows/orders and must still count towards sales diagnostics.
+      return soldQuantity > 0;
+  }
+}
+
 List<String> wareinsatzExportHeaders(WareinsatzScope scope) {
   return switch (scope) {
     WareinsatzScope.all => const [
@@ -158,6 +215,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   _PeriodGranularity _selectedGranularity = _PeriodGranularity.total;
   WareinsatzScope _selectedScope = WareinsatzScope.all;
   _MarginDisplay _selectedMarginDisplay = _MarginDisplay.absolute;
+  WareinsatzPuttFilter _selectedPuttFilter = WareinsatzPuttFilter.all;
   int _tableSortColumnIndex = 6;
   bool _tableSortAscending = false;
 
@@ -173,6 +231,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   String? _selectedMonthKey;
   String? _selectedQuarterKey;
   String? _selectedYearKey;
+  Set<String> _selectedTradeShows = const <String>{};
+  bool _wasVisibleInBuild = false;
 
   @override
   void initState() {
@@ -261,10 +321,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     if (_selectedGranularity == _PeriodGranularity.year && _selectedYearKey == null) {
       _selectedGranularity = _PeriodGranularity.total;
     }
+
+    final availableTradeShows = wareinsatzAvailableTradeShowOptions(_orders).toSet();
+    _selectedTradeShows = _selectedTradeShows
+        .where(availableTradeShows.contains)
+        .toSet();
   }
 
   @override
   Widget build(BuildContext context) {
+    final offstageAncestor = context.findAncestorWidgetOfExactType<Offstage>();
+    final isVisibleInShell = offstageAncestor?.offstage != true;
+    if (isVisibleInShell && !_wasVisibleInBuild && !_loading) {
+      _loadData();
+    }
+    _wasVisibleInBuild = isVisibleInShell;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Auswertung'),
@@ -316,7 +388,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final monthKeys = _availableMonthKeys(_orders);
     final quarterKeys = _availableQuarterKeys(_orders);
     final yearKeys = _availableYearKeys(_orders);
-    final filteredOrders = _filterOrdersBySelectedPeriod(_orders);
+    final tradeShowOptions = wareinsatzAvailableTradeShowOptions(_orders);
+    final filteredOrders = _filterOrders(_orders);
     final allRows = _buildWareinsatzRows(
       filteredOrders: filteredOrders,
       orderedItems: _orderedItems,
@@ -331,6 +404,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       allowedItemIds: scopedItemIds,
     );
     final rows = _sortWareinsatzRows(_filterRowsBySearch(_filterRowsByScope(allRows)));
+    final priceBasisCurrencyLabel = _diagnosticsPriceBasisCurrencyLabel(
+      orderNetContributions,
+    );
     final showMengeOhneBomColumn = _selectedScope != WareinsatzScope.bomOnly;
     final showBomMengeColumn = _selectedScope != WareinsatzScope.withoutBom;
     final showGesamtmengeColumn = _selectedScope == WareinsatzScope.all;
@@ -436,6 +512,29 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   values: yearKeys,
                   onChanged: (value) => setState(() => _selectedYearKey = value),
                 ),
+              _tradeShowFilterButton(tradeShowOptions),
+              SegmentedButton<WareinsatzPuttFilter>(
+                segments: const [
+                  ButtonSegment(
+                    value: WareinsatzPuttFilter.all,
+                    label: Text('PUTT: alle'),
+                  ),
+                  ButtonSegment(
+                    value: WareinsatzPuttFilter.onlyPutt,
+                    label: Text('nur PUTT'),
+                  ),
+                  ButtonSegment(
+                    value: WareinsatzPuttFilter.withoutPutt,
+                    label: Text('ohne PUTT'),
+                  ),
+                ],
+                selected: {_selectedPuttFilter},
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _selectedPuttFilter = selection.first;
+                  });
+                },
+              ),
               FilledButton.icon(
                 onPressed: rows.isEmpty ? null : () => _exportWareinsatzCsv(rows),
                 icon: const Icon(Icons.table_chart_outlined),
@@ -454,6 +553,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             runSpacing: 8,
             children: [
               _summaryChip('Auftraege', '${filteredOrders.length}'),
+              if (_selectedTradeShows.isNotEmpty)
+                _summaryChip('Trade Show', _selectedTradeShows.join(', ')),
+              if (_selectedPuttFilter != WareinsatzPuttFilter.all)
+                _summaryChip(
+                  'PUTT',
+                  _selectedPuttFilter == WareinsatzPuttFilter.onlyPutt
+                      ? 'nur PUTT'
+                      : 'ohne PUTT',
+                ),
               if (showMengeOhneBomColumn)
                 _summaryChip('Menge ohne BOM', _formatQuantity(totalMengeOhneBom)),
               if (showBomMengeColumn)
@@ -513,31 +621,31 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       headingRowColor: WidgetStateProperty.resolveWith(
                         (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
                       ),
-                      columns: const [
+                      columns: [
                         DataColumn2(
-                          label: Text('Auftrag', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('Auftrag', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           fixedWidth: 130,
                         ),
                         DataColumn2(
-                          label: Text('Versanddatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('Versanddatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           fixedWidth: 150,
                         ),
                         DataColumn2(
-                          label: Text('Auftragsdatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('Auftragsdatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           fixedWidth: 150,
                         ),
                         DataColumn2(
-                          label: Text('Waehrung', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('Waehrung', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           fixedWidth: 95,
                         ),
                         DataColumn2(
-                          label: Text('USD→EUR', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('USD→EUR', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           numeric: true,
                           fixedWidth: 125,
                         ),
                         DataColumn2(
                           label: Text(
-                            'Berechnungsbasis\n(EUR)',
+                            'Berechnungsbasis\n($priceBasisCurrencyLabel)',
                             maxLines: 2,
                             softWrap: true,
                             overflow: TextOverflow.visible,
@@ -546,22 +654,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           fixedWidth: 200,
                         ),
                         DataColumn2(
-                          label: Text('MwSt %', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('MwSt %', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           numeric: true,
                           fixedWidth: 95,
                         ),
                         DataColumn2(
-                          label: Text('Pos.', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('Pos.', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           numeric: true,
                           fixedWidth: 70,
                         ),
                         DataColumn2(
-                          label: Text('Netto (EUR)', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('Netto (EUR)', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           numeric: true,
                           fixedWidth: 145,
                         ),
                         DataColumn2(
-                          label: Text('Hinweis', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text('Hinweis', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
                           size: ColumnSize.L,
                         ),
                       ],
@@ -812,8 +920,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
-  List<OrderRow> _filterOrdersBySelectedPeriod(List<OrderRow> orders) {
-    return orders.where((order) {
+  List<OrderRow> _filterOrders(List<OrderRow> orders) {
+    final ordersByTradeShowAndPutt = wareinsatzFilterOrdersByTradeShowAndPutt(
+      orders: orders,
+      selectedTradeShows: _selectedTradeShows,
+      puttFilter: _selectedPuttFilter,
+    );
+
+    return ordersByTradeShowAndPutt.where((order) {
+
       final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
       if (delivery == null) {
         return false;
@@ -834,6 +949,83 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           return key == _selectedYearKey;
       }
     }).toList(growable: false);
+  }
+
+  Widget _tradeShowFilterButton(List<String> options) {
+    final hasSelection = _selectedTradeShows.isNotEmpty;
+    final label = hasSelection
+        ? 'Trade Show (${_selectedTradeShows.length})'
+        : 'Trade Show (alle)';
+
+    return OutlinedButton.icon(
+      onPressed: options.isEmpty ? null : () => _showTradeShowFilterDialog(options),
+      icon: const Icon(Icons.event_available_outlined),
+      label: Text(label),
+    );
+  }
+
+  Future<void> _showTradeShowFilterDialog(List<String> options) async {
+    final workingSelection = Set<String>.from(_selectedTradeShows);
+
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Trade Show filtern'),
+              content: SizedBox(
+                width: 420,
+                child: options.isEmpty
+                    ? const Text('Keine Trade Shows vorhanden.')
+                    : ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final option in options)
+                            CheckboxListTile(
+                              value: workingSelection.contains(option),
+                              title: Text(option),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              onChanged: (checked) {
+                                setDialogState(() {
+                                  if (checked == true) {
+                                    workingSelection.add(option);
+                                  } else {
+                                    workingSelection.remove(option);
+                                  }
+                                });
+                              },
+                            ),
+                        ],
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(_selectedTradeShows),
+                  child: const Text('Abbrechen'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(<String>{}),
+                  child: const Text('Alle'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(workingSelection),
+                  child: const Text('Uebernehmen'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedTradeShows = result;
+    });
   }
 
   List<String> _availableMonthKeys(List<OrderRow> orders) {
@@ -1053,13 +1245,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   ) async {
     setState(() => _loading = true);
     try {
-      const headers = [
+      final headers = [
         'Auftrag',
         'Versanddatum',
         'Auftragsdatum',
         'Waehrung',
         'USD→EUR',
-        'Berechnungsbasis (EUR)',
+        'Berechnungsbasis (${_diagnosticsPriceBasisCurrencyLabel(rows)})',
         'MwSt %',
         'Positionen',
         'Netto (EUR)',
@@ -1459,14 +1651,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   List<_WareinsatzRow> _filterRowsByScope(List<_WareinsatzRow> rows) {
-    switch (_selectedScope) {
-      case WareinsatzScope.all:
-        return rows;
-      case WareinsatzScope.bomOnly:
-        return rows.where((row) => row.bomQuantity > 0).toList(growable: false);
-      case WareinsatzScope.withoutBom:
-        return rows.where((row) => row.soldQuantity > 0 && row.bomQuantity <= 0).toList(growable: false);
-    }
+    return rows
+        .where(
+          (row) => wareinsatzRowMatchesScope(
+            scope: _selectedScope,
+            soldQuantity: row.soldQuantity,
+            bomQuantity: row.bomQuantity,
+          ),
+        )
+        .toList(growable: false);
   }
 
   List<_WareinsatzRow> _filterRowsBySearch(List<_WareinsatzRow> rows) {
@@ -1510,6 +1703,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
 
     return pattern.toString();
+  }
+
+  String _diagnosticsPriceBasisCurrencyLabel(
+    List<_OrderNetContribution> rows,
+  ) {
+    if (rows.isNotEmpty && rows.every((row) => row.currency == 'USD')) {
+      return 'USD';
+    }
+    return 'EUR';
   }
 
   void _onWareneinsatzSortChanged(int columnIndex, bool ascending) {

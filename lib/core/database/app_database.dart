@@ -629,7 +629,7 @@ class AppDatabase {
       SET c_total_value_eur = COALESCE((
         SELECT SUM(o.o_value_goods)
         FROM "order" o
-        WHERE o.o_customer_id = customer.c_id
+        WHERE TRIM(COALESCE(o.o_customer_id, '')) = TRIM(COALESCE(customer.c_id, ''))
       ), 0)
     ''');
   }

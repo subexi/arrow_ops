@@ -10,6 +10,7 @@ import '../../customer/data/customer_repository.dart';
 import '../../item/data/item_image_storage_service.dart';
 import '../../customer/domain/customer.dart';
 import '../../customer/domain/country_tld.dart';
+import '../../customer/presentation/customer_page.dart';
 import '../../item/domain/item_models.dart';
 import '../data/order_repository.dart';
 import '../domain/order_models.dart';
@@ -486,6 +487,28 @@ class _OrderPageState extends State<OrderPage> {
   String _formatDecimal(double v, int digits) =>
       v.toStringAsFixed(digits).replaceAll('.', ',');
 
+  bool _isUsdOrder(OrderRow order) {
+    return order.oCurrency.trim().toUpperCase() == 'USD';
+  }
+
+  double? _orderNetValueEur(OrderRow order) {
+    if (_isUsdOrder(order)) {
+      if (order.oFxToEur <= 0) {
+        return null;
+      }
+      return order.oValueGoods * order.oFxToEur;
+    }
+    return order.oValueGoods;
+  }
+
+  String _formatOrderNetValueEur(OrderRow order) {
+    final value = _orderNetValueEur(order);
+    if (value == null) {
+      return '-';
+    }
+    return _formatDecimal(value, 2);
+  }
+
   Uri _htsUri(String htsCode) {
     final encodedHtsCode = Uri.encodeComponent(htsCode.trim());
     return Uri.parse('https://www.zolltarifnummern.de/2026/$encodedHtsCode');
@@ -857,6 +880,22 @@ class _OrderPageState extends State<OrderPage> {
       return;
     }
 
+    if (result is String && result.startsWith('open_customer:')) {
+      final customerId = result.substring('open_customer:'.length).trim();
+      if (customerId.isNotEmpty && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => CustomerPage(
+              showModuleNavigation: false,
+              initialCustomerId: customerId,
+              openInitialCustomerDetails: true,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     if (result is! OrderRow) return;
 
     await _orderRepo.saveOrder(result, originalOrderId: initialValue?.oId);
@@ -1072,6 +1111,8 @@ class _OrderPageState extends State<OrderPage> {
 
   Widget _buildOrderTable() {
     final sorted = _sortedOrders();
+    final showNetEurColumn =
+        _orderSearchQuery.trim().isNotEmpty && sorted.any(_isUsdOrder);
 
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 4),
@@ -1163,7 +1204,7 @@ class _OrderPageState extends State<OrderPage> {
                           width: 0.6,
                         ),
                       ),
-                      minWidth: 2760,
+                      minWidth: showNetEurColumn ? 2900 : 2760,
                       columns: [
                         DataColumn2(label: const Text('Auftrags-ID'), onSort: _onOrderSort, fixedWidth: 140),
                         DataColumn2(label: const Text('Kunde'), onSort: _onOrderSort, size: ColumnSize.L),
@@ -1173,6 +1214,12 @@ class _OrderPageState extends State<OrderPage> {
                         DataColumn2(label: const Text('Putt'), onSort: _onOrderSort, fixedWidth: 112),
                         DataColumn2(label: const Text('Währung'), onSort: _onOrderSort, fixedWidth: 148),
                         DataColumn2(label: const Text('Netto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
+                        if (showNetEurColumn)
+                          const DataColumn2(
+                            label: Text('Netto (EUR)'),
+                            numeric: true,
+                            fixedWidth: 132,
+                          ),
                         DataColumn2(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
                         DataColumn2(label: const Text('Brutto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
                         DataColumn2(label: const Text('Gesamtgewicht in g'), numeric: true, onSort: _onOrderSort, fixedWidth: 182),
@@ -1251,6 +1298,12 @@ class _OrderPageState extends State<OrderPage> {
                               onDoubleTap: () => handleOpenEdit(),
                             ),
                             _numericCell(_formatDecimal(order.oValueGoods, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            if (showNetEurColumn)
+                              _numericCell(
+                                _formatOrderNetValueEur(order),
+                                onTap: () => handleSelectOrder(),
+                                onDoubleTap: () => handleOpenEdit(),
+                              ),
                             _numericCell(_formatDecimal(order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _numericCell(_formatDecimal(order.oValueGoods + order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _numericCell(_formatDecimal(order.oTotalWeight, 1), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),

@@ -118,4 +118,35 @@ void main() {
     expect(customer1, isNotNull);
     expect(customer1!.cTotalValueEur, closeTo(0.0, 0.0001));
   });
+
+  test('behaelt synchronisierten Umsatz nach Kundenupdate bei', () async {
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-UPD-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-06-19',
+        oValueGoods: 55.25,
+      ),
+    );
+
+    await customerRepository.update(
+      const Customer(
+        cId: '1000000001',
+        cLastName: 'MUSTER-NEU',
+        cFirstName: 'Max',
+        cStreetB: 'Testweg',
+        cHouseNumberB: '1',
+        cPostalCodeB: '12345',
+        cCityB: 'Berlin',
+        cStreetD: 'Testweg',
+        cHouseNumberD: '1',
+        cPostalCodeD: '12345',
+        cCityD: 'Berlin',
+      ),
+    );
+
+    final customer = await customerRepository.getById('1000000001');
+    expect(customer, isNotNull);
+    expect(customer!.cTotalValueEur, closeTo(55.25, 0.0001));
+  });
 }

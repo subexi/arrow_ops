@@ -43,11 +43,18 @@ class _ArrowOpsShellState extends State<ArrowOpsShell> {
   Widget build(BuildContext context) {
     final windowClass = ArrowOpsBreakpoints.of(context);
     final useBottomNavigation = windowClass == ArrowOpsWindowClass.compact;
-    final page = IndexedStack(
-      index: _selectedIndex,
-      children: _pages
-          .map((page) => page ?? const SizedBox.shrink())
-          .toList(growable: false),
+    final page = Stack(
+      children: List<Widget>.generate(_pages.length, (index) {
+        final child = _pages[index] ?? const SizedBox.shrink();
+        final isSelected = _selectedIndex == index;
+        return Offstage(
+          offstage: !isSelected,
+          child: TickerMode(
+            enabled: isSelected,
+            child: child,
+          ),
+        );
+      }),
     );
 
     if (useBottomNavigation) {
