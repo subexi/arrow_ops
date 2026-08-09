@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 21;
+  static const int _currentVersion = 22;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -40,6 +40,7 @@ class AppDatabase {
     DatabaseMigration(version: 19, run: _migrationV19),
     DatabaseMigration(version: 20, run: _migrationV20),
     DatabaseMigration(version: 21, run: _migrationV21),
+    DatabaseMigration(version: 22, run: _migrationV22),
   ];
 
   Future<Database> get database async {
@@ -1051,5 +1052,27 @@ class AppDatabase {
       WHERE UPPER(TRIM(COALESCE(o_currency, 'EUR'))) = 'USD'
         AND COALESCE(o_fx_to_eur, 0) = 1
     ''');
+  }
+
+  static Future<void> _migrationV22(Database db) async {
+    final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    final hasPaymentActualColumn = orderColumns.any(
+      (column) => column['name'] == 'o_payment_actual',
+    );
+    final hasPaypalFeeActualColumn = orderColumns.any(
+      (column) => column['name'] == 'o_paypal_fee_actual',
+    );
+
+    if (!hasPaymentActualColumn) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_payment_actual INTEGER',
+      );
+    }
+
+    if (!hasPaypalFeeActualColumn) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_paypal_fee_actual REAL',
+      );
+    }
   }
 }

@@ -145,6 +145,75 @@ void main() {
     });
   });
 
+  group('InvoicePdfService.debugBuildPackingListMetaLines', () {
+    const service = InvoicePdfService();
+
+    test('shows alphanumeric tracking code in packing list meta', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        note: '-',
+      ).copyWithTrackingCode('AB12CD34EF56');
+
+      final lines = service.debugBuildPackingListMetaLines(data, true);
+
+      expect(lines, contains('Trackingcode: AB12CD34EF56'));
+    });
+
+    test('cuts prefix up to first whitespace for tracking code', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        note: '-',
+      ).copyWithTrackingCode('DHL AB12CD34EF56');
+
+      final lines = service.debugBuildPackingListMetaLines(data, true);
+
+      expect(lines, contains('Trackingcode: AB12CD34EF56'));
+    });
+
+    test('keeps packing list meta order as weight, note, tracking', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        note: 'Bitte beim Nachbarn klingeln',
+      ).copyWithTrackingCode('123456789');
+
+      final lines = service.debugBuildPackingListMetaLines(data, true);
+
+      expect(lines, hasLength(3));
+      expect(lines[0].startsWith('Warengewicht:'), isTrue);
+      expect(
+        lines[1],
+        equals('Lieferhinweis: Bitte beim Nachbarn klingeln'),
+      );
+      expect(lines[2], equals('Trackingcode: 123456789'));
+    });
+
+    test('includes delivery note and tracking in German packing list meta', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        note: 'Bitte beim Nachbarn klingeln',
+      ).copyWithTrackingCode('123456789');
+
+      final lines = service.debugBuildPackingListMetaLines(data, true);
+
+      expect(lines, contains('Lieferhinweis: Bitte beim Nachbarn klingeln'));
+      expect(lines, contains('Trackingcode: 123456789'));
+    });
+
+    test('omits delivery note line when note is empty placeholder', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        note: '-',
+      );
+
+      final lines = service.debugBuildPackingListMetaLines(data, true);
+
+      expect(
+        lines.where((line) => line.startsWith('Lieferhinweis:')),
+        isEmpty,
+      );
+    });
+  });
+
   group('InvoicePdfService proforma shipping/payment behavior', () {
     const service = InvoicePdfService();
 
@@ -626,6 +695,7 @@ InvoiceDocumentData _documentData({
   bool isNoVatCustomer = false,
   bool isProforma = false,
   String paymentLabel = '-',
+  String note = '-',
   String buyerVatId = '-',
   String lastName = 'BuyerLastName',
   InvoiceDocumentKind kind = InvoiceDocumentKind.invoice,
@@ -667,6 +737,36 @@ InvoiceDocumentData _documentData({
       grandTotal: 125,
       totalWeightInGram: 0,
     ),
+    note: note,
     paymentLabel: paymentLabel,
   );
+}
+
+extension on InvoiceDocumentData {
+  InvoiceDocumentData copyWithTrackingCode(String trackingCode) {
+    return InvoiceDocumentData(
+      documentKind: documentKind,
+      isProforma: isProforma,
+      invoiceNumber: invoiceNumber,
+      invoiceDate: invoiceDate,
+      orderDate: orderDate,
+      orderId: orderId,
+      currency: currency,
+      language: language,
+      priceBasis: priceBasis,
+      isReseller: isReseller,
+      isNoVatCustomer: isNoVatCustomer,
+      seller: seller,
+      buyer: buyer,
+      delivery: delivery,
+      footer: footer,
+      lines: lines,
+      totals: totals,
+      note: note,
+      paymentLabel: paymentLabel,
+      payDate: payDate,
+      deliveryDate: deliveryDate,
+      trackingCode: trackingCode,
+    );
+  }
 }

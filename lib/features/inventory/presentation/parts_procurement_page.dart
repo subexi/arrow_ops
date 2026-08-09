@@ -23,6 +23,7 @@ class PartsProcurementPage extends StatefulWidget {
 class _PartsProcurementPageState extends State<PartsProcurementPage> {
   final _repository = const PartsProcurementRepository();
   final _itemRepository = const ItemRepository();
+  final TextEditingController _searchController = TextEditingController();
 
   List<PartsProcurementRow> _rows = const [];
   List<ItemCatalogueRow> _catalogueItems = const [];
@@ -31,11 +32,18 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   int? _selectedId;
   int? _sortColumnIndex = 1;
   bool _sortAscending = false;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -285,8 +293,32 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
     }
   }
 
+  bool _matchesSearch(PartsProcurementRow row, String normalizedQuery) {
+    if (normalizedQuery.isEmpty) {
+      return true;
+    }
+
+    final haystack = <String>[
+      row.ppIdi,
+      row.ppPurchaseDate,
+      row.ppQuantity.toString(),
+      row.ppPriceNet.toStringAsFixed(2),
+      row.ppTotalPriceNet.toStringAsFixed(2),
+      row.ppDescriptionDeLong,
+      row.ppPointOfUse,
+      row.ppPartSource,
+      row.ppMaterial,
+      row.ppNote,
+    ].map((value) => value.trim().toLowerCase()).join(' ');
+
+    return haystack.contains(normalizedQuery);
+  }
+
   List<PartsProcurementRow> get _sortedRows {
-    final rows = List<PartsProcurementRow>.from(_rows);
+    final normalizedQuery = _searchQuery.trim().toLowerCase();
+    final rows = _rows
+        .where((row) => _matchesSearch(row, normalizedQuery))
+        .toList(growable: false);
     final sortColumnIndex = _sortColumnIndex;
     if (sortColumnIndex == null) {
       return rows;
@@ -663,6 +695,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
   @override
   Widget build(BuildContext context) {
+    final visibleRows = _sortedRows;
+    final hasActiveSearch = _searchQuery.trim().isNotEmpty;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Bestandsführung')),
       body: Padding(
@@ -734,6 +769,27 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
               ],
             ),
             const SizedBox(height: 8),
+            TextField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _searchQuery = value),
+              decoration: InputDecoration(
+                labelText: 'Bestandsdaten durchsuchen',
+                hintText: 'Artikel, Datum, Lieferant, Material, Notiz ...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: hasActiveSearch
+                    ? IconButton(
+                        tooltip: 'Suche löschen',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                        icon: const Icon(Icons.clear),
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
             if (_loadError != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -747,6 +803,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                   ? const Center(child: CircularProgressIndicator())
                   : _rows.isEmpty
                   ? const Center(child: Text('Keine Einträge vorhanden.'))
+                  : visibleRows.isEmpty
+                  ? const Center(
+                      child: Text('Keine Treffer für die aktuelle Suche.'),
+                    )
                   : SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: SingleChildScrollView(
@@ -765,7 +825,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                             _column('Materialbeschreibung', 8),
                             _column('Notiz', 9),
                           ],
-                          rows: _sortedRows
+                          rows: visibleRows
                               .map(
                                 (row) => DataRow(
                                   selected: row.ppId == _selectedId,

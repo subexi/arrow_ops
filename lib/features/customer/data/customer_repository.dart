@@ -12,6 +12,11 @@ import '../domain/customer.dart';
 class CustomerRepository {
   const CustomerRepository();
 
+  // Bei grossen Datenmengen bleiben wir in der Hintergrund-Normalisierung
+  // bei lokalen Resolvern, um Netzwerk-Latenzen zu vermeiden.
+  static const int _remoteNormalizationLookupMaxRows = 300;
+  static const Duration _nominatimLookupTimeout = Duration(milliseconds: 900);
+
   Future<List<Customer>> getAll() async {
     final db = await AppDatabase.instance.database;
     final rows = await db.query('customer', orderBy: 'c_last_name ASC, c_first_name ASC');
@@ -187,6 +192,16 @@ class CustomerRepository {
       return 0;
     }
 
+    final allowRemoteLookups =
+        rows.length <= _remoteNormalizationLookupMaxRows;
+
+    if (kDebugMode) {
+      debugPrint(
+        '⏱️ [perf][normalize/config] remoteLookups=${allowRemoteLookups ? 'on' : 'off'} '
+        '(rows=${rows.length}, threshold=$_remoteNormalizationLookupMaxRows)',
+      );
+    }
+
     final lookupCache = <String, String?>{};
     final updates = <Map<String, String>>[];
 
@@ -206,6 +221,7 @@ class CustomerRepository {
         city: cityB,
         postalCode: postalB,
         lookupCache: lookupCache,
+        allowRemoteLookups: allowRemoteLookups,
       );
 
       final countryD = row['c_country_d_id']?.toString();
@@ -218,6 +234,7 @@ class CustomerRepository {
         city: cityD,
         postalCode: postalD,
         lookupCache: lookupCache,
+        allowRemoteLookups: allowRemoteLookups,
       );
 
       final nextB = resolvedB.trim();
@@ -298,6 +315,7 @@ class CustomerRepository {
     required String city,
     required String postalCode,
     required Map<String, String?> lookupCache,
+    required bool allowRemoteLookups,
   }) async {
     if (isItalyCountry(countryCode)) {
       var resolved = resolveItalianBillingProvince(
@@ -307,6 +325,10 @@ class CustomerRepository {
       );
 
       if (resolved != '-') {
+        return resolved;
+      }
+
+      if (!allowRemoteLookups) {
         return resolved;
       }
 
@@ -335,6 +357,10 @@ class CustomerRepository {
         return resolved;
       }
 
+      if (!allowRemoteLookups) {
+        return resolved;
+      }
+
       final cacheKey = 'us|${postalCode.trim().toLowerCase()}|${city.trim().toLowerCase()}';
       if (lookupCache.containsKey(cacheKey)) {
         return lookupCache[cacheKey] ?? resolved;
@@ -360,6 +386,10 @@ class CustomerRepository {
         return resolved;
       }
 
+      if (!allowRemoteLookups) {
+        return resolved;
+      }
+
       final cacheKey = 'au|${postalCode.trim().toLowerCase()}|${city.trim().toLowerCase()}';
       if (lookupCache.containsKey(cacheKey)) {
         return lookupCache[cacheKey] ?? resolved;
@@ -382,6 +412,10 @@ class CustomerRepository {
       );
 
       if (resolved != '-') {
+        return resolved;
+      }
+
+      if (!allowRemoteLookups) {
         return resolved;
       }
 
@@ -431,7 +465,7 @@ class CustomerRepository {
       final response = await http.get(
         uri,
         headers: {'User-Agent': 'arrow_ops/1.0'},
-      );
+      ).timeout(_nominatimLookupTimeout);
       if (response.statusCode != 200) {
         return null;
       }
@@ -495,7 +529,7 @@ class CustomerRepository {
       final response = await http.get(
         uri,
         headers: {'User-Agent': 'arrow_ops/1.0'},
-      );
+      ).timeout(_nominatimLookupTimeout);
       if (response.statusCode != 200) {
         return null;
       }
@@ -567,7 +601,7 @@ class CustomerRepository {
       var response = await http.get(
         uri,
         headers: {'User-Agent': 'arrow_ops/1.0'},
-      );
+      ).timeout(_nominatimLookupTimeout);
       if (response.statusCode != 200) {
         return null;
       }
@@ -581,7 +615,7 @@ class CustomerRepository {
         response = await http.get(
           uri,
           headers: {'User-Agent': 'arrow_ops/1.0'},
-        );
+        ).timeout(_nominatimLookupTimeout);
         if (response.statusCode == 200) {
           parsed = jsonDecode(response.body);
           results = parsed is List ? parsed : const [];
@@ -648,7 +682,7 @@ class CustomerRepository {
       var response = await http.get(
         uri,
         headers: {'User-Agent': 'arrow_ops/1.0'},
-      );
+      ).timeout(_nominatimLookupTimeout);
       if (response.statusCode != 200) {
         return null;
       }
@@ -662,7 +696,7 @@ class CustomerRepository {
         response = await http.get(
           uri,
           headers: {'User-Agent': 'arrow_ops/1.0'},
-        );
+        ).timeout(_nominatimLookupTimeout);
         if (response.statusCode == 200) {
           parsed = jsonDecode(response.body);
           results = parsed is List ? parsed : const [];

@@ -48,6 +48,7 @@ class _DialogHarnessState extends State<_DialogHarness> {
             ),
             Text('result_ppi=${_result?.ppIdi}'),
             Text('result_desc=${_result?.ppDescriptionDeLong}'),
+            Text('result_date=${_result?.ppPurchaseDate}'),
           ],
         ),
       ),
@@ -196,5 +197,35 @@ void main() {
     );
     expect(find.descendant(of: pickerDialog, matching: find.text('ALT-1')), findsNothing);
     expect(find.descendant(of: pickerDialog, matching: find.text('ABC-2')), findsNothing);
+  });
+
+  testWidgets('speichert Beschaffungsdatum normalisiert als JJJJ-MM-TT', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: _DialogHarness(
+          catalogueItems: const [
+            ItemCatalogueRow(
+              icId: 1,
+              icIdi: 'ALT-1',
+              icDescriptionDeLong: 'Alter Artikel',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Dialog oeffnen'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Beschaffungsdatum'),
+      '07.08.2026',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Speichern'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('result_date=2026-08-07'), findsOneWidget);
   });
 }

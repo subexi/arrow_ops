@@ -52,5 +52,39 @@ void main() {
 
       expect(net, closeTo(-8, 0.0001));
     });
+
+    test('uses actual paypal fee override when available', () {
+      const order = OrderRow(
+        oId: '1004',
+        oCustomerId: 'C001',
+        oValueGoods: 120,
+        oTotalPrice: 238,
+        oShipping: 10,
+        oPaypalFee: 3,
+        oPaypalFeeActual: 8,
+        oVat: 38,
+      );
+
+      final net = computeEffectiveOrderNetGoods(order);
+
+      expect(net, closeTo(182, 0.0001));
+    });
+
+    test('uses zero paypal fee for non-paypal actual payment', () {
+      const order = OrderRow(
+        oId: '1005',
+        oCustomerId: 'C001',
+        oValueGoods: 120,
+        oTotalPrice: 238,
+        oShipping: 10,
+        oPaypalFee: 3,
+        oPaymentActual: 2,
+        oVat: 38,
+      );
+
+      final net = computeEffectiveOrderNetGoods(order);
+
+      expect(net, closeTo(190, 0.0001));
+    });
   });
 }

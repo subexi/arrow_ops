@@ -4,6 +4,8 @@ import 'package:arrow_ops/core/database/app_database.dart';
 import 'package:arrow_ops/core/database/database_path_config.dart';
 import 'package:arrow_ops/features/customer/data/customer_repository.dart';
 import 'package:arrow_ops/features/customer/domain/customer.dart';
+import 'package:arrow_ops/features/item/data/item_repository.dart';
+import 'package:arrow_ops/features/item/domain/item_models.dart';
 import 'package:arrow_ops/features/order/data/order_repository.dart';
 import 'package:arrow_ops/features/order/domain/order_models.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +15,7 @@ void main() {
   late Directory tempDir;
   late CustomerRepository customerRepository;
   late OrderRepository orderRepository;
+  late ItemRepository itemRepository;
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -26,6 +29,7 @@ void main() {
 
     customerRepository = const CustomerRepository();
     orderRepository = const OrderRepository();
+    itemRepository = const ItemRepository();
 
     await customerRepository.upsert(
       const Customer(
@@ -148,5 +152,105 @@ void main() {
     final customer = await customerRepository.getById('1000000001');
     expect(customer, isNotNull);
     expect(customer!.cTotalValueEur, closeTo(55.25, 0.0001));
+  });
+
+  test('persistiert und laedt tatsaechliche zahlart und gebuehr im repository-roundtrip', () async {
+    const savedOrder = OrderRow(
+      oId: 'O-ACT-1',
+      oCustomerId: '1000000001',
+      oDate: '2026-06-20',
+      oCurrency: 'EUR',
+      oPayment: 1,
+      oPaypalFee: 3.25,
+      oPaymentActual: 2,
+      oPaypalFeeActual: 0,
+      oValueGoods: 100,
+      oTotalPrice: 119,
+      oShipping: 19,
+      oVat: 0,
+    );
+
+    await orderRepository.saveOrder(savedOrder);
+
+    final loaded = await orderRepository.getOrderById('O-ACT-1');
+
+    expect(loaded, isNotNull);
+    expect(loaded!.oPaymentActual, 2);
+    expect(loaded.oPaypalFeeActual, closeTo(0, 0.0001));
+  });
+
+  test('persistiert null fuer tatsaechliche zahlart im repository-roundtrip', () async {
+    const savedOrder = OrderRow(
+      oId: 'O-ACT-NULL-1',
+      oCustomerId: '1000000001',
+      oDate: '2026-06-21',
+      oCurrency: 'EUR',
+      oPayment: 1,
+      oPaypalFee: 2.75,
+      oPaymentActual: null,
+      oPaypalFeeActual: null,
+      oValueGoods: 90,
+      oTotalPrice: 111.75,
+      oShipping: 19,
+      oVat: 0,
+    );
+
+    await orderRepository.saveOrder(savedOrder);
+
+    final loaded = await orderRepository.getOrderById('O-ACT-NULL-1');
+
+    expect(loaded, isNotNull);
+    expect(loaded!.oPaymentActual, isNull);
+    expect(loaded.oPaypalFeeActual, isNull);
+  });
+
+  test('liefert positionsanzahl je auftrag inkl. auftraegen ohne positionen', () async {
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(icId: 100, icIdi: 'A-100'),
+    );
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(icId: 101, icIdi: 'A-101'),
+    );
+
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-CNT-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-07-01',
+      ),
+    );
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-CNT-2',
+        oCustomerId: '1000000001',
+        oDate: '2026-07-02',
+      ),
+    );
+
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-CNT-1',
+        ioPos: 1,
+        ioQuantity: 1,
+        ioItemId: 100,
+        ioIdi: 'A-100',
+      ),
+    );
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-CNT-1',
+        ioPos: 2,
+        ioQuantity: 1,
+        ioItemId: 101,
+        ioIdi: 'A-101',
+      ),
+    );
+
+    final counts = await orderRepository.getItemCountsByOrderIds(
+      const ['O-CNT-1', 'O-CNT-2'],
+    );
+
+    expect(counts['O-CNT-1'], 2);
+    expect(counts['O-CNT-2'], 0);
   });
 }

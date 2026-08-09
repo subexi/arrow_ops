@@ -54,6 +54,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   late final TextEditingController _totalWeightController;
   late final TextEditingController _payDateController;
   late final TextEditingController _paypalFeeController;
+  late final TextEditingController _paypalFeeActualController;
   late final TextEditingController _deliveryController;
   late final TextEditingController _tradeShowController;
   late final TextEditingController _trackingCodeController;
@@ -73,6 +74,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   String _language = 'DE';
   String _priceBasis = 'gross';
   int _payment = 0;
+  int? _paymentActual;
   bool _putt = false;
   bool _dealer = false;
   List<Customer> _filteredCustomers = [];
@@ -118,6 +120,9 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _totalWeightController = TextEditingController(text: _weightText(v?.oTotalWeight ?? 0));
     _payDateController = TextEditingController(text: v?.oPayDate ?? '');
     _paypalFeeController = TextEditingController(text: _decimalText(v?.oPaypalFee ?? 0));
+    _paypalFeeActualController = TextEditingController(
+      text: v?.oPaypalFeeActual == null ? '' : _decimalText(v!.oPaypalFeeActual!),
+    );
     _deliveryController = TextEditingController(text: v?.oDelivery ?? '');
     _tradeShowController = TextEditingController(text: v?.oTradeShow ?? '');
     _trackingCodeController = TextEditingController(text: v?.oTrackingCode ?? '');
@@ -152,6 +157,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _language = v?.oLanguage ?? 'DE';
     _priceBasis = v?.oPriceBasis ?? 'gross';
     _payment = v?.oPayment ?? _paypalPaymentCode;
+    _paymentActual = v?.oPaymentActual;
     _putt = (v?.oPutt ?? 0) != 0;
     _dealer = (v?.oDealer ?? 0) != 0;
     _deliveryAddressDifferent = (v?.oDeliveryAddressDifferent ?? 0) != 0;
@@ -236,6 +242,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _totalWeightController.dispose();
     _payDateController.dispose();
     _paypalFeeController.dispose();
+    _paypalFeeActualController.dispose();
     _deliveryController.dispose();
     _tradeShowController.dispose();
     _trackingCodeController.dispose();
@@ -389,8 +396,178 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
 
   String _weightText(double v) => v.toStringAsFixed(1).replaceAll('.', ',');
 
+  double? _tryParseDecimalFlexible(String rawInput) {
+    var raw = rawInput.trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+
+    // Entfernt Währungssymbole und Trenner wie Leerzeichen/Apostroph.
+    raw = raw.replaceAll(RegExp(r"[^0-9,\.\-+']"), '');
+    raw = raw.replaceAll("'", '');
+    if (raw.isEmpty) {
+      return null;
+    }
+
+    final hasComma = raw.contains(',');
+    final hasDot = raw.contains('.');
+
+    String normalized;
+    if (hasComma && hasDot) {
+      final lastComma = raw.lastIndexOf(',');
+      final lastDot = raw.lastIndexOf('.');
+      if (lastComma > lastDot) {
+        normalized = raw.replaceAll('.', '').replaceAll(',', '.');
+      } else {
+        normalized = raw.replaceAll(',', '');
+      }
+    } else if (hasComma) {
+      normalized = raw.replaceAll(',', '.');
+    } else {
+      normalized = raw;
+    }
+
+    // Falls mehrere Punkte übrig bleiben: letzte Stelle als Dezimaltrenner,
+    // vorherige als Tausendertrenner interpretieren.
+    final dotCount = '.'.allMatches(normalized).length;
+    if (dotCount > 1) {
+      final lastDot = normalized.lastIndexOf('.');
+      final integerPart = normalized.substring(0, lastDot).replaceAll('.', '');
+      final decimalPart = normalized.substring(lastDot + 1);
+      normalized = '$integerPart.$decimalPart';
+    }
+
+    return double.tryParse(normalized);
+  }
+
   double _parseDecimal(TextEditingController c) =>
-      double.tryParse(c.text.trim().replaceAll(',', '.')) ?? 0;
+      _tryParseDecimalFlexible(c.text) ?? 0;
+
+  double? _parseOptionalDecimal(TextEditingController c) {
+    final raw = c.text.trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+    return _tryParseDecimalFlexible(raw);
+  }
+
+  String? _validateDecimalFieldValue(
+    String? value, {
+    required bool allowEmpty,
+  }) {
+    final raw = (value ?? '').trim();
+    if (raw.isEmpty) {
+      return allowEmpty ? null : 'Bitte Zahl eingeben';
+    }
+    if (_tryParseDecimalFlexible(raw) == null) {
+      return 'Bitte gültige Zahl eingeben';
+    }
+    return null;
+  }
+
+  double _plannedEffectivePaypalFee() {
+    if (_payment != _paypalPaymentCode) {
+      return 0;
+    }
+    return _parseDecimal(_paypalFeeController);
+  }
+
+  double _actualEffectivePaypalFeeForPreview() {
+    final parsedActualFee = _parseOptionalDecimal(_paypalFeeActualController);
+    if (parsedActualFee != null) {
+      return parsedActualFee;
+    }
+    if (_paymentActual != null && _paymentActual != _paypalPaymentCode) {
+      return 0;
+    }
+    return _plannedEffectivePaypalFee();
+  }
+
+  double _netGoodsDeltaFromActualSettlementPreview() {
+    return _plannedEffectivePaypalFee() - _actualEffectivePaypalFeeForPreview();
+  }
+
+  double _salesVatAmountPreview() {
+    return _parseDecimal(_vatController);
+  }
+
+  double _potentialFeeTaxEffectPreview() {
+    final vatRate = _parseDecimal(_vatRateController);
+    if (vatRate <= 0) {
+      return 0;
+    }
+
+    // Informative Schätzung: zusätzliche/geringere Gebühren wirken sich
+    // bei Nettoverbuchung der Gebühr proportional auf den Steueranteil aus.
+    final feeDelta = _actualEffectivePaypalFeeForPreview() - _plannedEffectivePaypalFee();
+    return feeDelta * (vatRate / 100);
+  }
+
+  Widget _buildActualSettlementDeltaHint() {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        _paypalFeeController,
+        _paypalFeeActualController,
+        _vatController,
+        _vatRateController,
+      ]),
+      builder: (context, _) {
+        final plannedFee = _plannedEffectivePaypalFee();
+        final actualFee = _actualEffectivePaypalFeeForPreview();
+        final delta = _netGoodsDeltaFromActualSettlementPreview();
+        final salesVat = _salesVatAmountPreview();
+        final feeTaxEffect = _potentialFeeTaxEffectPreview();
+        final isNeutral = delta.abs() < 0.005;
+        final sign = delta >= 0 ? '+' : '-';
+        final feeTaxSign = feeTaxEffect >= 0 ? '+' : '-';
+        final absAmount = _decimalText(delta.abs());
+        final salesVatText = _decimalText(salesVat);
+        final feeTaxEffectText = _decimalText(feeTaxEffect.abs());
+        final plannedText = _decimalText(plannedFee);
+        final actualText = _decimalText(actualFee);
+        final currencyCode = _currency.toUpperCase();
+        final colorScheme = Theme.of(context).colorScheme;
+        final baseTextColor = Theme.of(context).textTheme.bodySmall?.color;
+        final color = isNeutral
+            ? baseTextColor
+            : (delta > 0 ? colorScheme.primary : colorScheme.error);
+
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Effektive geplante Gebühr: $plannedText $currencyCode',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: baseTextColor),
+              ),
+              Text(
+                'Effektive tatsächliche Gebühr: $actualText $currencyCode',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: baseTextColor),
+              ),
+              Text(
+                'Auswirkung auf Warenwert: $sign$absAmount $currencyCode (ggü. geplant)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'MwSt auf Verkauf: $salesVatText $currencyCode (unverändert durch Gebühr)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: baseTextColor),
+              ),
+              Text(
+                'Pot. Vorsteuer-Effekt aus Gebührenabweichung*: $feeTaxSign$feeTaxEffectText $currencyCode',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: baseTextColor),
+              ),
+              Text(
+                '*Informativ: abhängig von der tatsächlichen Buchung der Zahlungsdienstleister-Gebühr.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: baseTextColor),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   bool get _isUsdCurrency => _currency.toUpperCase() == 'USD';
   bool get _isNoVatCustomer => _selectedCustomer?.cVat ?? false;
@@ -1476,6 +1653,12 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     focusNode: _paypalFeeFocusNode,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     readOnly: _payment != _paypalPaymentCode,
+                    validator: (value) {
+                      if (_payment != _paypalPaymentCode) {
+                        return null;
+                      }
+                      return _validateDecimalFieldValue(value, allowEmpty: false);
+                    },
                     decoration: InputDecoration(
                       labelText: 'PayPal-Gebühr',
                       border: const OutlineInputBorder(),
@@ -1489,6 +1672,47 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 12),
+
+                _row2(
+                  DropdownButtonFormField<int?>(
+                    initialValue: _paymentActual,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Tatsächliche Zahlart (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('Geplante verwenden'),
+                      ),
+                      for (int i = 0; i < _paymentLabels.length; i++)
+                        DropdownMenuItem<int?>(value: i, child: Text(_paymentLabels[i]))
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _paymentActual = value;
+                        if (_paymentActual != null && _paymentActual != _paypalPaymentCode) {
+                          _paypalFeeActualController.text = _decimalText(0);
+                        }
+                      });
+                    },
+                  ),
+                  TextFormField(
+                    controller: _paypalFeeActualController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (value) =>
+                        _validateDecimalFieldValue(value, allowEmpty: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Tatsächliche PayPal-Gebühr (optional)',
+                      border: OutlineInputBorder(),
+                      helperText: 'Leer = geplante Gebühr verwenden',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _buildActualSettlementDeltaHint(),
                 const SizedBox(height: 12),
 
                 _row2(
@@ -1618,6 +1842,17 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
               oPayDate: _normalizeDateForStorage(_payDateController.text),
               oPayment: _payment,
               oPaypalFee: _parseDecimal(_paypalFeeController),
+              oPaymentActual: _paymentActual,
+              oPaypalFeeActual: (() {
+                final parsed = _parseOptionalDecimal(_paypalFeeActualController);
+                if (parsed != null) {
+                  return parsed;
+                }
+                if (_paymentActual != null && _paymentActual != _paypalPaymentCode) {
+                  return 0.0;
+                }
+                return null;
+              })(),
               oDelivery: _normalizeDateForStorage(_deliveryController.text),
               oTradeShow: _tradeShowController.text.trim(),
               oPutt: _putt ? 1 : 0,

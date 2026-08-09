@@ -11,6 +11,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/database/app_database.dart';
@@ -37,12 +38,22 @@ export 'widgets/customer_paginated_table.dart' show CustomerDataTableSource;
 
 @visibleForTesting
 double computeEffectiveOrderNetGoods(OrderRow order) {
-  if (order.oValueGoods != 0) {
+  final effectivePaypalFee =
+      order.oPaypalFeeActual ??
+      ((order.oPaymentActual != null && order.oPaymentActual != 1)
+          ? 0
+          : order.oPaypalFee);
+
+  final hasActualSettlementOverride =
+      order.oPaymentActual != null || order.oPaypalFeeActual != null;
+
+  if (order.oValueGoods != 0 && !hasActualSettlementOverride) {
     return order.oValueGoods;
   }
 
-  // Fallback for legacy/unsynchronized orders where o_value_goods is not set.
-  return order.oTotalPrice - order.oShipping - order.oPaypalFee - order.oVat;
+  // Fallback for legacy/unsynchronized orders and adjustments with actual
+  // settlement values.
+  return order.oTotalPrice - order.oShipping - effectivePaypalFee - order.oVat;
 }
 
 class CustomerPage extends StatefulWidget {
@@ -102,9 +113,23 @@ class _CustomerPageState extends State<CustomerPage> {
   String? _selectedOrderId;
   List<OrderRow> _selectedCustomerOrders = const [];
   List<ItemOrderedRow> _selectedOrderItems = const [];
+  Map<String, int> _selectedOrderItemCountByOrderId = const {};
   bool _wasVisibleInBuild = false;
   String? _pendingInitialCustomerId;
   bool _pendingOpenInitialCustomerDetails = false;
+  double _customerTopSectionRatio = 0.5;
+  double _customerMiddleSectionRatio = 0.5;
+  bool _isTopSectionSplitterDragging = false;
+  bool _isMiddleSectionSplitterDragging = false;
+
+  static const double _customerSectionSplitterHeight = 24.0;
+  static const double _customerTopSectionMinHeight = 220.0;
+  static const double _customerMiddleSectionMinHeight = 140.0;
+  static const double _customerBottomSectionMinHeight = 140.0;
+    static const String _customerTopSectionRatioPrefKey =
+      'customer_page.top_section_ratio';
+    static const String _customerMiddleSectionRatioPrefKey =
+      'customer_page.middle_section_ratio';
 
   String _normalizeCustomerId(String? value) {
     return (value ?? '').trim().toLowerCase();
@@ -112,6 +137,283 @@ class _CustomerPageState extends State<CustomerPage> {
 
   bool _isSameCustomerId(String? a, String? b) {
     return _normalizeCustomerId(a) == _normalizeCustomerId(b);
+  }
+
+  Future<void> _loadCustomerSectionLayoutPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final topRatio = prefs.getDouble(_customerTopSectionRatioPrefKey);
+    final middleRatio = prefs.getDouble(_customerMiddleSectionRatioPrefKey);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      if (topRatio != null) {
+        _customerTopSectionRatio = topRatio.clamp(0.0, 1.0);
+      }
+      if (middleRatio != null) {
+        _customerMiddleSectionRatio = middleRatio.clamp(0.0, 1.0);
+      }
+    });
+  }
+
+  Future<void> _saveCustomerSectionLayoutPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(
+      _customerTopSectionRatioPrefKey,
+      _customerTopSectionRatio,
+    );
+    await prefs.setDouble(
+      _customerMiddleSectionRatioPrefKey,
+      _customerMiddleSectionRatio,
+    );
+  }
+
+  Future<void> _resetCustomerSectionLayout() async {
+    setState(() {
+      _customerTopSectionRatio = 0.5;
+      _customerMiddleSectionRatio = 0.5;
+    });
+    await _saveCustomerSectionLayoutPrefs();
+  }
+
+  double _resolvedTopSectionHeight(double availableHeight) {
+    if (availableHeight <= 0) {
+      return 0;
+    }
+
+    final minCombined =
+        _customerTopSectionMinHeight +
+        _customerMiddleSectionMinHeight +
+        _customerBottomSectionMinHeight;
+    final desired = availableHeight * _customerTopSectionRatio;
+
+    if (availableHeight <= minCombined) {
+      return desired.clamp(0.0, availableHeight);
+    }
+
+    return desired.clamp(
+      _customerTopSectionMinHeight,
+      availableHeight -
+          (_customerMiddleSectionMinHeight + _customerBottomSectionMinHeight),
+    );
+  }
+
+  double _resolvedMiddleSectionHeight(
+    double lowerAvailableHeight,
+  ) {
+    if (lowerAvailableHeight <= 0) {
+      return 0;
+    }
+
+    final minCombined =
+        _customerMiddleSectionMinHeight + _customerBottomSectionMinHeight;
+    final desired = lowerAvailableHeight * _customerMiddleSectionRatio;
+
+    if (lowerAvailableHeight <= minCombined) {
+      return desired.clamp(0.0, lowerAvailableHeight);
+    }
+
+    return desired.clamp(
+      _customerMiddleSectionMinHeight,
+      lowerAvailableHeight - _customerBottomSectionMinHeight,
+    );
+  }
+
+  Widget _buildVerticalSectionSplitter({
+    required bool isDragging,
+    required VoidCallback onDragStart,
+    required VoidCallback onDragEnd,
+    required ValueChanged<DragUpdateDetails> onDragUpdate,
+    required VoidCallback onDoubleTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: onDoubleTap,
+      onVerticalDragStart: (_) => onDragStart(),
+      onVerticalDragEnd: (_) => onDragEnd(),
+      onVerticalDragCancel: () => onDragEnd(),
+      onVerticalDragUpdate: onDragUpdate,
+      child: Container(
+        height: _customerSectionSplitterHeight,
+        color: isDragging
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
+            : Theme.of(context).dividerColor.withValues(alpha: 0.15),
+        child: const Center(
+          child: Icon(Icons.drag_handle, size: 18),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopCustomerLayout(BoxConstraints constraints) {
+    final splitterTotalHeight = _customerSectionSplitterHeight * 2;
+    final availableHeight =
+        (constraints.maxHeight - splitterTotalHeight).clamp(0.0, double.infinity);
+    final topHeight = _resolvedTopSectionHeight(availableHeight);
+    final lowerAvailableHeight =
+        (availableHeight - topHeight).clamp(0.0, double.infinity);
+    final middleHeight = _resolvedMiddleSectionHeight(lowerAvailableHeight);
+    final bottomHeight =
+        (lowerAvailableHeight - middleHeight).clamp(0.0, double.infinity);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: topHeight,
+          child: CustomerPaginatedTable(
+            customers: _filteredCustomers,
+            countryNameByCode: _countryNameByCode,
+            loading: _loading,
+            sortColumnIndex: _sortColumnIndex,
+            sortAscending: _sortAscending,
+            rowsPerPage: _rowsPerPage,
+            onRowsPerPageChanged: (value) =>
+                setState(() => _rowsPerPage = value),
+            onSort: _sortFilteredCustomers,
+            onEditCustomer: _editCustomer,
+            onDeleteCustomer: _deleteCustomer,
+            onOpenMap: _showMapDialog,
+            selectedCustomerId: _selectedCustomerId,
+            onSelectCustomer: _selectCustomer,
+            customerNetById: _customerNetById,
+          ),
+        ),
+        _buildVerticalSectionSplitter(
+          isDragging: _isTopSectionSplitterDragging,
+          onDragStart: () {
+            setState(() => _isTopSectionSplitterDragging = true);
+          },
+          onDragEnd: () {
+            setState(() => _isTopSectionSplitterDragging = false);
+            unawaited(_saveCustomerSectionLayoutPrefs());
+          },
+          onDoubleTap: () => unawaited(_resetCustomerSectionLayout()),
+          onDragUpdate: (details) {
+            final nextTopHeight = _resolvedTopSectionHeight(availableHeight) +
+                details.delta.dy;
+            final clampedTopHeight = _resolvedTopSectionHeight(availableHeight)
+                .clamp(0.0, availableHeight);
+
+            final minCombined =
+                _customerTopSectionMinHeight +
+                _customerMiddleSectionMinHeight +
+                _customerBottomSectionMinHeight;
+            final normalizedTopHeight = availableHeight <= minCombined
+                ? nextTopHeight.clamp(0.0, availableHeight)
+                : nextTopHeight.clamp(
+                    _customerTopSectionMinHeight,
+                    availableHeight -
+                        (_customerMiddleSectionMinHeight +
+                            _customerBottomSectionMinHeight),
+                  );
+
+            if (availableHeight <= 0) {
+              return;
+            }
+
+            setState(() {
+              _customerTopSectionRatio =
+                  (normalizedTopHeight / availableHeight).clamp(0.0, 1.0);
+              if (clampedTopHeight <= 0) {
+                _customerTopSectionRatio = 0.5;
+              }
+            });
+          },
+        ),
+        SizedBox(
+          height: middleHeight,
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final showHeader = constraints.maxHeight >= 48;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (showHeader) ...[
+                        Text(
+                          'Aufträge zum Kunden',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      Expanded(child: _buildCustomerOrdersTable()),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+        _buildVerticalSectionSplitter(
+          isDragging: _isMiddleSectionSplitterDragging,
+          onDragStart: () {
+            setState(() => _isMiddleSectionSplitterDragging = true);
+          },
+          onDragEnd: () {
+            setState(() => _isMiddleSectionSplitterDragging = false);
+            unawaited(_saveCustomerSectionLayoutPrefs());
+          },
+          onDoubleTap: () => unawaited(_resetCustomerSectionLayout()),
+          onDragUpdate: (details) {
+            final currentTopHeight = _resolvedTopSectionHeight(availableHeight);
+            final currentLowerAvailableHeight =
+                (availableHeight - currentTopHeight).clamp(0.0, double.infinity);
+            if (currentLowerAvailableHeight <= 0) {
+              return;
+            }
+
+            final nextMiddleHeight =
+                _resolvedMiddleSectionHeight(currentLowerAvailableHeight) +
+                    details.delta.dy;
+            final minCombined =
+                _customerMiddleSectionMinHeight + _customerBottomSectionMinHeight;
+            final normalizedMiddleHeight = currentLowerAvailableHeight <= minCombined
+                ? nextMiddleHeight.clamp(0.0, currentLowerAvailableHeight)
+                : nextMiddleHeight.clamp(
+                    _customerMiddleSectionMinHeight,
+                    currentLowerAvailableHeight - _customerBottomSectionMinHeight,
+                  );
+
+            setState(() {
+              _customerMiddleSectionRatio =
+                  (normalizedMiddleHeight / currentLowerAvailableHeight)
+                      .clamp(0.0, 1.0);
+            });
+          },
+        ),
+        SizedBox(
+          height: bottomHeight,
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final showHeader = constraints.maxHeight >= 48;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (showHeader) ...[
+                        Text(
+                          'Positionen zum Auftrag',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      Expanded(child: _buildOrderItemsTable()),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   static final RegExp _validCountryCodePattern = RegExp(r'^[a-z]{2,}$');
@@ -276,6 +578,7 @@ class _CustomerPageState extends State<CustomerPage> {
     _searchController = TextEditingController();
     _searchFocusNode = FocusNode(debugLabel: 'customerSearch');
     _searchController.addListener(_onSearchChanged);
+    unawaited(_loadCustomerSectionLayoutPrefs());
     if (widget.initializeDatabasePath) {
       _loadDatabasePath();
     }
@@ -650,6 +953,24 @@ class _CustomerPageState extends State<CustomerPage> {
     return value.isEmpty ? '-' : value;
   }
 
+  String _customerNameForOrder(String customerId) {
+    final normalized = customerId.trim();
+    if (normalized.isEmpty) {
+      return '-';
+    }
+
+    final customer = _customers.cast<Customer?>().firstWhere(
+          (candidate) => _isSameCustomerId(candidate?.cId, normalized),
+          orElse: () => null,
+        );
+    if (customer == null) {
+      return normalized;
+    }
+
+    final fullName = '${customer.cLastName}, ${customer.cFirstName}'.trim();
+    return fullName.isEmpty || fullName == ',' ? normalized : fullName;
+  }
+
   double _itemNetTotal(ItemOrderedRow item) {
     final selectedOrderId = _selectedOrderId;
     if (selectedOrderId == null) {
@@ -687,6 +1008,7 @@ class _CustomerPageState extends State<CustomerPage> {
       _selectedOrderId = null;
       _selectedCustomerOrders = const [];
       _selectedOrderItems = const [];
+      _selectedOrderItemCountByOrderId = const {};
     });
 
     try {
@@ -695,6 +1017,9 @@ class _CustomerPageState extends State<CustomerPage> {
           .where((order) => order.oCustomerId == customer.cId)
           .toList(growable: false)
         ..sort((a, b) => b.oId.compareTo(a.oId));
+      final itemCountsByOrderId = await _orderRepository.getItemCountsByOrderIds(
+        customerOrders.map((order) => order.oId),
+      );
 
       if (!mounted || !_isSameCustomerId(_selectedCustomerId, customer.cId)) {
         return;
@@ -702,6 +1027,7 @@ class _CustomerPageState extends State<CustomerPage> {
 
       setState(() {
         _selectedCustomerOrders = customerOrders;
+        _selectedOrderItemCountByOrderId = itemCountsByOrderId;
       });
     } catch (error) {
       if (!mounted || !_isSameCustomerId(_selectedCustomerId, customer.cId)) {
@@ -724,6 +1050,9 @@ class _CustomerPageState extends State<CustomerPage> {
       }
       setState(() {
         _selectedOrderItems = items;
+        final updatedCounts = Map<String, int>.from(_selectedOrderItemCountByOrderId);
+        updatedCounts[order.oId] = items.length;
+        _selectedOrderItemCountByOrderId = updatedCounts;
       });
     } catch (error) {
       if (!mounted || _selectedOrderId != order.oId) {
@@ -737,11 +1066,47 @@ class _CustomerPageState extends State<CustomerPage> {
     if (!mounted) {
       return;
     }
+
+    final currentCustomerId = _selectedCustomerId ?? order.oCustomerId;
+    final currentOrderId = _selectedOrderId ?? order.oId;
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => OrderPage(initialOrderId: order.oId),
       ),
     );
+
+    if (!mounted) {
+      return;
+    }
+
+    await _loadCustomers(runBackgroundNormalization: false);
+    if (!mounted) {
+      return;
+    }
+
+    final refreshedCustomer = _customers.cast<Customer?>().firstWhere(
+          (customer) => _isSameCustomerId(customer?.cId, currentCustomerId),
+          orElse: () => null,
+        );
+    if (refreshedCustomer == null) {
+      return;
+    }
+
+    await _selectCustomer(refreshedCustomer);
+    if (!mounted) {
+      return;
+    }
+
+    final refreshedOrder = _selectedCustomerOrders.cast<OrderRow?>().firstWhere(
+          (candidate) => candidate?.oId == currentOrderId,
+          orElse: () => null,
+        );
+    if (refreshedOrder == null) {
+      return;
+    }
+
+    await _selectOrder(refreshedOrder);
   }
 
   Future<void> _showCustomerDetails(Customer customer) {
@@ -764,40 +1129,45 @@ class _CustomerPageState extends State<CustomerPage> {
       return const Center(child: Text('Keine Aufträge für diesen Kunden vorhanden.'));
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        showCheckboxColumn: false,
-        columns: const [
-          DataColumn(label: Text('ID')),
-          DataColumn(label: Text('Datum')),
-          DataColumn(label: Text('Netto €'), numeric: true),
-          DataColumn(label: Text('Pos.'), numeric: true),
-          DataColumn(label: Text('Go')),
-        ],
-        rows: _selectedCustomerOrders.map((order) {
-          final isSelected = _selectedOrderId == order.oId;
-          final itemCount = _selectedOrderId == order.oId
-              ? _selectedOrderItems.length
-              : null;
-          return DataRow(
-            selected: isSelected,
-            onSelectChanged: (_) => _selectOrder(order),
-            cells: [
-              DataCell(Text(order.oId)),
-              DataCell(Text(_formatDate(order.oDate))),
-              DataCell(Text(_formatMoney(computeEffectiveOrderNetGoods(order)))),
-              DataCell(Text(itemCount?.toString() ?? '-')),
-              DataCell(
-                IconButton(
-                  tooltip: 'Zu diesem Auftrag springen',
-                  icon: const Icon(CupertinoIcons.arrow_turn_down_right),
-                  onPressed: () => _jumpToCustomerOrder(order),
-                ),
-              ),
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            showCheckboxColumn: false,
+            columns: const [
+              DataColumn(label: Text('ID')),
+              DataColumn(label: Text('Kunde')),
+              DataColumn(label: Text('Datum')),
+              DataColumn(label: Text('Netto €'), numeric: true),
+              DataColumn(label: Text('Pos.'), numeric: true),
+              DataColumn(label: Text('Go')),
             ],
-          );
-        }).toList(growable: false),
+            rows: _selectedCustomerOrders.map((order) {
+              final isSelected = _selectedOrderId == order.oId;
+              final itemCount = _selectedOrderItemCountByOrderId[order.oId] ?? 0;
+              return DataRow(
+                selected: isSelected,
+                onSelectChanged: (_) => _selectOrder(order),
+                cells: [
+                  DataCell(Text(order.oId)),
+                  DataCell(Text(_customerNameForOrder(order.oCustomerId))),
+                  DataCell(Text(_formatDate(order.oDate))),
+                  DataCell(Text(_formatMoney(computeEffectiveOrderNetGoods(order)))),
+                  DataCell(Text(itemCount.toString())),
+                  DataCell(
+                    IconButton(
+                      tooltip: 'Zu diesem Auftrag springen',
+                      icon: const Icon(CupertinoIcons.arrow_turn_down_right),
+                      onPressed: () => _jumpToCustomerOrder(order),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(growable: false),
+          ),
+        ),
       ),
     );
   }
@@ -810,27 +1180,34 @@ class _CustomerPageState extends State<CustomerPage> {
       return const Center(child: Text('Keine Positionen für diesen Auftrag vorhanden.'));
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        columns: const [
-          DataColumn(label: Text('Pos.')),
-          DataColumn(label: Text('Art.-ID')),
-          DataColumn(label: Text('Bez.')),
-          DataColumn(label: Text('Menge'), numeric: true),
-          DataColumn(label: Text('∑ Netto €'), numeric: true),
-        ],
-        rows: _selectedOrderItems.map((item) {
-          return DataRow(
-            cells: [
-              DataCell(Text(item.ioPos.toString().padLeft(2, '0'))),
-              DataCell(Text(item.ioItemId.toString())),
-              DataCell(Text(item.ioIdi)),
-              DataCell(Text(item.ioQuantity.toString())),
-              DataCell(Text(_formatMoney(_itemNetTotal(item)))),
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Auftrags-ID')),
+              DataColumn(label: Text('Pos.')),
+              DataColumn(label: Text('Art.-ID')),
+              DataColumn(label: Text('Bez.')),
+              DataColumn(label: Text('Menge'), numeric: true),
+              DataColumn(label: Text('∑ Netto €'), numeric: true),
             ],
-          );
-        }).toList(growable: false),
+            rows: _selectedOrderItems.map((item) {
+              return DataRow(
+                cells: [
+                  DataCell(Text(item.ioOrderId)),
+                  DataCell(Text(item.ioPos.toString().padLeft(2, '0'))),
+                  DataCell(Text(item.ioItemId.toString())),
+                  DataCell(Text(item.ioIdi)),
+                  DataCell(Text(item.ioQuantity.toString())),
+                  DataCell(Text(_formatMoney(_itemNetTotal(item)))),
+                ],
+              );
+            }).toList(growable: false),
+          ),
+        ),
       ),
     );
   }
@@ -2226,79 +2603,7 @@ class _CustomerPageState extends State<CustomerPage> {
                         if (constraints.maxWidth < 600) {
                           return _buildMobileCustomerList();
                         }
-                        return SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SizedBox(
-                                height: constraints.maxHeight * 0.5,
-                                child: CustomerPaginatedTable(
-                                  customers: _filteredCustomers,
-                                  countryNameByCode: _countryNameByCode,
-                                  loading: _loading,
-                                  sortColumnIndex: _sortColumnIndex,
-                                  sortAscending: _sortAscending,
-                                  rowsPerPage: _rowsPerPage,
-                                  onRowsPerPageChanged: (value) =>
-                                      setState(() => _rowsPerPage = value),
-                                  onSort: _sortFilteredCustomers,
-                                  onEditCustomer: _editCustomer,
-                                  onDeleteCustomer: _deleteCustomer,
-                                  onOpenMap: _showMapDialog,
-                                  selectedCustomerId: _selectedCustomerId,
-                                  onSelectCustomer: _selectCustomer,
-                                  customerNetById: _customerNetById,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                height: constraints.maxHeight * 0.25,
-                                child: Card(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Text(
-                                          'Aufträge zum Kunden',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium,
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Expanded(child: _buildCustomerOrdersTable()),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                height: constraints.maxHeight * 0.25,
-                                child: Card(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Text(
-                                          'Positionen zum Auftrag',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium,
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Expanded(child: _buildOrderItemsTable()),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
+                        return _buildDesktopCustomerLayout(constraints);
                       },
                     ),
             ),

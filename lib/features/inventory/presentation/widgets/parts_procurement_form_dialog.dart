@@ -243,6 +243,12 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
         if (label == 'Bezeichnung' && (value == null || value.trim().isEmpty)) {
           return 'Bitte Bezeichnung wählen';
         }
+        if (label == 'Beschaffungsdatum') {
+          final raw = (value ?? '').trim();
+          if (raw.isNotEmpty && _normalizeDateInput(raw) == null) {
+            return 'Bitte gültiges Datum eingeben (JJJJ-MM-TT)';
+          }
+        }
         return null;
       },
     );
@@ -275,10 +281,14 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
       return;
     }
 
+    final normalizedPurchaseDate =
+        _normalizeDateInput(_purchaseDateController.text) ?? _text(_purchaseDateController);
+    _purchaseDateController.text = normalizedPurchaseDate;
+
     final row = PartsProcurementRow(
       ppId: widget.initialValue?.ppId ?? widget.nextId,
       ppIdi: _optionById[_selectedOptionId]?.storedToken ?? '',
-      ppPurchaseDate: _text(_purchaseDateController),
+      ppPurchaseDate: normalizedPurchaseDate,
       ppQuantity: _parseInt(_quantityController),
       ppPriceNet: _parseDouble(_priceNetController),
       ppTotalPriceNet: _parseDouble(_totalPriceNetController),

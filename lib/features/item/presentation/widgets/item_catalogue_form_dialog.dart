@@ -261,6 +261,50 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     );
   }
 
+  Future<String?> _promptNewCategoryName() {
+    var draftName = '';
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kategorie anlegen'),
+        content: TextFormField(
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Kategorie',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (value) {
+            draftName = value;
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(draftName.trim()),
+            child: const Text('Übernehmen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _existingCategoryName(String rawName) {
+    final normalized = rawName.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    for (final category in widget.availableCategories) {
+      if (category.name.trim().toLowerCase() == normalized) {
+        return category.name.trim();
+      }
+    }
+    return null;
+  }
+
   Widget _imagePathField() {
     final readOnly = widget.readOnly;
     final imagePath = _imagePathController.text.trim();
@@ -550,35 +594,67 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
                     child: Text(_selectedCategory.isEmpty ? '-' : _selectedCategory),
                   )
                 else
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedCategory.isEmpty ? '' : _selectedCategory,
-                    decoration: const InputDecoration(
-                      labelText: 'Kategorie',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      const DropdownMenuItem<String>(
-                        value: '',
-                        child: Text('-'),
-                      ),
-                      ...widget.availableCategories.map(
-                        (category) => DropdownMenuItem<String>(
-                          value: category.name,
-                          child: Text(category.name),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _selectedCategory.isEmpty ? '' : _selectedCategory,
+                          decoration: const InputDecoration(
+                            labelText: 'Kategorie',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: '',
+                              child: Text('-'),
+                            ),
+                            ...widget.availableCategories.map(
+                              (category) => DropdownMenuItem<String>(
+                                value: category.name,
+                                child: Text(category.name),
+                              ),
+                            ),
+                            if (_selectedCategory.isNotEmpty &&
+                                !widget.availableCategories.any((category) => category.name == _selectedCategory))
+                              DropdownMenuItem<String>(
+                                value: _selectedCategory,
+                                child: Text(_selectedCategory),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedCategory = (value ?? '').trim();
+                            });
+                          },
                         ),
                       ),
-                      if (_selectedCategory.isNotEmpty &&
-                          !widget.availableCategories.any((category) => category.name == _selectedCategory))
-                        DropdownMenuItem<String>(
-                          value: _selectedCategory,
-                          child: Text(_selectedCategory),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        height: 56,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final newCategory = await _promptNewCategoryName();
+                            if (!context.mounted || newCategory == null || newCategory.isEmpty) {
+                              return;
+                            }
+                            final existingCategory = _existingCategoryName(newCategory);
+                            setState(() {
+                              _selectedCategory = existingCategory ?? newCategory;
+                            });
+                            if (existingCategory != null) {
+                              TransientFeedback.show(
+                                context,
+                                message:
+                                    'Kategorie "$existingCategory" existiert bereits und wurde übernommen.',
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.add),
+                          label: const Text('Neu'),
                         ),
+                      ),
                     ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedCategory = (value ?? '').trim();
-                      });
-                    },
                   ),
                 const SizedBox(height: 12),
                 _field(_sourceOfSupplyController, 'Lieferant', enabled: canEdit, readOnly: readOnly),

@@ -72,6 +72,45 @@ class OrderRepository {
     return rows.map(ItemOrderedRow.fromMap).toList();
   }
 
+  Future<Map<String, int>> getItemCountsByOrderIds(Iterable<String> orderIds) async {
+    final normalizedOrderIds = orderIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (normalizedOrderIds.isEmpty) {
+      return const {};
+    }
+
+    final db = await AppDatabase.instance.database;
+    final placeholders = List.filled(normalizedOrderIds.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      '''
+      SELECT io_order_id, COUNT(*) AS item_count
+      FROM item_ordered
+      WHERE io_order_id IN ($placeholders)
+      GROUP BY io_order_id
+      ''',
+      normalizedOrderIds,
+    );
+
+    final countsByOrderId = <String, int>{
+      for (final orderId in normalizedOrderIds) orderId: 0,
+    };
+
+    for (final row in rows) {
+      final orderId = row['io_order_id']?.toString().trim() ?? '';
+      if (orderId.isEmpty) {
+        continue;
+      }
+      final count = int.tryParse(row['item_count']?.toString() ?? '') ?? 0;
+      countsByOrderId[orderId] = count;
+    }
+
+    return countsByOrderId;
+  }
+
   Future<void> saveOrder(OrderRow order, {String? originalOrderId}) async {
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {
@@ -290,7 +329,26 @@ class OrderRepository {
         '''
         UPDATE customer
         SET c_total_value_eur = COALESCE((
-          SELECT SUM(o_value_goods)
+          SELECT SUM(
+            CASE
+              WHEN COALESCE(o_value_goods, 0) != 0
+                   AND o_payment_actual IS NULL
+                   AND o_paypal_fee_actual IS NULL
+                THEN o_value_goods
+              ELSE
+                COALESCE(o_total_price, 0)
+                - COALESCE(o_shipping, 0)
+                - COALESCE(
+                    CASE
+                      WHEN o_paypal_fee_actual IS NOT NULL THEN o_paypal_fee_actual
+                      WHEN o_payment_actual IS NOT NULL AND o_payment_actual != 1 THEN 0
+                      ELSE o_paypal_fee
+                    END,
+                    0
+                  )
+                - COALESCE(o_vat, 0)
+            END
+          )
           FROM "order"
           WHERE TRIM(COALESCE(o_customer_id, '')) = ?
         ), 0)

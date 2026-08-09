@@ -17,6 +17,8 @@ class OrderRow {
     this.oPayDate = '',
     this.oPayment = 0,
     this.oPaypalFee = 0,
+    this.oPaymentActual,
+    this.oPaypalFeeActual,
     this.oDelivery = '',
     this.oTradeShow = '',
     this.oPutt = 0,
@@ -51,6 +53,8 @@ class OrderRow {
   final String oPayDate;
   final int oPayment;
   final double oPaypalFee;
+  final int? oPaymentActual;
+  final double? oPaypalFeeActual;
   final String oDelivery;
   final String oTradeShow;
   final int oPutt;
@@ -86,6 +90,8 @@ class OrderRow {
       oPayDate: _str(map['o_pay_date']),
       oPayment: _int(map['o_payment']),
       oPaypalFee: _double(map['o_paypal_fee']),
+      oPaymentActual: _nullableInt(map['o_payment_actual']),
+      oPaypalFeeActual: _nullableDouble(map['o_paypal_fee_actual']),
       oDelivery: _str(map['o_delivery']),
       oTradeShow: _str(map['o_trade_show']),
       oPutt: _int(map['o_putt']),
@@ -122,6 +128,8 @@ class OrderRow {
         'o_pay_date': oPayDate,
         'o_payment': oPayment,
         'o_paypal_fee': oPaypalFee,
+        'o_payment_actual': oPaymentActual,
+        'o_paypal_fee_actual': oPaypalFeeActual,
         'o_delivery': oDelivery,
         'o_trade_show': oTradeShow,
         'o_putt': oPutt,
@@ -157,6 +165,8 @@ class OrderRow {
     String? oPayDate,
     int? oPayment,
     double? oPaypalFee,
+    int? oPaymentActual,
+    double? oPaypalFeeActual,
     String? oDelivery,
     String? oTradeShow,
     int? oPutt,
@@ -191,6 +201,8 @@ class OrderRow {
         oPayDate: oPayDate ?? this.oPayDate,
         oPayment: oPayment ?? this.oPayment,
         oPaypalFee: oPaypalFee ?? this.oPaypalFee,
+        oPaymentActual: oPaymentActual ?? this.oPaymentActual,
+        oPaypalFeeActual: oPaypalFeeActual ?? this.oPaypalFeeActual,
         oDelivery: oDelivery ?? this.oDelivery,
         oTradeShow: oTradeShow ?? this.oTradeShow,
         oPutt: oPutt ?? this.oPutt,
@@ -213,7 +225,49 @@ class OrderRow {
   static String _str(Object? v, {String fallback = ''}) =>
       v?.toString().trim().isEmpty == true ? fallback : (v?.toString().trim() ?? fallback);
 
-  static int _int(Object? v) => int.tryParse(v?.toString() ?? '') ?? 0;
+  static int _int(Object? v) {
+    if (v is int) {
+      return v;
+    }
+    if (v is num) {
+      return v.toInt();
+    }
+    final raw = v?.toString().trim() ?? '';
+    final parsedInt = int.tryParse(raw);
+    if (parsedInt != null) {
+      return parsedInt;
+    }
+    final parsedDouble = double.tryParse(raw.replaceAll(',', '.'));
+    return parsedDouble?.toInt() ?? 0;
+  }
+
+  static int? _nullableInt(Object? v) {
+    if (v is int) {
+      return v;
+    }
+    if (v is num) {
+      return v.toInt();
+    }
+
+    final raw = v?.toString().trim();
+    if (raw == null || raw.isEmpty || raw == 'null') {
+      return null;
+    }
+    final parsedInt = int.tryParse(raw);
+    if (parsedInt != null) {
+      return parsedInt;
+    }
+    final parsedDouble = double.tryParse(raw.replaceAll(',', '.'));
+    return parsedDouble?.toInt();
+  }
+
+  static double? _nullableDouble(Object? v) {
+    final raw = v?.toString().trim();
+    if (raw == null || raw.isEmpty || raw == 'null') {
+      return null;
+    }
+    return double.tryParse(raw.replaceAll(',', '.'));
+  }
 
   static double _double(Object? v) =>
       double.tryParse(v?.toString().replaceAll(',', '.') ?? '') ?? 0;
@@ -299,12 +353,37 @@ class ItemOrderedRow {
   static String _str(Object? v, {String fallback = ''}) =>
       v?.toString().trim().isEmpty == true ? fallback : (v?.toString().trim() ?? fallback);
 
-  static int _int(Object? v) => int.tryParse(v?.toString() ?? '') ?? 0;
+  static int _int(Object? v) {
+    if (v is int) {
+      return v;
+    }
+    if (v is num) {
+      return v.toInt();
+    }
+    final raw = v?.toString().trim() ?? '';
+    final parsedInt = int.tryParse(raw);
+    if (parsedInt != null) {
+      return parsedInt;
+    }
+    final parsedDouble = double.tryParse(raw.replaceAll(',', '.'));
+    return parsedDouble?.toInt() ?? 0;
+  }
 
   static int? _nullableInt(Object? v) {
+    if (v is int) {
+      return v;
+    }
+    if (v is num) {
+      return v.toInt();
+    }
     final raw = v?.toString().trim();
     if (raw == null || raw.isEmpty || raw == 'null') return null;
-    return int.tryParse(raw);
+    final parsedInt = int.tryParse(raw);
+    if (parsedInt != null) {
+      return parsedInt;
+    }
+    final parsedDouble = double.tryParse(raw.replaceAll(',', '.'));
+    return parsedDouble?.toInt();
   }
 
   static double _double(Object? v) =>

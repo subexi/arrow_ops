@@ -928,7 +928,11 @@ class InvoicePdfService {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
     final displayTrackingCode = _displayTrackingCode(data.trackingCode);
     if (isPackingList) {
-      final trackingTitle = useGerman ? 'Trackingcode' : 'Tracking';
+      final packingListMetaLines = _packingListMetaLines(
+        data: data,
+        useGerman: useGerman,
+        displayTrackingCode: displayTrackingCode,
+      );
       return pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
@@ -940,7 +944,7 @@ class InvoicePdfService {
               pw.Row(
                 children: [
                   pw.Text(
-                    '${useGerman ? 'Warengewicht' : 'Total weight of goods'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
+                    packingListMetaLines.first,
                     style: pw.TextStyle(
                       fontSize: 9,
                       fontWeight: pw.FontWeight.bold,
@@ -949,10 +953,10 @@ class InvoicePdfService {
                   pw.Expanded(child: pw.SizedBox()),
                 ],
               ),
-              if (_valid(displayTrackingCode)) ...[
+              for (final line in packingListMetaLines.skip(1)) ...[
                 pw.SizedBox(height: 3),
                 pw.Text(
-                  '$trackingTitle: $displayTrackingCode',
+                  line,
                   style: const pw.TextStyle(fontSize: 9),
                 ),
               ],
@@ -1039,6 +1043,39 @@ class InvoicePdfService {
         ),
       ],
     );
+  }
+
+  @visibleForTesting
+  List<String> debugBuildPackingListMetaLines(
+    InvoiceDocumentData data,
+    bool useGerman,
+  ) {
+    return _packingListMetaLines(
+      data: data,
+      useGerman: useGerman,
+      displayTrackingCode: _displayTrackingCode(data.trackingCode),
+    );
+  }
+
+  List<String> _packingListMetaLines({
+    required InvoiceDocumentData data,
+    required bool useGerman,
+    required String displayTrackingCode,
+  }) {
+    final noteTitle = useGerman ? 'Lieferhinweis' : 'Delivery note';
+    final trackingTitle = useGerman ? 'Trackingcode' : 'Tracking';
+    final lines = <String>[
+      '${useGerman ? 'Warengewicht' : 'Total weight of goods'}: ${_formatWeight(data.totals.totalWeightInGram, useGerman)}',
+    ];
+
+    if (_valid(data.note)) {
+      lines.add('$noteTitle: ${data.note}');
+    }
+    if (_valid(displayTrackingCode)) {
+      lines.add('$trackingTitle: $displayTrackingCode');
+    }
+
+    return lines;
   }
 
   pw.Widget _buildGiroCodeBox(
@@ -1858,13 +1895,22 @@ class InvoicePdfService {
   }
 
   String _displayTrackingCode(String rawTrackingCode) {
-    final normalized = rawTrackingCode.trim();
+    var normalized = rawTrackingCode.trim();
     if (!_valid(normalized)) {
       return '-';
     }
 
-    final cleaned = normalized.replaceFirst(RegExp(r'^[A-Za-z\s]+'), '').trim();
-    return cleaned.isEmpty ? '-' : cleaned;
+    final firstWhitespace = normalized.indexOf(RegExp(r'\s'));
+    if (firstWhitespace >= 0 && firstWhitespace + 1 <= normalized.length) {
+      normalized = normalized.substring(firstWhitespace + 1).trimLeft();
+    }
+
+    if (normalized.isEmpty) {
+      return '-';
+    }
+
+    final hasAlphanumeric = RegExp(r'[A-Za-z0-9]').hasMatch(normalized);
+    return hasAlphanumeric ? normalized : '-';
   }
 
   bool _useLegacyGermanResellerLayout(InvoiceDocumentData data, bool useGerman) {

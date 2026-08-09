@@ -73,6 +73,57 @@ class OrderPage extends StatefulWidget {
   State<OrderPage> createState() => _OrderPageState();
 }
 
+@visibleForTesting
+String buildItemSelectionKey(ItemOrderedRow item) {
+  final id = item.ioId;
+  if (id != null) {
+    return 'id:$id';
+  }
+  return 'fallback:${item.ioOrderId}|${item.ioPos}|${item.ioItemId}|${item.ioIdi}';
+}
+
+@visibleForTesting
+int resolveEffectivePaymentCode({
+  required int plannedPaymentCode,
+  required int? actualPaymentCode,
+}) {
+  return actualPaymentCode ?? plannedPaymentCode;
+}
+
+@visibleForTesting
+bool hasPaymentOverride({
+  required int plannedPaymentCode,
+  required int? actualPaymentCode,
+}) {
+  return actualPaymentCode != null && actualPaymentCode != plannedPaymentCode;
+}
+
+@visibleForTesting
+String buildPaymentDisplayLabel({
+  required int plannedPaymentCode,
+  required int? actualPaymentCode,
+}) {
+  final plannedLabel = _paymentLabelFromCode(plannedPaymentCode);
+  final actualCode = actualPaymentCode;
+  if (actualCode == null || actualCode == plannedPaymentCode) {
+    return plannedLabel;
+  }
+  final actualLabel = _paymentLabelFromCode(actualCode);
+  return '$plannedLabel -> $actualLabel';
+}
+
+String _paymentLabelFromCode(int code) {
+  const labels = ['Sonstiges', 'PayPal', 'Banküberweisung', 'Kreditkarte', 'Bar'];
+  if (code < 0 || code >= labels.length) return code.toString();
+  return labels[code];
+}
+
+enum _OrderStatusQuickFilter {
+  all,
+  paidNotShipped,
+  shippedNotPaid,
+}
+
 class _OrderPageState extends State<OrderPage> {
   final _orderRepo = const OrderRepository();
   final _customerRepo = const CustomerRepository();
@@ -87,10 +138,11 @@ class _OrderPageState extends State<OrderPage> {
   bool _loading = true;
   String? _loadError;
   String? _selectedOrderId;
-  int? _selectedItemOrderedId;
+  String? _selectedItemOrderedKey;
 
   int _orderSortColumnIndex = 0;
   bool _orderSortAscending = false;
+  _OrderStatusQuickFilter _orderStatusQuickFilter = _OrderStatusQuickFilter.all;
   final TextEditingController _orderSearchController = TextEditingController();
   String _orderSearchQuery = '';
   final ScrollController _ordersVerticalController = ScrollController();
@@ -105,6 +157,10 @@ class _OrderPageState extends State<OrderPage> {
   static const double _minTopHeight = 200.0;
   static const double _minBottomHeight = 140.0;
   static const int _cashPaymentCode = 4;
+
+  String _itemSelectionKey(ItemOrderedRow item) {
+    return buildItemSelectionKey(item);
+  }
 
   @override
   void initState() {
@@ -143,9 +199,11 @@ class _OrderPageState extends State<OrderPage> {
         items = await _orderRepo.getItemsForOrder(nextSelectedId);
       }
 
-      int? nextSelectedItemId = _selectedItemOrderedId;
-      if (nextSelectedItemId == null || !items.any((item) => item.ioId == nextSelectedItemId)) {
-        nextSelectedItemId = items.isEmpty ? null : items.first.ioId;
+      String? nextSelectedItemKey = _selectedItemOrderedKey;
+      if (nextSelectedItemKey == null ||
+          !items.any((item) => _itemSelectionKey(item) == nextSelectedItemKey)) {
+        nextSelectedItemKey =
+            items.isEmpty ? null : _itemSelectionKey(items.first);
       }
 
       if (!mounted) return;
@@ -156,7 +214,7 @@ class _OrderPageState extends State<OrderPage> {
         _customerById = customerMap;
         _selectedOrderId = nextSelectedId;
         _items = items;
-        _selectedItemOrderedId = nextSelectedItemId;
+        _selectedItemOrderedKey = nextSelectedItemKey;
       });
     } catch (error) {
       if (!mounted) return;
@@ -165,7 +223,7 @@ class _OrderPageState extends State<OrderPage> {
         _orders = [];
         _items = [];
         _selectedOrderId = null;
-        _selectedItemOrderedId = null;
+        _selectedItemOrderedKey = null;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -193,16 +251,17 @@ class _OrderPageState extends State<OrderPage> {
       if (!mounted) return;
       setState(() {
         _items = items;
-        if (_selectedItemOrderedId == null ||
-            !items.any((item) => item.ioId == _selectedItemOrderedId)) {
-          _selectedItemOrderedId = items.isEmpty ? null : items.first.ioId;
+        if (_selectedItemOrderedKey == null ||
+            !items.any((item) => _itemSelectionKey(item) == _selectedItemOrderedKey)) {
+          _selectedItemOrderedKey =
+              items.isEmpty ? null : _itemSelectionKey(items.first);
         }
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _items = [];
-        _selectedItemOrderedId = null;
+        _selectedItemOrderedKey = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Positionen konnten nicht geladen werden: $error')),
@@ -445,9 +504,30 @@ class _OrderPageState extends State<OrderPage> {
     return Uri.parse('https://parcelsapp.com/de/tracking/$encodedTrackingCode');
   }
 
-  Future<void> _openTrackingCode(String trackingCode) async {
-    final normalized = trackingCode.trim();
+  String _trackingCodeForLink(String rawTrackingCode) {
+    final normalized = rawTrackingCode.trim();
     if (normalized.isEmpty || normalized == '-') {
+      return '';
+    }
+
+    var candidate = normalized;
+    final firstWhitespace = normalized.indexOf(RegExp(r'\s'));
+    if (firstWhitespace >= 0 && firstWhitespace + 1 < normalized.length) {
+      candidate = normalized.substring(firstWhitespace + 1).trimLeft();
+    }
+
+    if (candidate.isEmpty) {
+      return '';
+    }
+
+    final firstToken = candidate.split(RegExp(r'\s+')).first.trim();
+    final alphanumericOnly = firstToken.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+    return alphanumericOnly;
+  }
+
+  Future<void> _openTrackingCode(String trackingCode) async {
+    final normalized = _trackingCodeForLink(trackingCode);
+    if (normalized.isEmpty) {
       return;
     }
 
@@ -464,8 +544,8 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Widget _buildTrackingCodeCell(String trackingCode) {
-    final normalized = trackingCode.trim();
-    if (normalized.isEmpty || normalized == '-') {
+    final normalized = _trackingCodeForLink(trackingCode);
+    if (normalized.isEmpty) {
       return const Text('-');
     }
 
@@ -726,9 +806,28 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   String _paymentLabel(int code) {
-    const labels = ['Sonstiges', 'PayPal', 'Banküberweisung', 'Kreditkarte', 'Bar'];
-    if (code < 0 || code >= labels.length) return code.toString();
-    return labels[code];
+    return _paymentLabelFromCode(code);
+  }
+
+  int _effectivePaymentCode(OrderRow order) {
+    return resolveEffectivePaymentCode(
+      plannedPaymentCode: order.oPayment,
+      actualPaymentCode: order.oPaymentActual,
+    );
+  }
+
+  String _paymentDisplayLabel(OrderRow order) {
+    return buildPaymentDisplayLabel(
+      plannedPaymentCode: order.oPayment,
+      actualPaymentCode: order.oPaymentActual,
+    );
+  }
+
+  bool _hasPaymentOverride(OrderRow order) {
+    return hasPaymentOverride(
+      plannedPaymentCode: order.oPayment,
+      actualPaymentCode: order.oPaymentActual,
+    );
   }
 
   String _positionDescription(ItemOrderedRow item, String orderLanguage) {
@@ -783,6 +882,8 @@ class _OrderPageState extends State<OrderPage> {
       _puttLabel(order.oPutt),
       order.oTrackingCode,
       _paymentLabel(order.oPayment),
+      _paymentLabel(_effectivePaymentCode(order)),
+      _paymentDisplayLabel(order),
       order.oDate,
       order.oPayDate,
       order.oDelivery,
@@ -791,11 +892,41 @@ class _OrderPageState extends State<OrderPage> {
     return haystack.contains(normalizedQuery);
   }
 
+  bool _hasPayDate(OrderRow order) {
+    final normalized = order.oPayDate.trim();
+    return normalized.isNotEmpty && normalized != '-';
+  }
+
+  bool _hasDeliveryDate(OrderRow order) {
+    final normalized = order.oDelivery.trim();
+    return normalized.isNotEmpty && normalized != '-';
+  }
+
+  bool _matchesOrderStatusQuickFilter(OrderRow order) {
+    final hasPayDate = _hasPayDate(order);
+    final hasDeliveryDate = _hasDeliveryDate(order);
+    switch (_orderStatusQuickFilter) {
+      case _OrderStatusQuickFilter.all:
+        return true;
+      case _OrderStatusQuickFilter.paidNotShipped:
+        return hasPayDate && !hasDeliveryDate;
+      case _OrderStatusQuickFilter.shippedNotPaid:
+        return hasDeliveryDate && !hasPayDate;
+    }
+  }
+
   List<OrderRow> _sortedOrders() {
     final normalizedQuery = _orderSearchQuery.trim().toLowerCase();
     final result = _orders
         .where((order) => _matchesOrderSearch(order, normalizedQuery))
+        .where(_matchesOrderStatusQuickFilter)
         .toList(growable: false);
+
+    if (_orderStatusQuickFilter != _OrderStatusQuickFilter.all) {
+      result.sort((a, b) => b.oId.compareTo(a.oId));
+      return result;
+    }
+
     result.sort((a, b) {
       int cmp;
       switch (_orderSortColumnIndex) {
@@ -825,7 +956,7 @@ class _OrderPageState extends State<OrderPage> {
         case 11:
           cmp = a.oTrackingCode.compareTo(b.oTrackingCode);
         case 12:
-          cmp = a.oPayment.compareTo(b.oPayment);
+          cmp = _effectivePaymentCode(a).compareTo(_effectivePaymentCode(b));
         case 13:
           cmp = a.oPaypalFee.compareTo(b.oPaypalFee);
         case 14:
@@ -970,10 +1101,10 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   ItemOrderedRow? get _selectedItemOrdered {
-    final id = _selectedItemOrderedId;
-    if (id == null) return null;
+      final key = _selectedItemOrderedKey;
+      if (key == null) return null;
     return _items.cast<ItemOrderedRow?>().firstWhere(
-          (item) => item?.ioId == id,
+        (item) => item != null && _itemSelectionKey(item) == key,
           orElse: () => null,
         );
   }
@@ -1176,6 +1307,40 @@ class _OrderPageState extends State<OrderPage> {
               onChanged: (value) => setState(() => _orderSearchQuery = value),
             ),
             const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Alle'),
+                  selected: _orderStatusQuickFilter == _OrderStatusQuickFilter.all,
+                  onSelected: (_) {
+                    setState(() {
+                      _orderStatusQuickFilter = _OrderStatusQuickFilter.all;
+                    });
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Bezahlt und nicht versendet'),
+                  selected: _orderStatusQuickFilter == _OrderStatusQuickFilter.paidNotShipped,
+                  onSelected: (_) {
+                    setState(() {
+                      _orderStatusQuickFilter = _OrderStatusQuickFilter.paidNotShipped;
+                    });
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Versendet und nicht bezahlt'),
+                  selected: _orderStatusQuickFilter == _OrderStatusQuickFilter.shippedNotPaid,
+                  onSelected: (_) {
+                    setState(() {
+                      _orderStatusQuickFilter = _OrderStatusQuickFilter.shippedNotPaid;
+                    });
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             // ── Tabelle
             Expanded(
               child: sorted.isEmpty
@@ -1189,6 +1354,7 @@ class _OrderPageState extends State<OrderPage> {
                       isVerticalScrollBarVisible: true,
                       isHorizontalScrollBarVisible: true,
                       fixedTopRows: 1,
+                      fixedLeftColumns: 3,
                       headingRowHeight: 56,
                       headingRowColor: WidgetStateProperty.resolveWith(
                         (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -1225,7 +1391,7 @@ class _OrderPageState extends State<OrderPage> {
                         DataColumn2(label: const Text('Gesamtgewicht in g'), numeric: true, onSort: _onOrderSort, fixedWidth: 182),
                         DataColumn2(label: const Text('Versand'), numeric: true, onSort: _onOrderSort, fixedWidth: 132),
                         DataColumn2(label: const Text('Trackingcode'), onSort: _onOrderSort, fixedWidth: 200),
-                        DataColumn2(label: const Text('Zahlart'), onSort: _onOrderSort, fixedWidth: 160),
+                        DataColumn2(label: const Text('Zahlart (Plan -> Ist)'), onSort: _onOrderSort, fixedWidth: 220),
                         DataColumn2(label: const Text('PayPal-Gebühr'), numeric: true, onSort: _onOrderSort, fixedWidth: 166),
                         DataColumn2(
                           label: const Text('Gesamt-\npreis', textAlign: TextAlign.center),
@@ -1309,7 +1475,35 @@ class _OrderPageState extends State<OrderPage> {
                             _numericCell(_formatDecimal(order.oTotalWeight, 1), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _numericCell(_formatDecimal(order.oShipping, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             DataCell(_buildTrackingCodeCell(order.oTrackingCode), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _singleLineCell(_paymentLabel(order.oPayment), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
+                            DataCell(
+                              Row(
+                                children: [
+                                  if (_hasPaymentOverride(order)) ...[
+                                    Icon(
+                                      Icons.swap_horiz,
+                                      size: 16,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Expanded(
+                                    child: Text(
+                                      _paymentDisplayLabel(order),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: _hasPaymentOverride(order)
+                                          ? TextStyle(
+                                              color: Theme.of(context).colorScheme.primary,
+                                              fontWeight: FontWeight.w700,
+                                            )
+                                          : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              onTap: () => handleSelectOrder(),
+                              onDoubleTap: () => handleOpenEdit(),
+                            ),
                             _numericCell(_formatDecimal(order.oPaypalFee, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _numericCell(_formatDecimal(order.oTotalPrice, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
                             _singleLineCell(
@@ -1438,16 +1632,17 @@ class _OrderPageState extends State<OrderPage> {
                             DataColumn2(label: Text('Farbe'), size: ColumnSize.M),
                           ],
                           rows: _items.map((item) {
-                            final isSelected = item.ioId != null && item.ioId == _selectedItemOrderedId;
+                            final itemSelectionKey = _itemSelectionKey(item);
+                            final isSelected = itemSelectionKey == _selectedItemOrderedKey;
                             final description = _positionDescription(item, order.oLanguage);
                             void handleOpenEdit() {
-                              setState(() => _selectedItemOrderedId = item.ioId);
+                              setState(() => _selectedItemOrderedKey = itemSelectionKey);
                               _showItemOrderedForm(initialValue: item);
                             }
                             return DataRow(
                               selected: isSelected,
                               onSelectChanged: (_) {
-                                setState(() => _selectedItemOrderedId = item.ioId);
+                                setState(() => _selectedItemOrderedKey = itemSelectionKey);
                               },
                               cells: [
                                 _numericCell(item.ioPos.toString().padLeft(2, '0'), onDoubleTap: handleOpenEdit),

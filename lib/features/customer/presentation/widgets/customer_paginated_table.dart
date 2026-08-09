@@ -9,7 +9,7 @@ import 'customer_detail_dialog.dart';
 
 typedef CustomerSortCallback = void Function(int columnIndex, bool ascending);
 
-class CustomerPaginatedTable extends StatelessWidget {
+class CustomerPaginatedTable extends StatefulWidget {
   const CustomerPaginatedTable({
     super.key,
     required this.customers,
@@ -44,15 +44,41 @@ class CustomerPaginatedTable extends StatelessWidget {
   final Map<String, double> customerNetById;
 
   @override
+  State<CustomerPaginatedTable> createState() => _CustomerPaginatedTableState();
+}
+
+class _CustomerPaginatedTableState extends State<CustomerPaginatedTable> {
+  late final ScrollController _verticalScrollController;
+  late final ScrollController _horizontalScrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _verticalScrollController = ScrollController();
+    _horizontalScrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _verticalScrollController.dispose();
+    _horizontalScrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return PaginatedDataTable2(
-      sortColumnIndex: sortColumnIndex,
-      sortAscending: sortAscending,
-      rowsPerPage: rowsPerPage,
+      sortColumnIndex: widget.sortColumnIndex,
+      sortAscending: widget.sortAscending,
+      rowsPerPage: widget.rowsPerPage,
+      scrollController: _verticalScrollController,
+      horizontalScrollController: _horizontalScrollController,
+      isVerticalScrollBarVisible: true,
+      isHorizontalScrollBarVisible: true,
       availableRowsPerPage: const [10, 25, 50],
       onRowsPerPageChanged: (value) {
         if (value != null) {
-          onRowsPerPageChanged(value);
+          widget.onRowsPerPageChanged(value);
         }
       },
       showFirstLastButtons: true,
@@ -61,60 +87,60 @@ class CustomerPaginatedTable extends StatelessWidget {
       columns: [
         DataColumn(
           label: const Text('ID'),
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         DataColumn(
           label: const Text('∑ Netto €'),
           numeric: true,
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         DataColumn2(
           fixedWidth: 190,
           label: const Text('Nachname'),
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         DataColumn(
           label: const Text('Vorname'),
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         DataColumn(
           label: const Text('Firma'),
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         DataColumn(
           label: const Text('Stadt'),
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         DataColumn(
           label: const Text('Land'),
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         DataColumn(
           label: const Text('E-Mail'),
-          onSort: onSort,
+          onSort: widget.onSort,
         ),
         const DataColumn(label: Text('Details')),
         const DataColumn(label: Text('Maps')),
       ],
       source: CustomerDataTableSource(
-        customers: customers,
-        countryNameByCode: countryNameByCode,
-        loading: loading,
-        selectedCustomerId: selectedCustomerId,
-        onSelectCustomer: onSelectCustomer,
-        customerNetById: customerNetById,
+        customers: widget.customers,
+        countryNameByCode: widget.countryNameByCode,
+        loading: widget.loading,
+        selectedCustomerId: widget.selectedCustomerId,
+        onSelectCustomer: widget.onSelectCustomer,
+        customerNetById: widget.customerNetById,
         onOpenDetails: (customer) {
           showCupertinoDialog<void>(
             context: context,
             builder: (context) => CustomerDetailDialog(
               customer: customer,
-              countryNameByCode: countryNameByCode,
-              onEdit: () => onEditCustomer(customer),
-              onDelete: () => onDeleteCustomer(customer),
+              countryNameByCode: widget.countryNameByCode,
+              onEdit: () => widget.onEditCustomer(customer),
+              onDelete: () => widget.onDeleteCustomer(customer),
             ),
           );
         },
-        onOpenMap: onOpenMap,
+        onOpenMap: widget.onOpenMap,
       ),
     );
   }

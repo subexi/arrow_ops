@@ -68,16 +68,20 @@ void main() {
     expect(items.single.category, '');
   });
 
-  test('verhindert speichern mit unbekannter artikelkategorie', () async {
-    expect(
-      () => repository.saveCatalogueItem(
-        const ItemCatalogueRow(
-          icId: 11,
-          icIdi: 'ART-11',
-          category: 'Nicht vorhanden',
-        ),
+  test('legt unbekannte artikelkategorie beim speichern automatisch an', () async {
+    await repository.saveCatalogueItem(
+      const ItemCatalogueRow(
+        icId: 11,
+        icIdi: 'ART-11',
+        category: 'Nicht vorhanden',
       ),
-      throwsA(isA<Exception>()),
     );
+
+    final categories = await repository.getItemCategories();
+    final names = categories.map((row) => row.name).toSet();
+    expect(names.contains('Nicht vorhanden'), isTrue);
+
+    final items = await repository.getCatalogueItems();
+    expect(items.singleWhere((item) => item.icId == 11).category, 'Nicht vorhanden');
   });
 }

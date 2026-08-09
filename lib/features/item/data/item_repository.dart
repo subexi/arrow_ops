@@ -211,20 +211,28 @@ class ItemRepository {
     final db = await AppDatabase.instance.database;
     final normalizedCategory = item.category.trim();
 
-    if (normalizedCategory.isNotEmpty) {
-      final categoryRows = await db.query(
-        'item_category',
-        columns: ['icat_id'],
-        where: 'name = ?',
-        whereArgs: [normalizedCategory],
-        limit: 1,
-      );
-      if (categoryRows.isEmpty) {
-        throw Exception('Kategorie "$normalizedCategory" existiert nicht.');
-      }
-    }
-
     await db.transaction((txn) async {
+      if (normalizedCategory.isNotEmpty) {
+        final categoryRows = await txn.query(
+          'item_category',
+          columns: ['icat_id'],
+          where: 'LOWER(name) = LOWER(?)',
+          whereArgs: [normalizedCategory],
+          limit: 1,
+        );
+        if (categoryRows.isEmpty) {
+          final maxIdRows = await txn.rawQuery(
+            'SELECT COALESCE(MAX(icat_id), 0) + 1 AS next_id FROM item_category',
+          );
+          final nextCategoryId = _readInt(maxIdRows.first['next_id']);
+          await txn.insert(
+            'item_category',
+            {'icat_id': nextCategoryId, 'name': normalizedCategory},
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+      }
+
       final normalizedItem = item.copyWith(category: normalizedCategory);
       final updated = await txn.update(
         'item_catalogue',
