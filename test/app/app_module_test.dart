@@ -7,6 +7,7 @@ void main() {
       ArrowOpsModuleId.customers,
       ArrowOpsModuleId.items,
       ArrowOpsModuleId.orders,
+      ArrowOpsModuleId.inventory,
       ArrowOpsModuleId.invoices,
       ArrowOpsModuleId.analytics,
       ArrowOpsModuleId.sync,
@@ -15,6 +16,6 @@ void main() {
 
   test('module registry supports lookup by module id', () {
     expect(ArrowOpsModules.byId(ArrowOpsModuleId.orders).label, 'Aufträge');
-    expect(ArrowOpsModules.indexOf(ArrowOpsModuleId.analytics), 4);
+    expect(ArrowOpsModules.indexOf(ArrowOpsModuleId.analytics), 5);
   });
 }

@@ -1,6 +1,8 @@
 {
   "recommendations": [
-    "videostack.codegraph-vscode-plugin",
     "svenzhao.codegraph-auto-mcp"
+  ],
+  "unwantedRecommendations": [
+    "videostack.codegraph-vscode-plugin"
   ]
 }

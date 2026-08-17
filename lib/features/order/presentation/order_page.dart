@@ -871,6 +871,16 @@ class _OrderPageState extends State<OrderPage> {
     if (normalizedQuery.isEmpty) {
       return true;
     }
+    final deliveryCountryId = order.oDeliveryCountryId.trim();
+    final deliveryCountryName = deliveryCountryId.isEmpty
+        ? ''
+        : _allCountries
+            .firstWhere(
+              (c) => c.coTld.trim().toLowerCase() == deliveryCountryId.toLowerCase(),
+              orElse: () => const CountryTld(coTld: '', coName: ''),
+            )
+            .coName
+            .trim();
 
     final haystack = <String>[
       order.oId,
@@ -884,6 +894,8 @@ class _OrderPageState extends State<OrderPage> {
       _paymentLabel(order.oPayment),
       _paymentLabel(_effectivePaymentCode(order)),
       _paymentDisplayLabel(order),
+      deliveryCountryId,
+      deliveryCountryName,
       order.oDate,
       order.oPayDate,
       order.oDelivery,

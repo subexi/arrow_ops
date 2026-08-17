@@ -90,6 +90,8 @@ class _CustomerPageState extends State<CustomerPage> {
 
   late final TextEditingController _searchController;
   late final FocusNode _searchFocusNode;
+  late final ScrollController _customerOrdersScrollController;
+  late final ScrollController _orderItemsScrollController;
   Timer? _searchDebounce;
 
   bool _loading = false;
@@ -577,6 +579,8 @@ class _CustomerPageState extends State<CustomerPage> {
     _orderRepository = widget.orderRepository;
     _searchController = TextEditingController();
     _searchFocusNode = FocusNode(debugLabel: 'customerSearch');
+    _customerOrdersScrollController = ScrollController();
+    _orderItemsScrollController = ScrollController();
     _searchController.addListener(_onSearchChanged);
     unawaited(_loadCustomerSectionLayoutPrefs());
     if (widget.initializeDatabasePath) {
@@ -590,6 +594,8 @@ class _CustomerPageState extends State<CustomerPage> {
     _searchDebounce?.cancel();
     _searchFocusNode.dispose();
     _searchController.dispose();
+    _customerOrdersScrollController.dispose();
+    _orderItemsScrollController.dispose();
     super.dispose();
   }
 
@@ -1130,8 +1136,10 @@ class _CustomerPageState extends State<CustomerPage> {
     }
 
     return Scrollbar(
+      controller: _customerOrdersScrollController,
       thumbVisibility: true,
       child: SingleChildScrollView(
+        controller: _customerOrdersScrollController,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
@@ -1181,8 +1189,10 @@ class _CustomerPageState extends State<CustomerPage> {
     }
 
     return Scrollbar(
+      controller: _orderItemsScrollController,
       thumbVisibility: true,
       child: SingleChildScrollView(
+        controller: _orderItemsScrollController,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
