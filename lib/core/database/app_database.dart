@@ -1035,6 +1035,9 @@ class AppDatabase {
 
   static Future<void> _migrationV21(Database db) async {
     final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    if (orderColumns.isEmpty) {
+      return;
+    }
     final hasFxToEurColumn = orderColumns.any(
       (column) => column['name'] == 'o_fx_to_eur',
     );
@@ -1056,6 +1059,9 @@ class AppDatabase {
 
   static Future<void> _migrationV22(Database db) async {
     final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    if (orderColumns.isEmpty) {
+      return;
+    }
     final hasPaymentActualColumn = orderColumns.any(
       (column) => column['name'] == 'o_payment_actual',
     );
