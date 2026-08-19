@@ -499,17 +499,17 @@ class _CustomerPageState extends State<CustomerPage> {
       }
 
       if (Platform.isMacOS) {
-        return writeToCommand('/usr/bin/pbcopy', const []);
+        return await writeToCommand('/usr/bin/pbcopy', const []);
       }
       if (Platform.isLinux) {
         final wlCopyOk = await writeToCommand('wl-copy', const []);
         if (wlCopyOk) {
           return true;
         }
-        return writeToCommand('xclip', const ['-selection', 'clipboard']);
+        return await writeToCommand('xclip', const ['-selection', 'clipboard']);
       }
       if (Platform.isWindows) {
-        return writeToCommand('cmd', const ['/c', 'clip']);
+        return await writeToCommand('cmd', const ['/c', 'clip']);
       }
     } catch (_) {
       return false;

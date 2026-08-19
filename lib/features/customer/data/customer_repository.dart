@@ -48,7 +48,7 @@ class CustomerRepository {
       final db = await AppDatabase.instance.database;
       debugPrint('📊 Datenbank verbunden');
 
-      return db.transaction((txn) async {
+      return await db.transaction((txn) async {
         debugPrint('🔄 Starte Batch-Insert mit ${customers.length} Einträgen');
 
         final countryCodes = _collectCountryCodes(customers);

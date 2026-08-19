@@ -37,6 +37,25 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> dragUntilVisibleNoWarn(
+    WidgetTester tester,
+    Finder itemFinder,
+    Finder scrollable,
+    Offset moveStep, {
+    int maxIteration = 50,
+  }) async {
+    for (var i = 0; i < maxIteration; i++) {
+      await tester.pump();
+      if (itemFinder.evaluate().isNotEmpty) return;
+      await tester.drag(scrollable, moveStep, warnIfMissed: false);
+    }
+    // final pump to allow any pending frames
+    await tester.pump();
+    if (itemFinder.evaluate().isEmpty) {
+      throw Exception('dragUntilVisibleNoWarn: item not found');
+    }
+  }
+
   testWidgets('kundensuche reagiert nach debounce und begrenzt treffer auf 100', (tester) async {
     await pumpDialog(tester, buildCustomers(150));
 
@@ -57,7 +76,8 @@ void main() {
     expect(find.byType(ListView), findsOneWidget);
 
     // Zu einem hohen, aber noch erlaubten Eintrag scrollen.
-    await tester.dragUntilVisible(
+    await dragUntilVisibleNoWarn(
+      tester,
       find.text('Last099, First099'),
       find.byType(ListView),
       const Offset(0, -200),
@@ -68,7 +88,8 @@ void main() {
     // Eintrag > 99 darf wegen Limit nicht erreichbar sein.
     var overLimitEntryReachable = true;
     try {
-      await tester.dragUntilVisible(
+      await dragUntilVisibleNoWarn(
+        tester,
         find.text('Last120, First120'),
         find.byType(ListView),
         const Offset(0, -200),
