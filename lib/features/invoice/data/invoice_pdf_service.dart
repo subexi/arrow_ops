@@ -109,12 +109,28 @@ class InvoicePdfService {
     final customerLastNameToken = _normalizedLastNameToken(data.buyer.lastName);
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
     final deliveryDifferent = _isDeliveryAddressDifferent(data);
-    final endCustomerRaw = data.delivery.lastName.isNotEmpty && data.delivery.lastName != '-'
-      ? data.delivery.lastName
-      : data.delivery.name;
+    // Determine raw end-customer name: prefer a meaningful delivery.lastName
+    // but if it's identical to the buyer's last name and delivery.name
+    // contains additional tokens, prefer delivery.name to extract the
+    // true end-customer surname (covers cases like "BAUMANN WEINFURTER").
+    String endCustomerRaw;
+    final rawDeliveryLast = data.delivery.lastName.trim();
+    final rawDeliveryName = data.delivery.name.trim();
+    // buyer last name is available via parameter when needed; no local var.
+
+    final deliveryNameTokens = rawDeliveryName.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+    if (deliveryNameTokens.length > 1) {
+      // If delivery.name looks like a full name (multiple tokens), prefer it.
+      endCustomerRaw = rawDeliveryName;
+    } else if (rawDeliveryLast.isNotEmpty && rawDeliveryLast != '-') {
+      endCustomerRaw = rawDeliveryLast;
+    } else {
+      endCustomerRaw = rawDeliveryName;
+    }
+
     final endCustomerLastNameToken = deliveryDifferent
-      ? _normalizedEndCustomerLastNameToken(endCustomerRaw, data.buyer.lastName)
-      : null;
+        ? _normalizedEndCustomerLastNameToken(endCustomerRaw, data.buyer.lastName)
+        : null;
 
     if (isPackingList) {
       if (deliveryDifferent && endCustomerLastNameToken != null) {
@@ -140,25 +156,32 @@ class InvoicePdfService {
     if (parts.isEmpty) {
       return 'Unbekannt';
     }
-    // Heuristic:
-    // - If the buyer's last name equals the first token of the delivery name,
-    //   the delivery surname is likely the second token (e.g. "BAUMANN WEINFURTER").
-    // - Otherwise prefer the last token (common "First Last" format).
-    final norm = (String s) => s.trim().toUpperCase();
-    if (parts.length >= 2 && buyerLastName != null) {
-      try {
-        if (norm(parts.first) == norm(buyerLastName)) {
-          final token = _sanitizeFileNameToken(parts[1]);
-          if (token.isNotEmpty) return token;
-        }
-      } catch (_) {}
+    if (parts.length == 1) {
+      final token = _sanitizeFileNameToken(parts.first);
+      return token.isNotEmpty ? token : 'Unbekannt';
     }
 
+    String norm(String s) => s.trim().toUpperCase();
+
+    // "BAUMANN WEINFURTER" style: buyer last matches first token → second token is end-customer surname.
+    if (buyerLastName != null && norm(parts.first) == norm(buyerLastName)) {
+      final token = _sanitizeFileNameToken(parts[1]);
+      if (token.isNotEmpty) return token;
+    }
+
+    // "WEINFURTER Peter" style: first token is ALL-CAPS, rest contain lowercase → first is surname.
+    final firstAllUpper = parts.first.toUpperCase() == parts.first &&
+        parts.first.contains(RegExp(r'[A-Z]'));
+    final restHasLower = parts.skip(1).any((p) => p != p.toUpperCase());
+    if (firstAllUpper && restHasLower) {
+      final token = _sanitizeFileNameToken(parts.first);
+      if (token.isNotEmpty) return token;
+    }
+
+    // Fallback: "Anna Schmidt" style → last token is surname.
     for (var index = parts.length - 1; index >= 0; index--) {
       final token = _sanitizeFileNameToken(parts[index]);
-      if (token.isNotEmpty) {
-        return token;
-      }
+      if (token.isNotEmpty) return token;
     }
 
     return 'Unbekannt';
