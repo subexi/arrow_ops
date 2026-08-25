@@ -96,18 +96,30 @@ class InvoicePdfService {
     );
     final customerLastNameToken = _normalizedLastNameToken(data.buyer.lastName);
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
-    if (isPackingList && _isDeliveryAddressDifferent(data)) {
-      final endCustomerLastNameToken = _normalizedEndCustomerLastNameToken(
-        data.delivery.name,
-      );
-      return '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_pl.pdf';
+    final deliveryDifferent = _isDeliveryAddressDifferent(data);
+    final endCustomerRaw = data.delivery.lastName.isNotEmpty && data.delivery.lastName != '-'
+      ? data.delivery.lastName
+      : data.delivery.name;
+    final endCustomerLastNameToken = deliveryDifferent
+      ? _normalizedEndCustomerLastNameToken(endCustomerRaw, data.buyer.lastName)
+      : null;
+
+    if (isPackingList) {
+      if (deliveryDifferent && endCustomerLastNameToken != null) {
+        return '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_pl.pdf';
+      }
+      return '${numberToken}_${customerLastNameToken}_pl.pdf';
     }
 
-    final suffix = isPackingList ? 'pl' : 'in';
+    final suffix = 'in';
+    if (deliveryDifferent && endCustomerLastNameToken != null) {
+      return '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_$suffix.pdf';
+    }
+
     return '${numberToken}_${customerLastNameToken}_$suffix.pdf';
   }
 
-  String _normalizedEndCustomerLastNameToken(String rawDeliveryName) {
+  String _normalizedEndCustomerLastNameToken(String rawDeliveryName, [String? buyerLastName]) {
     final parts = rawDeliveryName
         .trim()
         .split(RegExp(r'\s+'))
@@ -115,6 +127,19 @@ class InvoicePdfService {
         .toList(growable: false);
     if (parts.isEmpty) {
       return 'Unbekannt';
+    }
+    // Heuristic:
+    // - If the buyer's last name equals the first token of the delivery name,
+    //   the delivery surname is likely the second token (e.g. "BAUMANN WEINFURTER").
+    // - Otherwise prefer the last token (common "First Last" format).
+    final norm = (String s) => s.trim().toUpperCase();
+    if (parts.length >= 2 && buyerLastName != null) {
+      try {
+        if (norm(parts.first) == norm(buyerLastName)) {
+          final token = _sanitizeFileNameToken(parts[1]);
+          if (token.isNotEmpty) return token;
+        }
+      } catch (_) {}
     }
 
     for (var index = parts.length - 1; index >= 0; index--) {
@@ -276,12 +301,26 @@ class InvoicePdfService {
   }
 
   Future<pw.Font?> _loadPdfFont(String assetPath) async {
+    // Try loading from asset bundle first (normal app), then fall back to
+    // reading the file directly from the filesystem (tests / dart runs).
     try {
       final data = await rootBundle.load(assetPath);
       return pw.Font.ttf(data);
     } catch (_) {
-      return null;
+      // fallthrough to file-based load
     }
+
+    try {
+      final file = File(assetPath);
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        return pw.Font.ttf(bytes.buffer.asByteData());
+      }
+    } catch (_) {
+      // ignore and return null
+    }
+
+    return null;
   }
 
   pw.Widget _buildHeader(
@@ -378,6 +417,8 @@ class InvoicePdfService {
       useGerman: useGerman,
     );
 
+    final deliveryDifferent = _isDeliveryAddressDifferent(data);
+
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -393,6 +434,7 @@ class InvoicePdfService {
             includeContacts: false,
             includeVat: false,
             boxed: false,
+            showGermanyCountry: deliveryDifferent,
             houseNumberFirst: deliveryHouseNumberFirst,
           ),
         ),
