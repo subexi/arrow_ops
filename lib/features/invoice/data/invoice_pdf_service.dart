@@ -36,8 +36,20 @@ class InvoicePdfService {
 
   Future<List<int>> generatePdfBytes(InvoiceDocumentData data) async {
     final document = pw.Document();
-    final embeddedBaseFont = await _loadPdfFont(_pdfFontRegularAssetPath);
-    final embeddedBoldFont = await _loadPdfFont(_pdfFontBoldAssetPath);
+    // Prefer NotoSans (better Unicode coverage) if available, then Roboto, then built-ins
+    pw.Font? embeddedBaseFont;
+    pw.Font? embeddedBoldFont;
+
+    try {
+      embeddedBaseFont = await _loadPdfFont('lib/fonts/NotoSans-Regular.ttf');
+      embeddedBoldFont = await _loadPdfFont('lib/fonts/NotoSans-Bold.ttf');
+    } catch (_) {
+      // ignore
+    }
+
+    embeddedBaseFont ??= await _loadPdfFont(_pdfFontRegularAssetPath);
+    embeddedBoldFont ??= await _loadPdfFont(_pdfFontBoldAssetPath);
+
     final baseFont = embeddedBaseFont ?? pw.Font.helvetica();
     final boldFont = embeddedBoldFont ?? pw.Font.helveticaBold();
     final useGerman = data.language.trim().toUpperCase() == 'DE';
