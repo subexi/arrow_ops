@@ -423,6 +423,27 @@ void main() {
     );
 
     test(
+      'picks surname from "Surname, Firstname" comma-separated delivery name',
+      () {
+        final data = _documentData(
+          lastName: 'BAUMANN',
+          delivery: const InvoicePartyData(
+            name: 'Weinfurtner, Peter',
+            street: 'Lieferweg',
+            houseNumber: '7',
+            postalCode: '12345',
+            city: 'Berlin',
+            countryCode: 'DE',
+          ),
+        );
+
+        final fileName = service.buildDefaultFileName(data);
+
+        expect(fileName, equals('1001_BAUMANN_Weinfurtner_in.pdf'));
+      },
+    );
+
+    test(
       'picks first ALL-CAPS token as surname when delivery name is "SURNAME Firstname" format',
       () {
         final data = _documentData(

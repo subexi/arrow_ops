@@ -148,6 +148,13 @@ class InvoicePdfService {
   }
 
   String _normalizedEndCustomerLastNameToken(String rawDeliveryName, [String? buyerLastName]) {
+    // "Surname, Firstname" format: everything before the first comma is the surname.
+    if (rawDeliveryName.contains(',')) {
+      final surnameRaw = rawDeliveryName.split(',').first.trim();
+      final token = _sanitizeFileNameToken(surnameRaw);
+      if (token.isNotEmpty) return token;
+    }
+
     final parts = rawDeliveryName
         .trim()
         .split(RegExp(r'\s+'))
