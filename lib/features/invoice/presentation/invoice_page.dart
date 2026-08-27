@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -491,14 +492,15 @@ class _InvoicePageState extends State<InvoicePage> {
     final dialogTitle = documentKind == InvoiceDocumentKind.packingList
         ? 'Lieferschein als PDF exportieren'
         : 'Rechnung als PDF exportieren';
-    return FilePicker.saveFile(
+    final uri = await FilePicker.saveFile(
       dialogTitle: dialogTitle,
       fileName: fileName,
+      bytes: Uint8List(0),
       initialDirectory: initialDirectory,
       allowedExtensions: const ['pdf'],
       type: FileType.custom,
-      lockParentWindow: true,
     );
+    return uri?.toFilePath();
   }
 
   Future<String> _resolveInitialExportDirectory() async {

@@ -194,6 +194,40 @@ class InvoicePdfService {
     return 'Unbekannt';
   }
 
+  // Formats delivery person name as "Firstname SURNAME" for display on the invoice.
+  String _formatDeliveryDisplayName(String rawName) {
+    final trimmed = rawName.trim();
+    if (trimmed.isEmpty || trimmed == '-') return trimmed;
+
+    String surname;
+    String firstname;
+
+    if (trimmed.contains(',')) {
+      // "Surname, Firstname" format
+      final commaIndex = trimmed.indexOf(',');
+      surname = trimmed.substring(0, commaIndex).trim();
+      firstname = trimmed.substring(commaIndex + 1).trim();
+    } else {
+      final tokens = trimmed.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+      if (tokens.length == 1) return tokens.first.toUpperCase();
+      final firstAllUpper = tokens.first.toUpperCase() == tokens.first &&
+          tokens.first.contains(RegExp(r'[A-Z]'));
+      final restHasLower = tokens.skip(1).any((t) => t != t.toUpperCase());
+      if (firstAllUpper && restHasLower) {
+        // "SURNAME Firstname" format
+        surname = tokens.first;
+        firstname = tokens.skip(1).join(' ');
+      } else {
+        // "Firstname Surname" format — last token is surname
+        surname = tokens.last;
+        firstname = tokens.take(tokens.length - 1).join(' ');
+      }
+    }
+
+    if (firstname.isEmpty) return surname.toUpperCase();
+    return '$firstname ${surname.toUpperCase()}';
+  }
+
   bool _isDeliveryAddressDifferent(InvoiceDocumentData data) {
     final buyerStreet = _normalizedAddressField(data.buyer.street);
     final deliveryStreet = _normalizedAddressField(data.delivery.street);
@@ -478,6 +512,9 @@ class InvoicePdfService {
             boxed: false,
             showGermanyCountry: deliveryDifferent,
             houseNumberFirst: deliveryHouseNumberFirst,
+            nameOverride: deliveryDifferent
+                ? _formatDeliveryDisplayName(shippingParty.name)
+                : null,
           ),
         ),
       ],
@@ -641,6 +678,7 @@ class InvoicePdfService {
     bool showGermanyCountry = false,
     bool addCountryGap = true,
     bool houseNumberFirst = false,
+    String? nameOverride,
   }) {
     final countryLine = _displayCountryForAddress(
       party.countryCode,
@@ -660,7 +698,8 @@ class InvoicePdfService {
     final widgets = <pw.Widget>[
       if (_valid(party.company))
         _partyLine(party.company, fontSize: bodyFontSize),
-      if (_valid(party.name)) _partyLine(party.name, fontSize: bodyFontSize),
+      if (_valid(nameOverride ?? party.name))
+        _partyLine(nameOverride ?? party.name, fontSize: bodyFontSize),
       if (_valid(streetLine)) _partyLine(streetLine, fontSize: bodyFontSize),
       if (addGermanStreetCityGap && isGermany && _valid(postalCityLine))
         pw.SizedBox(height: 10),

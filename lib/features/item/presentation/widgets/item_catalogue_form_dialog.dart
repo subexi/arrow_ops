@@ -201,7 +201,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
       return;
     }
 
-    final pickedPath = result?.files.single.path;
+    final pickedPath = result.firstOrNull?.path;
     if (pickedPath == null || pickedPath.trim().isEmpty) {
       TransientFeedback.show(
         context,
@@ -225,7 +225,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
       return;
     }
 
-    final pickedPath = result?.files.single.path;
+    final pickedPath = result.firstOrNull?.path;
     if (pickedPath == null || pickedPath.trim().isEmpty) {
       TransientFeedback.show(
         context,

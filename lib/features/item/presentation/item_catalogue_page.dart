@@ -1103,13 +1103,15 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
   }) async {
     final initialDirectory = (await getApplicationDocumentsDirectory()).path;
     try {
-      return await FilePicker.saveFile(
+      final uri = await FilePicker.saveFile(
         dialogTitle: dialogTitle,
         fileName: fileName,
+        bytes: Uint8List(0),
         initialDirectory: initialDirectory,
         type: FileType.custom,
         allowedExtensions: allowedExtensions,
       );
+      return uri?.toFilePath();
     } catch (_) {
       return null;
     }

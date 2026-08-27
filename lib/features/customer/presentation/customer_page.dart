@@ -1796,17 +1796,17 @@ class _CustomerPageState extends State<CustomerPage> {
         initialDirectory: initialDirectory,
       );
 
-      if (result == null || result.files.isEmpty) {
+      if (result.isEmpty) {
         debugPrint('⊘ FilePicker: Keine Datei ausgewählt');
         return;
       }
 
-      final file = result.files.single;
-      debugPrint('✅ Datei ausgewählt: ${file.name} (${file.size} bytes)');
+      final file = result.single;
+      debugPrint('✅ Datei ausgewählt: ${file.name}');
 
-      final content = file.bytes != null
-          ? utf8.decode(file.bytes!)
-          : await File(file.path!).readAsString();
+      final content = file.path != null
+          ? await File(file.path!).readAsString()
+          : utf8.decode(await file.readAsBytes());
 
       debugPrint('📖 Datei gelesen: ${content.length} Zeichen');
       await _processImport(content, replaceExisting: replaceExisting);
@@ -1979,13 +1979,14 @@ class _CustomerPageState extends State<CustomerPage> {
       String? targetPath;
 
       if (Platform.isMacOS) {
-        targetPath = await FilePicker.saveFile(
+        targetPath = (await FilePicker.saveFile(
           dialogTitle: 'CSV exportieren',
           fileName: fileName,
           initialDirectory: initialDirectory,
           type: FileType.custom,
           allowedExtensions: const ['csv'],
-        );
+          bytes: Uint8List(0),
+        ))?.toFilePath();
       }
 
       targetPath ??= p.join(
@@ -2071,13 +2072,14 @@ class _CustomerPageState extends State<CustomerPage> {
 
       String? targetPath;
       if (Platform.isMacOS) {
-        targetPath = await FilePicker.saveFile(
+        targetPath = (await FilePicker.saveFile(
           dialogTitle: 'Customers locations als CSV exportieren',
           fileName: fileName,
           initialDirectory: initialDirectory,
           type: FileType.custom,
           allowedExtensions: const ['csv'],
-        );
+          bytes: Uint8List(0),
+        ))?.toFilePath();
       }
 
       targetPath ??= p.join(
@@ -2126,13 +2128,14 @@ class _CustomerPageState extends State<CustomerPage> {
 
       String? targetPath;
       if (Platform.isMacOS) {
-        targetPath = await FilePicker.saveFile(
+        targetPath = (await FilePicker.saveFile(
           dialogTitle: 'Länder als CSV exportieren',
           fileName: fileName,
           initialDirectory: initialDirectory,
           type: FileType.custom,
           allowedExtensions: const ['csv'],
-        );
+          bytes: Uint8List(0),
+        ))?.toFilePath();
       }
 
       targetPath ??= p.join(
@@ -2311,11 +2314,11 @@ class _CustomerPageState extends State<CustomerPage> {
         initialDirectory: initialDirectory,
       );
 
-      if (result == null || result.files.isEmpty) {
+      if (result.isEmpty) {
         return;
       }
 
-      final file = result.files.single;
+      final file = result.single;
       final path = file.path;
       if (path == null || path.isEmpty) {
         throw Exception('Dateipfad konnte nicht gelesen werden.');

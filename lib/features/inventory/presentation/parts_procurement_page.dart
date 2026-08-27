@@ -502,11 +502,11 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         dialogTitle: 'CSV-Datei zum Importieren wählen',
       );
 
-      if (result == null || result.files.isEmpty) {
+      if (result.isEmpty) {
         return;
       }
 
-      final filePath = result.files.first.path;
+      final filePath = result.first.path;
       if (filePath == null) return;
 
       final fileContent = await File(filePath).readAsString(encoding: utf8);
@@ -676,13 +676,14 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
     required String fileName,
     required List<String> allowedExtensions,
   }) async {
-    final result = await FilePicker.saveFile(
+    final uri = await FilePicker.saveFile(
       dialogTitle: dialogTitle,
       fileName: fileName,
+      bytes: Uint8List(0),
       allowedExtensions: allowedExtensions,
       type: FileType.custom,
     );
-    return result;
+    return uri?.toFilePath();
   }
 
   String _buildFileTimestamp(DateTime dateTime) {
