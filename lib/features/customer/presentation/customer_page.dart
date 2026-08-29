@@ -1791,7 +1791,6 @@ class _CustomerPageState extends State<CustomerPage> {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['csv'],
-        withData: true,
         dialogTitle: 'CSV-Datei zum Importieren auswählen',
         initialDirectory: initialDirectory,
       );
@@ -1982,10 +1981,10 @@ class _CustomerPageState extends State<CustomerPage> {
         targetPath = (await FilePicker.saveFile(
           dialogTitle: 'CSV exportieren',
           fileName: fileName,
+          bytes: Uint8List(0),
           initialDirectory: initialDirectory,
           type: FileType.custom,
           allowedExtensions: const ['csv'],
-          bytes: Uint8List(0),
         ))?.toFilePath();
       }
 
@@ -2075,10 +2074,10 @@ class _CustomerPageState extends State<CustomerPage> {
         targetPath = (await FilePicker.saveFile(
           dialogTitle: 'Customers locations als CSV exportieren',
           fileName: fileName,
+          bytes: Uint8List(0),
           initialDirectory: initialDirectory,
           type: FileType.custom,
           allowedExtensions: const ['csv'],
-          bytes: Uint8List(0),
         ))?.toFilePath();
       }
 
@@ -2131,10 +2130,10 @@ class _CustomerPageState extends State<CustomerPage> {
         targetPath = (await FilePicker.saveFile(
           dialogTitle: 'Länder als CSV exportieren',
           fileName: fileName,
+          bytes: Uint8List(0),
           initialDirectory: initialDirectory,
           type: FileType.custom,
           allowedExtensions: const ['csv'],
-          bytes: Uint8List(0),
         ))?.toFilePath();
       }
 

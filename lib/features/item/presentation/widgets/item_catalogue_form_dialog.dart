@@ -192,16 +192,15 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   }
 
   Future<void> _pickImagePath() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'],
-      allowMultiple: false,
     );
     if (!mounted) {
       return;
     }
 
-    final pickedPath = result.firstOrNull?.path;
+    final pickedPath = result?.path;
     if (pickedPath == null || pickedPath.trim().isEmpty) {
       TransientFeedback.show(
         context,
@@ -216,16 +215,15 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
   }
 
   Future<void> _pickDrawingPath() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const ['pdf', 'dwg', 'dxf', 'svg', 'png', 'jpg', 'jpeg', 'webp'],
-      allowMultiple: false,
     );
     if (!mounted) {
       return;
     }
 
-    final pickedPath = result.firstOrNull?.path;
+    final pickedPath = result?.path;
     if (pickedPath == null || pickedPath.trim().isEmpty) {
       TransientFeedback.show(
         context,

@@ -194,8 +194,8 @@ class InvoicePdfService {
     return 'Unbekannt';
   }
 
-  // Formats delivery person name as "Firstname SURNAME" for display on the invoice.
-  String _formatDeliveryDisplayName(String rawName) {
+  // Formats recipient names as "Firstname SURNAME" for address blocks.
+  String _formatAddressDisplayName(String rawName) {
     final trimmed = rawName.trim();
     if (trimmed.isEmpty || trimmed == '-') return trimmed;
 
@@ -287,7 +287,7 @@ class InvoicePdfService {
 
   bool _shouldShowDeliveryAddressRubric(InvoiceDocumentData data) {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
-    return !isPackingList || _isDeliveryAddressDifferent(data);
+    return !isPackingList;
   }
 
   String _normalizedNumberToken(String orderId, String invoiceNumber) {
@@ -441,6 +441,7 @@ class InvoicePdfService {
                   boxed: false,
                   bodyFontSize: 10.8,
                   houseNumberFirst: buyerHouseNumberFirst,
+                  nameOverride: _formatAddressDisplayName(recipient.name),
                 ),
               ],
             ),
@@ -493,8 +494,6 @@ class InvoicePdfService {
       useGerman: useGerman,
     );
 
-    final deliveryDifferent = _isDeliveryAddressDifferent(data);
-
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -510,11 +509,9 @@ class InvoicePdfService {
             includeContacts: false,
             includeVat: false,
             boxed: false,
-            showGermanyCountry: deliveryDifferent,
+            showGermanyCountry: false,
             houseNumberFirst: deliveryHouseNumberFirst,
-            nameOverride: deliveryDifferent
-                ? _formatDeliveryDisplayName(shippingParty.name)
-                : null,
+            nameOverride: _formatAddressDisplayName(shippingParty.name),
           ),
         ),
       ],
@@ -1800,6 +1797,16 @@ class InvoicePdfService {
       houseNumber: party.houseNumber,
       houseNumberFirst: houseNumberFirst,
     );
+  }
+
+  @visibleForTesting
+  String debugFormatAddressDisplayName(String rawName) {
+    return _formatAddressDisplayName(rawName);
+  }
+
+  @visibleForTesting
+  String debugDisplayCountryForAddress(String value, {bool showGermany = false}) {
+    return _displayCountryForAddress(value, showGermany: showGermany);
   }
 
   bool _isAustralianAddress(String countryCode) {

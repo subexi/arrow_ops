@@ -525,7 +525,7 @@ void main() {
   group('InvoicePdfService delivery address rubric visibility', () {
     const service = InvoicePdfService();
 
-    test('shows rubric for packing list when delivery differs', () {
+    test('hides rubric for packing list when delivery differs', () {
       final data = _documentData(
         kind: InvoiceDocumentKind.packingList,
         buyer: const InvoicePartyData(
@@ -546,7 +546,7 @@ void main() {
         ),
       );
 
-      expect(service.debugShouldShowDeliveryAddressRubric(data), isTrue);
+      expect(service.debugShouldShowDeliveryAddressRubric(data), isFalse);
     });
 
     test('hides rubric for packing list when delivery equals billing', () {
@@ -693,6 +693,59 @@ void main() {
       );
 
       expect(service.debugUsesBuyerForShippingRubric(data), isFalse);
+    });
+  });
+
+  group('InvoicePdfService.debugFormatAddressDisplayName', () {
+    const service = InvoicePdfService();
+
+    test('formats "Firstname Surname" as "Firstname SURNAME"', () {
+      final text = service.debugFormatAddressDisplayName('Anna Schmidt');
+
+      expect(text, equals('Anna SCHMIDT'));
+    });
+
+    test('formats "Surname, Firstname" as "Firstname SURNAME"', () {
+      final text = service.debugFormatAddressDisplayName('Schmidt, Anna');
+
+      expect(text, equals('Anna SCHMIDT'));
+    });
+
+    test('formats "SURNAME Firstname" as "Firstname SURNAME"', () {
+      final text = service.debugFormatAddressDisplayName('SCHMIDT Anna');
+
+      expect(text, equals('Anna SCHMIDT'));
+    });
+
+    test('formats single token names as uppercase', () {
+      final text = service.debugFormatAddressDisplayName('Schmidt');
+
+      expect(text, equals('SCHMIDT'));
+    });
+  });
+
+  group('InvoicePdfService.debugDisplayCountryForAddress', () {
+    const service = InvoicePdfService();
+
+    test('hides Germany by default', () {
+      final text = service.debugDisplayCountryForAddress('DE');
+
+      expect(text, equals(''));
+    });
+
+    test('shows mapped country when address is not Germany', () {
+      final text = service.debugDisplayCountryForAddress('IT');
+
+      expect(text, equals('Italy'));
+    });
+
+    test('shows Germany only when explicitly requested', () {
+      final text = service.debugDisplayCountryForAddress(
+        'Germany',
+        showGermany: true,
+      );
+
+      expect(text, equals('Germany'));
     });
   });
 
