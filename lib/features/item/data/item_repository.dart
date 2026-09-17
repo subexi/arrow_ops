@@ -243,6 +243,8 @@ class ItemRepository {
       if (updated == 0) {
         await txn.insert('item_catalogue', normalizedItem.toMap());
       }
+
+      await _deleteUnusedItemCategoriesInTransaction(txn);
     });
 
     await syncDerivedPurchasePrices(excludedArticleIds: {item.icId});
@@ -403,7 +405,13 @@ class ItemRepository {
       final remainingBomRows = await _fetchBomRows(txn);
       await _writeBomRows(txn, _renumberBomRows(_groupBomRowsByParent(remainingBomRows)));
       await _recalculatePurchasePricesInTransaction(txn);
+      await _deleteUnusedItemCategoriesInTransaction(txn);
     });
+  }
+
+  Future<int> deleteUnusedItemCategories() async {
+    final db = await AppDatabase.instance.database;
+    return db.transaction(_deleteUnusedItemCategoriesInTransaction);
   }
 
   Future<void> saveBomItem(ItemBomRow item) async {
@@ -744,6 +752,40 @@ class ItemRepository {
   }
 
   int _readInt(Object? value) => int.tryParse(value?.toString() ?? '') ?? 0;
+
+  Future<int> _deleteUnusedItemCategoriesInTransaction(Transaction txn) async {
+    final categoryRows = await txn.query(
+      'item_category',
+      columns: ['icat_id', 'name'],
+    );
+    if (categoryRows.isEmpty) {
+      return 0;
+    }
+
+    final usedCategoryNames = (await txn.query('item_catalogue', columns: ['category']))
+        .map((row) => row['category']?.toString().trim().toLowerCase() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+
+    final unusedCategoryIds = categoryRows
+        .where((row) {
+          final name = row['name']?.toString().trim().toLowerCase() ?? '';
+          return name.isNotEmpty && !usedCategoryNames.contains(name);
+        })
+        .map((row) => _readInt(row['icat_id']))
+        .where((id) => id > 0)
+        .toList(growable: false);
+
+    if (unusedCategoryIds.isEmpty) {
+      return 0;
+    }
+
+    return txn.delete(
+      'item_category',
+      where: _whereInClause('icat_id', unusedCategoryIds.length),
+      whereArgs: unusedCategoryIds,
+    );
+  }
 
   Future<void> _ensureBomIdsInTransaction(Transaction txn) async {
     final rows = await txn.query(

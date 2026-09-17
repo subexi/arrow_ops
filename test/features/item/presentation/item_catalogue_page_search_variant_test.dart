@@ -25,18 +25,21 @@ void main() {
               icId: 1,
               icIdi: 'Ohne Variante',
               icIdv: '-',
+              category: 'Schaefte',
               icPriceNet: 10,
             ),
             ItemCatalogueRow(
               icId: 2,
               icIdi: 'Mit Variante A',
               icIdv: 'A-1',
+              category: 'Nocks',
               icPriceNet: 20,
             ),
             ItemCatalogueRow(
               icId: 3,
               icIdi: 'Mit Variante B',
               icIdv: 'B-1',
+              category: 'Spitzen',
               icPriceNet: 30,
             ),
           ],
@@ -60,6 +63,21 @@ void main() {
     expect(find.text('Mit Variante B'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'B-1');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ohne Variante'), findsNothing);
+    expect(find.text('Mit Variante A'), findsNothing);
+    expect(find.text('Mit Variante B'), findsOneWidget);
+  });
+
+  testWidgets('suche findet Artikel teilqualifiziert ueber Kategorie mit kat: praefix', (tester) async {
+    addTearDown(() async {
+      await binding.setSurfaceSize(null);
+    });
+
+    await pumpPage(tester);
+
+    await tester.enterText(find.byType(TextField), 'kat:spitz');
     await tester.pumpAndSettle();
 
     expect(find.text('Ohne Variante'), findsNothing);

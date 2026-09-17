@@ -12,6 +12,7 @@ import '../../customer/domain/customer.dart';
 import '../../customer/domain/country_tld.dart';
 import '../../customer/presentation/customer_page.dart';
 import '../../item/domain/item_models.dart';
+import '../data/invoice_calculation_service.dart';
 import '../data/order_repository.dart';
 import '../domain/order_models.dart';
 import 'widgets/item_ordered_form_dialog.dart';
@@ -118,6 +119,66 @@ String _paymentLabelFromCode(int code) {
   return labels[code];
 }
 
+@visibleForTesting
+OrderRow recalculateOrderHeaderTotals({
+  required OrderRow order,
+  required List<ItemOrderedRow> items,
+  required Customer? customer,
+  required int cashPaymentCode,
+  InvoiceCalculationService calculationService = const InvoiceCalculationService(),
+}) {
+  final summedItemsValue = items.fold<double>(
+    0,
+    (sum, item) => sum + item.ioTotalPrice,
+  );
+  final summedItemsWeight = items.fold<double>(
+    0,
+    (sum, item) => sum + item.ioTotalWeight,
+  );
+
+  if (order.oPutt != 0 && order.oPayment == cashPaymentCode) {
+    return order.copyWith(
+      oValueGoods: summedItemsValue,
+      oVatRate: 0,
+      oVat: 0,
+      oTotalWeight: summedItemsWeight,
+      oTotalPrice: summedItemsValue,
+    );
+  }
+
+  if (customer != null) {
+    final totals = calculationService.calculateTotals(
+      order: order,
+      items: items,
+      customer: customer,
+    );
+    return order.copyWith(
+      oValueGoods: totals.itemsNet,
+      oVatRate: totals.vatRate,
+      oVat: totals.vatAmount,
+      oTotalWeight: totals.totalWeightInGram,
+      oTotalPrice: totals.grandTotal,
+    );
+  }
+
+  final vatRate = order.oVatRate;
+  final isGrossBasis = order.oPriceBasis.trim().toLowerCase() == 'gross';
+  final grossDivisor = 1 + (vatRate / 100);
+  final double valueGoods = isGrossBasis
+      ? (grossDivisor <= 0 ? summedItemsValue : summedItemsValue / grossDivisor)
+      : summedItemsValue;
+  final double vat = isGrossBasis
+      ? summedItemsValue - valueGoods
+      : (vatRate <= 0 ? 0.0 : valueGoods * (vatRate / 100));
+
+  return order.copyWith(
+    oValueGoods: valueGoods,
+    oVat: vat,
+    oTotalWeight: summedItemsWeight,
+    oTotalPrice: valueGoods + vat + order.oShipping + order.oPaypalFee,
+  );
+}
+
 enum _OrderStatusQuickFilter {
   all,
   paidNotShipped,
@@ -127,6 +188,7 @@ enum _OrderStatusQuickFilter {
 class _OrderPageState extends State<OrderPage> {
   final _orderRepo = const OrderRepository();
   final _customerRepo = const CustomerRepository();
+  final _invoiceCalculationService = const InvoiceCalculationService();
   final _imageStorage = const ItemImageStorageService();
 
   List<OrderRow> _orders = [];
@@ -139,6 +201,7 @@ class _OrderPageState extends State<OrderPage> {
   String? _loadError;
   String? _selectedOrderId;
   String? _selectedItemOrderedKey;
+  bool _didInitialHeaderReconciliation = false;
 
   int _orderSortColumnIndex = 0;
   bool _orderSortAscending = false;
@@ -183,6 +246,19 @@ class _OrderPageState extends State<OrderPage> {
       final countries = await _customerRepo.getAllCountries();
       final customerMap = {for (final c in customers) c.cId: c};
 
+      if (!_didInitialHeaderReconciliation && orders.isNotEmpty) {
+        _didInitialHeaderReconciliation = true;
+        final hasReconciledChanges = await _reconcileOrderHeadersIfNeeded(
+          orders,
+          customerMap,
+        );
+        if (hasReconciledChanges) {
+          if (!mounted) return;
+          await _loadData();
+          return;
+        }
+      }
+
       String? nextSelectedId = _selectedOrderId;
       final pendingInitialId = _pendingInitialOrderId;
       if (pendingInitialId != null &&
@@ -197,6 +273,24 @@ class _OrderPageState extends State<OrderPage> {
       List<ItemOrderedRow> items = [];
       if (nextSelectedId != null) {
         items = await _orderRepo.getItemsForOrder(nextSelectedId);
+        final selectedOrder = orders.cast<OrderRow?>().firstWhere(
+              (order) => order?.oId == nextSelectedId,
+              orElse: () => null,
+            );
+        if (selectedOrder != null) {
+          final customer = customerMap[selectedOrder.oCustomerId];
+          final recalculatedOrder = _recalculateOrderFromItems(
+            selectedOrder,
+            items,
+            customer,
+          );
+          if (_orderHeaderTotalsDiffer(selectedOrder, recalculatedOrder)) {
+            await _orderRepo.saveOrder(recalculatedOrder);
+            if (!mounted) return;
+            await _loadData();
+            return;
+          }
+        }
       }
 
       String? nextSelectedItemKey = _selectedItemOrderedKey;
@@ -248,6 +342,24 @@ class _OrderPageState extends State<OrderPage> {
     }
     try {
       final items = await _orderRepo.getItemsForOrder(id);
+      final selectedOrder = _orders.cast<OrderRow?>().firstWhere(
+            (order) => order?.oId == id,
+            orElse: () => null,
+          );
+      if (selectedOrder != null) {
+        final customer = _customerById[selectedOrder.oCustomerId];
+        final recalculatedOrder = _recalculateOrderFromItems(
+          selectedOrder,
+          items,
+          customer,
+        );
+        if (_orderHeaderTotalsDiffer(selectedOrder, recalculatedOrder)) {
+          await _orderRepo.saveOrder(recalculatedOrder);
+          if (!mounted) return;
+          await _loadData();
+          return;
+        }
+      }
       if (!mounted) return;
       setState(() {
         _items = items;
@@ -276,45 +388,52 @@ class _OrderPageState extends State<OrderPage> {
     }
 
     final items = await _orderRepo.getItemsForOrder(order.oId);
-    final summedItemsValue = items.fold<double>(
-      0,
-      (sum, item) => sum + item.ioTotalPrice,
-    );
-    final summedItemsWeight = items.fold<double>(
-      0,
-      (sum, item) => sum + item.ioTotalWeight,
-    );
-
-    final vatRate = order.oVatRate;
-    final isGrossBasis = order.oPriceBasis.trim().toLowerCase() == 'gross';
-
-    final double valueGoods;
-    final double vat;
-    if (order.oPutt != 0 && order.oPayment == _cashPaymentCode) {
-      valueGoods = summedItemsValue;
-      vat = 0;
-    } else if (isGrossBasis) {
-      final divisor = 1 + (vatRate / 100);
-      valueGoods = divisor <= 0 ? summedItemsValue : summedItemsValue / divisor;
-      vat = summedItemsValue - valueGoods;
-    } else {
-      valueGoods = summedItemsValue;
-      vat = vatRate <= 0 ? 0 : valueGoods * (vatRate / 100);
-    }
-
-    final totalPrice = (order.oPutt != 0 && order.oPayment == _cashPaymentCode)
-        ? summedItemsValue
-        : valueGoods + vat + order.oShipping + order.oPaypalFee;
-
-    final updatedOrder = order.copyWith(
-      oValueGoods: valueGoods,
-      oVat: vat,
-      oTotalWeight: summedItemsWeight,
-      oTotalPrice: totalPrice,
-    );
+    final customer = _customerById[order.oCustomerId];
+    final updatedOrder = _recalculateOrderFromItems(order, items, customer);
 
     await _orderRepo.saveOrder(updatedOrder);
     await _loadData();
+  }
+
+  OrderRow _recalculateOrderFromItems(
+    OrderRow order,
+    List<ItemOrderedRow> items,
+    Customer? customer,
+  ) {
+    return recalculateOrderHeaderTotals(
+      order: order,
+      items: items,
+      customer: customer,
+      cashPaymentCode: _cashPaymentCode,
+      calculationService: _invoiceCalculationService,
+    );
+  }
+
+  bool _orderHeaderTotalsDiffer(OrderRow current, OrderRow recalculated) {
+    const epsilon = 0.005;
+    bool differs(double a, double b) => (a - b).abs() > epsilon;
+    return differs(current.oValueGoods, recalculated.oValueGoods) ||
+        differs(current.oVatRate, recalculated.oVatRate) ||
+        differs(current.oVat, recalculated.oVat) ||
+        differs(current.oTotalWeight, recalculated.oTotalWeight) ||
+        differs(current.oTotalPrice, recalculated.oTotalPrice);
+  }
+
+  Future<bool> _reconcileOrderHeadersIfNeeded(
+    List<OrderRow> orders,
+    Map<String, Customer> customerMap,
+  ) async {
+    var hasChanges = false;
+    for (final order in orders) {
+      final items = await _orderRepo.getItemsForOrder(order.oId);
+      final customer = customerMap[order.oCustomerId];
+      final recalculated = _recalculateOrderFromItems(order, items, customer);
+      if (_orderHeaderTotalsDiffer(order, recalculated)) {
+        await _orderRepo.saveOrder(recalculated);
+        hasChanges = true;
+      }
+    }
+    return hasChanges;
   }
 
   String _customerName(String customerId) {

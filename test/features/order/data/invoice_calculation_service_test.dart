@@ -85,6 +85,84 @@ void main() {
       expect(totals.grandTotal, closeTo(105.0, 0.0001));
     });
 
+    test('keeps item net for net basis and computes VAT on top', () {
+      const order = OrderRow(
+        oId: '1004',
+        oCustomerId: 'C4',
+        oPriceBasis: 'net',
+        oVatRate: 19,
+        oShipping: 0,
+        oPaypalFee: 0,
+      );
+
+      const customer = Customer(
+        cId: 'C4',
+        cLastName: 'Muster',
+        cFirstName: 'Max',
+        cStreetB: 'Hauptstrasse',
+        cHouseNumberB: '10',
+        cPostalCodeB: '10115',
+        cCityB: 'Berlin',
+        cStreetD: 'Hauptstrasse',
+        cHouseNumberD: '10',
+        cPostalCodeD: '10115',
+        cCityD: 'Berlin',
+        cVat: false,
+      );
+
+      const items = [
+        ItemOrderedRow(ioOrderId: '1004', ioTotalPrice: 98.88, ioTotalWeight: 250),
+      ];
+
+      final totals = service.calculateTotals(order: order, items: items, customer: customer);
+
+      expect(totals.itemsNet, closeTo(98.88, 0.0001));
+      expect(totals.vatAmount, closeTo(18.7872, 0.0001));
+      expect(totals.grandTotal, closeTo(117.6672, 0.0001));
+    });
+
+    test('forces no VAT for EU reseller with VAT-ID outside Germany', () {
+      const order = OrderRow(
+        oId: '1005',
+        oCustomerId: 'C5',
+        oPriceBasis: 'net',
+        oVatRate: 19,
+        oShipping: 20,
+        oPaypalFee: 0,
+        oDealer: 1,
+      );
+
+      const customer = Customer(
+        cId: 'C5',
+        cLastName: 'Rossi',
+        cFirstName: 'Luca',
+        cStreetB: 'Via Roma',
+        cHouseNumberB: '12',
+        cPostalCodeB: '39100',
+        cCityB: 'Bolzano',
+        cStreetD: 'Via Roma',
+        cHouseNumberD: '12',
+        cPostalCodeD: '39100',
+        cCityD: 'Bolzano',
+        cCountryBId: 'it',
+        cCountryDId: 'it',
+        cDealer: true,
+        cVat: false,
+        cVatId: 'IT02953430218',
+      );
+
+      const items = [
+        ItemOrderedRow(ioOrderId: '1005', ioTotalPrice: 65.92, ioTotalWeight: 696),
+      ];
+
+      final totals = service.calculateTotals(order: order, items: items, customer: customer);
+
+      expect(totals.vatRate, closeTo(0.0, 0.0001));
+      expect(totals.vatAmount, closeTo(0.0, 0.0001));
+      expect(totals.itemsNet, closeTo(65.92, 0.0001));
+      expect(totals.grandTotal, closeTo(85.92, 0.0001));
+    });
+
     test('builds line descriptions from language and fallback', () {
       const items = [
         ItemOrderedRow(

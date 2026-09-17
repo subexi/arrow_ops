@@ -84,4 +84,42 @@ void main() {
     final items = await repository.getCatalogueItems();
     expect(items.singleWhere((item) => item.icId == 11).category, 'Nicht vorhanden');
   });
+
+  test('entfernt ungenutzte kategorie wenn artikelkategorie geleert wird', () async {
+    await repository.saveCatalogueItem(
+      const ItemCatalogueRow(
+        icId: 21,
+        icIdi: 'ART-21',
+        category: 'Temp Kategorie',
+      ),
+    );
+
+    await repository.saveCatalogueItem(
+      const ItemCatalogueRow(
+        icId: 21,
+        icIdi: 'ART-21',
+        category: '',
+      ),
+    );
+
+    final categories = await repository.getItemCategories();
+    final names = categories.map((row) => row.name.toLowerCase()).toSet();
+    expect(names.contains('temp kategorie'), isFalse);
+  });
+
+  test('entfernt ungenutzte kategorie wenn letzter artikel geloescht wird', () async {
+    await repository.saveCatalogueItem(
+      const ItemCatalogueRow(
+        icId: 31,
+        icIdi: 'ART-31',
+        category: 'Loeschbar',
+      ),
+    );
+
+    await repository.deleteCatalogueItem(31);
+
+    final categories = await repository.getItemCategories();
+    final names = categories.map((row) => row.name.toLowerCase()).toSet();
+    expect(names.contains('loeschbar'), isFalse);
+  });
 }

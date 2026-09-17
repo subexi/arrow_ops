@@ -150,10 +150,7 @@ class InvoiceDocumentBuildService {
       footer: _buildFooter(sellerProfile),
       lines: lines,
       totals: totals,
-      note: _normalizedOrFallback(
-        noteOverride,
-        _normalizedOrFallback(order.oNote, '-'),
-      ),
+      note: _normalizedOrFallback(noteOverride, '-'),
       paymentLabel: _paymentLabel(order.oPayment),
       payDate: _normalizedOrFallback(order.oPayDate, ''),
       deliveryDate: _normalizedOrFallback(order.oDelivery, ''),

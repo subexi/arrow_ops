@@ -90,6 +90,83 @@ void main() {
       expect(data.buyer.countryCode, 'DE');
       expect(data.delivery.countryCode, 'DE');
     });
+
+    test('does not transfer order notes into invoice note by default', () async {
+      const order = OrderRow(
+        oId: '1003',
+        oCustomerId: 'C3',
+        oLanguage: 'DE',
+        oDate: '2026-06-26',
+        oNote: 'Nur intern: nicht in Rechnung',
+      );
+      const customer = Customer(
+        cId: 'C3',
+        cFirstName: 'Eva',
+        cLastName: 'Beispiel',
+        cStreetB: 'Testweg',
+        cHouseNumberB: '5',
+        cPostalCodeB: '10115',
+        cCityB: 'Berlin',
+        cCountryBId: 'de',
+        cStreetD: 'Testweg',
+        cHouseNumberD: '5',
+        cPostalCodeD: '10115',
+        cCityD: 'Berlin',
+        cCountryDId: 'de',
+      );
+
+      final service = InvoiceDocumentBuildService(
+        orderRepository: _FakeOrderRepository(order: order),
+        customerRepository: _FakeCustomerRepository(
+          customer: customer,
+          countries: const <CountryTld>[CountryTld(coTld: 'de', coName: 'Germany')],
+        ),
+      );
+
+      final data = await service.buildFromOrder(orderId: '1003');
+
+      expect(data.note, '-');
+    });
+
+    test('keeps explicit note override for invoice output', () async {
+      const order = OrderRow(
+        oId: '1004',
+        oCustomerId: 'C4',
+        oLanguage: 'DE',
+        oDate: '2026-06-26',
+        oNote: 'Interne Auftragsnotiz',
+      );
+      const customer = Customer(
+        cId: 'C4',
+        cFirstName: 'Tom',
+        cLastName: 'Muster',
+        cStreetB: 'Teststrasse',
+        cHouseNumberB: '9',
+        cPostalCodeB: '50667',
+        cCityB: 'Koeln',
+        cCountryBId: 'de',
+        cStreetD: 'Teststrasse',
+        cHouseNumberD: '9',
+        cPostalCodeD: '50667',
+        cCityD: 'Koeln',
+        cCountryDId: 'de',
+      );
+
+      final service = InvoiceDocumentBuildService(
+        orderRepository: _FakeOrderRepository(order: order),
+        customerRepository: _FakeCustomerRepository(
+          customer: customer,
+          countries: const <CountryTld>[CountryTld(coTld: 'de', coName: 'Germany')],
+        ),
+      );
+
+      final data = await service.buildFromOrder(
+        orderId: '1004',
+        noteOverride: 'Bitte Nachbarn informieren',
+      );
+
+      expect(data.note, 'Bitte Nachbarn informieren');
+    });
   });
 }
 

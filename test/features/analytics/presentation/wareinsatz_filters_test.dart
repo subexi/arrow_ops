@@ -120,4 +120,55 @@ void main() {
     });
   });
 
+  group('wareinsatzMatchesDeliveryMonths', () {
+    test('matcht auf mehrere ausgewaehlte Monate', () {
+      final augustOrder = order(id: 'A1') .copyWith(oDelivery: '2026-08-15');
+      final septemberOrder = order(id: 'S1').copyWith(oDelivery: '2026-09-03');
+
+      expect(
+        wareinsatzMatchesDeliveryMonths(augustOrder, const {'2026-08', '2026-09'}),
+        isTrue,
+      );
+      expect(
+        wareinsatzMatchesDeliveryMonths(septemberOrder, const {'2026-08', '2026-09'}),
+        isTrue,
+      );
+      expect(
+        wareinsatzMatchesDeliveryMonths(septemberOrder, const {'2026-08'}),
+        isFalse,
+      );
+    });
+  });
+
+  group('wareinsatzMatchesSearchQuery', () {
+    test('findet teilqualifiziert nach Kategorie via kat: Praefix', () {
+      final matches = wareinsatzMatchesSearchQuery(
+        query: 'kat:bambu',
+        bezeichnung: 'bs-3540s',
+        beschreibung: 'Bambusschaft Premium',
+        category: 'Bambusschaefte',
+      );
+
+      expect(matches, isTrue);
+    });
+
+    test('kombiniert Freitext und Kategorie als UND-Bedingung', () {
+      final matches = wareinsatzMatchesSearchQuery(
+        query: 'premium kat:bambu',
+        bezeichnung: 'bs-3540s',
+        beschreibung: 'Bambusschaft Premium',
+        category: 'Bambusschaefte',
+      );
+      final noMatch = wareinsatzMatchesSearchQuery(
+        query: 'premium kat:carbon',
+        bezeichnung: 'bs-3540s',
+        beschreibung: 'Bambusschaft Premium',
+        category: 'Bambusschaefte',
+      );
+
+      expect(matches, isTrue);
+      expect(noMatch, isFalse);
+    });
+  });
+
 }

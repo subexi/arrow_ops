@@ -6,15 +6,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  Customer buildCustomer({String deliveryCountryId = 'DE'}) {
+  Customer buildCustomer({
+    String deliveryCountryId = 'DE',
+    String billingCountryId = 'DE',
+    bool isDealer = false,
+    bool isNoVatCustomer = false,
+    String vatId = '-',
+  }) {
     return Customer(
       cId: 'C001',
+      cDealer: isDealer,
+      cVat: isNoVatCustomer,
+      cVatId: vatId,
       cLastName: 'Mustermann',
       cFirstName: 'Max',
       cStreetB: 'Musterstrasse',
       cHouseNumberB: '1',
       cPostalCodeB: '12345',
       cCityB: 'Musterstadt',
+      cCountryBId: billingCountryId,
       cStreetD: 'Musterstrasse',
       cHouseNumberD: '1',
       cPostalCodeD: '12345',
@@ -50,16 +60,28 @@ void main() {
   Future<void> pumpDialog(
     WidgetTester tester, {
     String deliveryCountryId = 'DE',
+    String billingCountryId = 'DE',
     String currency = 'EUR',
     String language = 'DE',
     double fxToEur = 1,
+    bool isDealer = false,
+    bool isNoVatCustomer = false,
+    String vatId = '-',
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Center(
             child: OrderFormDialog(
-              allCustomers: [buildCustomer(deliveryCountryId: deliveryCountryId)],
+              allCustomers: [
+                buildCustomer(
+                  deliveryCountryId: deliveryCountryId,
+                  billingCountryId: billingCountryId,
+                  isDealer: isDealer,
+                  isNoVatCustomer: isNoVatCustomer,
+                  vatId: vatId,
+                ),
+              ],
               allCountries: const [],
               initialValue: buildInitialOrder(
                 currency: currency,
@@ -78,6 +100,17 @@ void main() {
     final finder = find.widgetWithText(TextFormField, label);
     expect(finder, findsOneWidget);
     return tester.widget<TextFormField>(finder);
+  }
+
+  bool fieldIsReadOnly(WidgetTester tester, String label) {
+    final formFieldFinder = find.widgetWithText(TextFormField, label);
+    expect(formFieldFinder, findsOneWidget);
+    final editableFinder = find.descendant(
+      of: formFieldFinder,
+      matching: find.byType(EditableText),
+    );
+    expect(editableFinder, findsOneWidget);
+    return tester.widget<EditableText>(editableFinder).readOnly;
   }
 
   testWidgets('berechnet PayPal-Gebuehr rueckwaerts und setzt Gesamtpreis als Empfangsbetrag', (
@@ -174,5 +207,53 @@ void main() {
 
     expect(paypalFeeField.controller?.text, decimalText(expectedFeeUsd));
     expect(totalField.controller?.text, decimalText(expectedTotalUsd));
+  });
+
+  testWidgets('macht MwSt-Satz editierbar fuer Netto-Reseller mit MwSt', (
+    tester,
+  ) async {
+    await pumpDialog(
+      tester,
+      isDealer: true,
+      isNoVatCustomer: false,
+    );
+
+    final vatRateField = fieldByLabel(tester, 'MwSt-Satz %');
+
+    expect(fieldIsReadOnly(tester, 'MwSt-Satz %'), isFalse);
+    expect(vatRateField.controller?.text, decimalText(19));
+  });
+
+  testWidgets('laesst MwSt-Satz gesperrt fuer Netto-Reseller ohne MwSt', (
+    tester,
+  ) async {
+    await pumpDialog(
+      tester,
+      isDealer: true,
+      isNoVatCustomer: true,
+    );
+
+    final vatRateField = fieldByLabel(tester, 'MwSt-Satz %');
+
+    expect(fieldIsReadOnly(tester, 'MwSt-Satz %'), isTrue);
+    expect(vatRateField.controller?.text, decimalText(0));
+  });
+
+  testWidgets('laesst MwSt-Satz gesperrt fuer EU-Reseller mit VAT-ID ausserhalb DE', (
+    tester,
+  ) async {
+    await pumpDialog(
+      tester,
+      deliveryCountryId: 'IT',
+      billingCountryId: 'IT',
+      isDealer: true,
+      isNoVatCustomer: false,
+      vatId: 'IT02953430218',
+    );
+
+    final vatRateField = fieldByLabel(tester, 'MwSt-Satz %');
+
+    expect(fieldIsReadOnly(tester, 'MwSt-Satz %'), isTrue);
+    expect(vatRateField.controller?.text, decimalText(0));
   });
 }

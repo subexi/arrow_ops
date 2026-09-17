@@ -30,6 +30,8 @@ class InvoicePdfService {
   static const double _invoiceTableHeaderFontSize = 7.0;
   static const double _invoiceTablePriceColumnWidth = 58;
   static const double _invoiceTableArticleColumnWidth = 80;
+  static const double _invoiceTableHtsColumnWidth = 62;
+  static const double _invoiceTableWeightColumnWidth = 58;
   static const String _giroRecipient = 'Arrow-Engineering UG';
   static const String _giroIban = 'DE47 6025 0010 1000 835 126';
   static const String _paypalRecipient = 'sales@arrow-fix.com';
@@ -134,17 +136,21 @@ class InvoicePdfService {
 
     if (isPackingList) {
       if (deliveryDifferent && endCustomerLastNameToken != null) {
-        return '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_pl.pdf';
+        return _finalizePdfFileName(
+          '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_pl.pdf',
+        );
       }
-      return '${numberToken}_${customerLastNameToken}_pl.pdf';
+      return _finalizePdfFileName('${numberToken}_${customerLastNameToken}_pl.pdf');
     }
 
     final suffix = 'in';
     if (deliveryDifferent && endCustomerLastNameToken != null) {
-      return '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_$suffix.pdf';
+      return _finalizePdfFileName(
+        '${numberToken}_${customerLastNameToken}_${endCustomerLastNameToken}_$suffix.pdf',
+      );
     }
 
-    return '${numberToken}_${customerLastNameToken}_$suffix.pdf';
+    return _finalizePdfFileName('${numberToken}_${customerLastNameToken}_$suffix.pdf');
   }
 
   String _normalizedEndCustomerLastNameToken(String rawDeliveryName, [String? buyerLastName]) {
@@ -344,6 +350,34 @@ class InvoicePdfService {
     }
 
     return ascii;
+  }
+
+  String _finalizePdfFileName(String raw) {
+    var value = raw.trim();
+    if (value.isEmpty) {
+      return 'document.pdf';
+    }
+
+    value = value
+        .replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_');
+
+    if (!value.toLowerCase().endsWith('.pdf')) {
+      value = '$value.pdf';
+    }
+
+    const maxLength = 120;
+    if (value.length <= maxLength) {
+      return value;
+    }
+
+    final base = value.substring(0, value.length - 4);
+    final maxBaseLength = maxLength - 4;
+    var clampedBase = base.substring(0, maxBaseLength).replaceAll(RegExp(r'[_-]+$'), '');
+    if (clampedBase.isEmpty) {
+      clampedBase = 'document';
+    }
+    return '$clampedBase.pdf';
   }
 
   String _replaceGermanChars(String value) {
@@ -786,9 +820,18 @@ class InvoicePdfService {
 
   pw.Widget _buildLinesTable(InvoiceDocumentData data, bool useGerman) {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    final showHtsColumn = _shouldShowPackingListHtsColumn(data);
+    final showWeightColumn = showHtsColumn;
     final showDiscountColumn =
         !isPackingList &&
         data.lines.any((line) => line.discountPercent.abs() > 0.0001);
+    final descriptionColumnIndex = 2 + (showHtsColumn ? 1 : 0) + (showWeightColumn ? 1 : 0);
+    final quantityColumnIndex = descriptionColumnIndex + 1;
+    final unitPriceColumnIndex = isPackingList ? null : quantityColumnIndex + 1;
+    final discountColumnIndex = showDiscountColumn ? unitPriceColumnIndex! + 1 : null;
+    final totalColumnIndex = isPackingList
+        ? null
+        : (showDiscountColumn ? discountColumnIndex! + 1 : unitPriceColumnIndex! + 1);
     final headers = _lineTableHeaders(
       data: data,
       useGerman: useGerman,
@@ -800,6 +843,10 @@ class InvoicePdfService {
           return <String>[
             line.position.toString(),
             _sanitizePdfText(line.articleLabel),
+            if (showHtsColumn)
+              _valid(line.hts) ? _sanitizePdfText(line.hts) : '',
+            if (showWeightColumn)
+              _formatPositionWeightInGram(line.weightInGram, useGerman),
             _sanitizePdfText(line.description, preserveLineBreaks: true),
             line.quantity.toString(),
             if (!isPackingList)
@@ -809,7 +856,47 @@ class InvoicePdfService {
               _formatMoney(line.lineTotal, data.currency, useGerman),
           ];
         })
-        .toList(growable: false);
+        .toList(growable: true);
+
+    if (rows.isEmpty) {
+      final emptyRow = List<String>.filled(headers.length, '', growable: false);
+      emptyRow[descriptionColumnIndex] = useGerman ? 'Keine Positionen' : 'No items';
+      rows.add(emptyRow);
+    }
+
+    final cellAlignments = <int, pw.Alignment>{
+      quantityColumnIndex: pw.Alignment.center,
+    };
+    if (unitPriceColumnIndex != null) {
+      cellAlignments[unitPriceColumnIndex] = pw.Alignment.centerRight;
+    }
+    if (discountColumnIndex != null) {
+      cellAlignments[discountColumnIndex] = pw.Alignment.center;
+    }
+    if (totalColumnIndex != null) {
+      cellAlignments[totalColumnIndex] = pw.Alignment.centerRight;
+    }
+
+    final columnWidths = <int, pw.TableColumnWidth>{
+      0: const pw.FixedColumnWidth(30),
+      1: const pw.FixedColumnWidth(_invoiceTableArticleColumnWidth),
+      if (showHtsColumn)
+        2: const pw.FixedColumnWidth(_invoiceTableHtsColumnWidth),
+      if (showWeightColumn)
+        3: const pw.FixedColumnWidth(_invoiceTableWeightColumnWidth),
+      quantityColumnIndex: const pw.FixedColumnWidth(40),
+    };
+    if (unitPriceColumnIndex != null) {
+      columnWidths[unitPriceColumnIndex] =
+          const pw.FixedColumnWidth(_invoiceTablePriceColumnWidth);
+    }
+    if (discountColumnIndex != null) {
+      columnWidths[discountColumnIndex] = const pw.FixedColumnWidth(45);
+    }
+    if (totalColumnIndex != null) {
+      columnWidths[totalColumnIndex] =
+          const pw.FixedColumnWidth(_invoiceTablePriceColumnWidth);
+    }
 
     const accentRed = PdfColor(0.82, 0.18, 0.16);
 
@@ -824,13 +911,7 @@ class InvoicePdfService {
       cellStyle: const pw.TextStyle(fontSize: 8.5),
       cellPadding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 3),
       cellAlignment: pw.Alignment.centerLeft,
-      cellAlignments: <int, pw.Alignment>{
-        3: pw.Alignment.center,
-        if (!isPackingList) 4: pw.Alignment.centerRight,
-        if (showDiscountColumn) 5: pw.Alignment.center,
-        if (!isPackingList)
-          (showDiscountColumn ? 6 : 5): pw.Alignment.centerRight,
-      },
+      cellAlignments: cellAlignments,
       border: pw.TableBorder(
         top: const pw.BorderSide(color: accentRed, width: 0.9),
         bottom: const pw.BorderSide(color: PdfColors.grey400, width: 0.4),
@@ -843,17 +924,7 @@ class InvoicePdfService {
           width: 0.3,
         ),
       ),
-      columnWidths: <int, pw.TableColumnWidth>{
-        0: const pw.FixedColumnWidth(30),
-        1: const pw.FixedColumnWidth(_invoiceTableArticleColumnWidth),
-        3: const pw.FixedColumnWidth(40),
-        if (!isPackingList)
-          4: const pw.FixedColumnWidth(_invoiceTablePriceColumnWidth),
-        if (showDiscountColumn) 5: const pw.FixedColumnWidth(45),
-        if (!isPackingList)
-          (showDiscountColumn ? 6 : 5):
-              const pw.FixedColumnWidth(_invoiceTablePriceColumnWidth),
-      },
+      columnWidths: columnWidths,
     );
   }
 
@@ -881,11 +952,15 @@ class InvoicePdfService {
     required bool showDiscountColumn,
   }) {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
+    final showHtsColumn = _shouldShowPackingListHtsColumn(data);
+    final showWeightColumn = showHtsColumn;
     final isNetBasis = data.priceBasis.trim().toLowerCase() == 'net';
 
     return <String>[
       useGerman ? 'Pos' : 'Pos.',
       useGerman ? 'Artikel' : 'ID',
+      if (showHtsColumn) (useGerman ? 'HTS-Code' : 'HTS code'),
+      if (showWeightColumn) (useGerman ? 'Gewicht in g' : 'Weight in g'),
       useGerman ? 'Bezeichnung' : 'Description',
       useGerman ? 'Menge' : 'Qty',
       if (!isPackingList)
@@ -909,6 +984,12 @@ class InvoicePdfService {
     final germanGoodsLabel = isGrossBasis
         ? 'Summe Warenwert'
         : 'Summe Warenwert netto';
+    final showGermanSeparateVat =
+      useGerman &&
+      data.documentKind == InvoiceDocumentKind.invoice &&
+      !isGrossBasis &&
+      totals.vatRate > 0.0001 &&
+      totals.vatAmount.abs() > 0.0001;
     final hideVatAndGoodsGross = _isEnglishNetOutsideEu(data);
     final vatHint = useGerman
         ? '${totals.vatRate.toStringAsFixed(0)}% MwSt. im Warenwert enthalten'
@@ -944,6 +1025,11 @@ class InvoicePdfService {
                         true,
                       ),
                     ),
+                    if (showGermanSeparateVat)
+                      _totalsRow(
+                        'MwSt (${totals.vatRate.toStringAsFixed(1)}%)',
+                        _formatMoney(totals.vatAmount, data.currency, true),
+                      ),
                     if (displayShipping.abs() > 0.0001)
                       _totalsRow(
                         'Versand',
@@ -1366,12 +1452,30 @@ class InvoicePdfService {
     );
   }
 
+  @visibleForTesting
+  bool debugShouldShowGermanSeparateVat(InvoiceDocumentData data) {
+    final isGrossBasis = data.priceBasis.trim().toLowerCase() == 'gross';
+    return data.documentKind == InvoiceDocumentKind.invoice &&
+        data.language.trim().toUpperCase() == 'DE' &&
+        !isGrossBasis &&
+        data.totals.vatRate > 0.0001 &&
+        data.totals.vatAmount.abs() > 0.0001;
+  }
+
   bool _isEnglishNetOutsideEu(InvoiceDocumentData data) {
     final isEnglish = data.language.trim().toUpperCase() == 'EN';
     final isNet = data.priceBasis.trim().toLowerCase() == 'net';
     final country = _deliveryCountryToken(data);
     final isOutsideEu = country.isNotEmpty && !_isEuCountry(country);
     return isEnglish && isNet && isOutsideEu;
+  }
+
+  bool _shouldShowPackingListHtsColumn(InvoiceDocumentData data) {
+    if (data.documentKind != InvoiceDocumentKind.packingList) {
+      return false;
+    }
+    final country = _deliveryCountryToken(data);
+    return country.isNotEmpty && !_isEuCountry(country);
   }
 
   String _deliveryCountryToken(InvoiceDocumentData data) {
@@ -2022,6 +2126,11 @@ class InvoicePdfService {
   String _formatWeight(double gram, bool useGerman) {
     final fixed = gram.toStringAsFixed(1);
     return useGerman ? '${fixed.replaceAll('.', ',')} g' : '$fixed g';
+  }
+
+  String _formatPositionWeightInGram(double gram, bool useGerman) {
+    final fixed = gram.toStringAsFixed(1);
+    return useGerman ? fixed.replaceAll('.', ',') : fixed;
   }
 
   String _displayTrackingCode(String rawTrackingCode) {

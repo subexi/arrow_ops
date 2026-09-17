@@ -199,6 +199,128 @@ bool wareinsatzMatchesDeliveryMonth(OrderRow order, String monthKey) {
   return key == monthKey;
 }
 
+bool wareinsatzMatchesDeliveryMonths(OrderRow order, Set<String> monthKeys) {
+  if (monthKeys.isEmpty) {
+    return true;
+  }
+  final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
+  if (delivery == null) {
+    return false;
+  }
+  final key = '${delivery.year}-${delivery.month.toString().padLeft(2, '0')}';
+  return monthKeys.contains(key);
+}
+
+List<String> wareinsatzExtractCategorySearchTerms(String query) {
+  final terms = <String>[];
+  final normalized = query.trim().toLowerCase();
+  if (normalized.isEmpty) {
+    return terms;
+  }
+  for (final token in normalized.split(RegExp(r'\s+'))) {
+    if (token.startsWith('kat:') || token.startsWith('kategorie:') || token.startsWith('cat:')) {
+      final index = token.indexOf(':');
+      if (index < 0 || index >= token.length - 1) {
+        continue;
+      }
+      final term = token.substring(index + 1).trim();
+      if (term.isNotEmpty) {
+        terms.add(term);
+      }
+    }
+  }
+  return terms;
+}
+
+String wareinsatzStripCategorySearchTerms(String query) {
+  return query
+      .trim()
+      .toLowerCase()
+      .split(RegExp(r'\s+'))
+      .where(
+        (token) =>
+            !token.startsWith('kat:') &&
+            !token.startsWith('kategorie:') &&
+            !token.startsWith('cat:'),
+      )
+      .join(' ')
+      .trim();
+}
+
+String? wareinsatzBuildWildcardRegexPattern(String query) {
+  if (!query.contains('*') && !query.contains('?')) {
+    return null;
+  }
+
+  final pattern = StringBuffer();
+  for (final rune in query.runes) {
+    final char = String.fromCharCode(rune);
+    if (char == '*') {
+      pattern.write('.*');
+    } else if (char == '?') {
+      pattern.write('.');
+    } else {
+      pattern.write(RegExp.escape(char));
+    }
+  }
+
+  return pattern.toString();
+}
+
+bool wareinsatzTextMatchesQuery({
+  required String text,
+  required String query,
+}) {
+  if (query.isEmpty) {
+    return true;
+  }
+  final wildcardPattern = wareinsatzBuildWildcardRegexPattern(query);
+  if (wildcardPattern == null) {
+    return text.contains(query);
+  }
+  return RegExp(wildcardPattern, caseSensitive: false).hasMatch(text);
+}
+
+bool wareinsatzMatchesSearchQuery({
+  required String query,
+  required String bezeichnung,
+  required String beschreibung,
+  required String category,
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.isEmpty) {
+    return true;
+  }
+
+  final categoryTerms = wareinsatzExtractCategorySearchTerms(normalizedQuery);
+  final normalizedCategory = category.trim().toLowerCase();
+  for (final term in categoryTerms) {
+    if (!wareinsatzTextMatchesQuery(text: normalizedCategory, query: term)) {
+      return false;
+    }
+  }
+
+  final freeQuery = wareinsatzStripCategorySearchTerms(normalizedQuery);
+  if (freeQuery.isEmpty) {
+    return true;
+  }
+
+  final searchTokens = freeQuery.split(RegExp(r'\s+')).where((token) => token.isNotEmpty);
+  final normalizedBezeichnung = bezeichnung.toLowerCase();
+  final normalizedBeschreibung = beschreibung.toLowerCase();
+  for (final token in searchTokens) {
+    final matchesToken =
+        wareinsatzTextMatchesQuery(text: normalizedBezeichnung, query: token) ||
+        wareinsatzTextMatchesQuery(text: normalizedBeschreibung, query: token) ||
+        wareinsatzTextMatchesQuery(text: normalizedCategory, query: token);
+    if (!matchesToken) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
 
@@ -228,7 +350,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   List<ItemCatalogueRow> _catalogueItems = const [];
   List<ItemBomRow> _bomItems = const [];
 
-  String? _selectedMonthKey;
+  Set<String> _selectedMonthKeys = const <String>{};
   String? _selectedQuarterKey;
   String? _selectedYearKey;
   Set<String> _selectedTradeShows = const <String>{};
@@ -302,8 +424,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final quarterKeys = _availableQuarterKeys(_orders);
     final yearKeys = _availableYearKeys(_orders);
 
-    if (_selectedMonthKey == null || !monthKeys.contains(_selectedMonthKey)) {
-      _selectedMonthKey = monthKeys.isEmpty ? null : monthKeys.first;
+    _selectedMonthKeys = _selectedMonthKeys.where(monthKeys.contains).toSet();
+    if (_selectedMonthKeys.isEmpty && monthKeys.isNotEmpty) {
+      _selectedMonthKeys = {monthKeys.first};
     }
     if (_selectedQuarterKey == null || !quarterKeys.contains(_selectedQuarterKey)) {
       _selectedQuarterKey = quarterKeys.isEmpty ? null : quarterKeys.first;
@@ -312,7 +435,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       _selectedYearKey = yearKeys.isEmpty ? null : yearKeys.first;
     }
 
-    if (_selectedGranularity == _PeriodGranularity.month && _selectedMonthKey == null) {
+    if (_selectedGranularity == _PeriodGranularity.month && monthKeys.isEmpty) {
       _selectedGranularity = _PeriodGranularity.total;
     }
     if (_selectedGranularity == _PeriodGranularity.quarter && _selectedQuarterKey == null) {
@@ -492,12 +615,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   },
                 ),
               if (_selectedGranularity == _PeriodGranularity.month)
-                _periodDropdown(
-                  label: 'Monat',
-                  value: _selectedMonthKey,
-                  values: monthKeys,
-                  onChanged: (value) => setState(() => _selectedMonthKey = value),
-                ),
+                _monthFilterButton(monthKeys),
               if (_selectedGranularity == _PeriodGranularity.quarter)
                 _periodDropdown(
                   label: 'Quartal',
@@ -553,6 +671,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             runSpacing: 8,
             children: [
               _summaryChip('Auftraege', '${filteredOrders.length}'),
+              if (_selectedGranularity == _PeriodGranularity.month &&
+                  _selectedMonthKeys.isNotEmpty)
+                _summaryChip(
+                  'Monate',
+                  (() {
+                    final sorted = _selectedMonthKeys.toList(growable: false)..sort();
+                    if (sorted.length == 1) {
+                      return sorted.first;
+                    }
+                    return '${sorted.first} bis ${sorted.last} (${sorted.length})';
+                  })(),
+                ),
               if (_selectedTradeShows.isNotEmpty)
                 _summaryChip('Trade Show', _selectedTradeShows.join(', ')),
               if (_selectedPuttFilter != WareinsatzPuttFilter.all)
@@ -700,8 +830,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              labelText: 'Suchen in Bezeichnung und Beschreibung',
-              hintText: 'Teiltext, * fuer beliebig, ? fuer ein Zeichen',
+              labelText: 'Suchen in Bezeichnung, Beschreibung und Kategorie',
+              hintText: 'Teiltext; kat:spitz; * fuer beliebig, ? fuer ein Zeichen',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _searchQuery.isEmpty
                   ? null
@@ -914,6 +1044,87 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
+  Widget _monthFilterButton(List<String> values) {
+    final hasSelection = _selectedMonthKeys.isNotEmpty;
+    final label = hasSelection
+        ? 'Monate (${_selectedMonthKeys.length})'
+        : 'Monate (alle)';
+
+    return OutlinedButton.icon(
+      onPressed: values.isEmpty ? null : () => _showMonthFilterDialog(values),
+      icon: const Icon(Icons.calendar_month_outlined),
+      label: Text(label),
+    );
+  }
+
+  Future<void> _showMonthFilterDialog(List<String> values) async {
+    final workingSelection = Set<String>.from(_selectedMonthKeys);
+    if (workingSelection.isEmpty && values.isNotEmpty) {
+      workingSelection.add(values.first);
+    }
+
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Monate filtern'),
+              content: SizedBox(
+                width: 420,
+                child: values.isEmpty
+                    ? const Text('Keine Monate vorhanden.')
+                    : ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final month in values)
+                            CheckboxListTile(
+                              value: workingSelection.contains(month),
+                              title: Text(month),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              onChanged: (checked) {
+                                setDialogState(() {
+                                  if (checked == true) {
+                                    workingSelection.add(month);
+                                  } else {
+                                    workingSelection.remove(month);
+                                  }
+                                });
+                              },
+                            ),
+                        ],
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(_selectedMonthKeys),
+                  child: const Text('Abbrechen'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(<String>{}),
+                  child: const Text('Alle'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(workingSelection),
+                  child: const Text('Uebernehmen'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedMonthKeys = result;
+      _ensurePeriodDefaults();
+    });
+  }
+
   Widget _summaryChip(String label, String value) {
     return Chip(
       label: Text('$label: $value'),
@@ -938,8 +1149,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         case _PeriodGranularity.total:
           return true;
         case _PeriodGranularity.month:
-          final key = '${delivery.year}-${delivery.month.toString().padLeft(2, '0')}';
-          return key == _selectedMonthKey;
+          return wareinsatzMatchesDeliveryMonths(order, _selectedMonthKeys);
         case _PeriodGranularity.quarter:
           final quarter = ((delivery.month - 1) ~/ 3) + 1;
           final key = '${delivery.year}-Q$quarter';
@@ -1100,9 +1310,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     final aggregateByItemId = <int, _WareinsatzMutable>{};
 
-    void addSold(int itemId, double quantity, {ItemOrderedRow? ordered}) {
+    _WareinsatzMutable? addSold(int itemId, double quantity, {ItemOrderedRow? ordered}) {
       if (itemId <= 0 || quantity <= 0) {
-        return;
+        return null;
       }
       final catalogue = catalogueById[itemId];
       final aggregate = aggregateByItemId.putIfAbsent(itemId, () {
@@ -1110,6 +1320,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           itemId: itemId,
           idi: catalogue?.icIdi ?? ordered?.ioIdi ?? 'Artikel #$itemId',
           description: catalogue?.icDescriptionDeLong ?? ordered?.ioDescriptionDeLong ?? '-',
+          category: catalogue?.category ?? '',
           purchasePriceEur: catalogue?.icPurchasePriceNet ?? 0,
         );
       });
@@ -1120,6 +1331,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           order: orderById[ordered.ioOrderId],
         );
       }
+      return aggregate;
     }
 
     void addBom(int itemId, double quantity) {
@@ -1132,48 +1344,60 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           itemId: itemId,
           idi: catalogue?.icIdi ?? 'Artikel #$itemId',
           description: catalogue?.icDescriptionDeLong ?? '-',
+          category: catalogue?.category ?? '',
           purchasePriceEur: catalogue?.icPurchasePriceNet ?? 0,
         );
       });
       aggregate.bomQuantity += quantity;
     }
 
-    void accumulateBomChildren(
+    double accumulateBomChildren(
       int parentBomId,
       double baseQuantity,
       Set<int> visiting,
     ) {
       if (visiting.contains(parentBomId)) {
-        return;
+        return 0;
       }
 
       final children = childrenByParentId[parentBomId] ?? const <ItemBomRow>[];
       if (children.isEmpty) {
-        return;
+        return 0;
       }
 
       final nextVisiting = {...visiting, parentBomId};
+      var totalChildrenQuantity = 0.0;
       for (final child in children) {
         final componentQuantity = baseQuantity * child.ibQuantity;
         addBom(child.ibItemId, componentQuantity);
+        totalChildrenQuantity += componentQuantity;
         final childBomId = child.ibId;
         if (childBomId != null) {
-          accumulateBomChildren(childBomId, componentQuantity, nextVisiting);
+          totalChildrenQuantity += accumulateBomChildren(
+            childBomId,
+            componentQuantity,
+            nextVisiting,
+          );
         }
       }
+      return totalChildrenQuantity;
     }
 
     for (final item in filteredItems) {
       final soldQuantity = item.ioQuantity.toDouble();
-      addSold(item.ioItemId, soldQuantity, ordered: item);
+      final soldAggregate = addSold(item.ioItemId, soldQuantity, ordered: item);
 
       final roots = rootByArticleId[item.ioItemId] ?? const <ItemBomRow>[];
+      var ownBomQuantity = 0.0;
       for (final root in roots) {
         final rootBomId = root.ibId;
         if (rootBomId == null) {
           continue;
         }
-        accumulateBomChildren(rootBomId, soldQuantity, <int>{});
+        ownBomQuantity += accumulateBomChildren(rootBomId, soldQuantity, <int>{});
+      }
+      if (soldAggregate != null && ownBomQuantity > 0) {
+        soldAggregate.ownBomQuantity += ownBomQuantity;
       }
     }
 
@@ -1624,7 +1848,16 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     };
     switch (_selectedGranularity) {
       case _PeriodGranularity.month:
-        return 'monat_${_selectedMonthKey ?? 'na'}_$scope';
+        if (_selectedMonthKeys.isEmpty) {
+          return 'monat_na_$scope';
+        }
+        final sorted = _selectedMonthKeys.toList(growable: false)..sort();
+        final first = sorted.first;
+        final last = sorted.last;
+        if (sorted.length == 1) {
+          return 'monat_${sorted.first}_$scope';
+        }
+        return 'monat_${first}_bis_${last}_${sorted.length}m_$scope';
       case _PeriodGranularity.quarter:
         return 'quartal_${_selectedQuarterKey ?? 'na'}_$scope';
       case _PeriodGranularity.year:
@@ -1642,7 +1875,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     };
     switch (_selectedGranularity) {
       case _PeriodGranularity.month:
-        return 'Monat ${_selectedMonthKey ?? '-'}$scopeLabel';
+        if (_selectedMonthKeys.isEmpty) {
+          return 'Monat -$scopeLabel';
+        }
+        final sorted = _selectedMonthKeys.toList(growable: false)..sort();
+        if (sorted.length == 1) {
+          return 'Monat ${sorted.first}$scopeLabel';
+        }
+        return 'Monate ${sorted.first} bis ${sorted.last} (${sorted.length})$scopeLabel';
       case _PeriodGranularity.quarter:
         return 'Quartal ${_selectedQuarterKey ?? '-'}$scopeLabel';
       case _PeriodGranularity.year:
@@ -1658,7 +1898,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           (row) => wareinsatzRowMatchesScope(
             scope: _selectedScope,
             soldQuantity: row.soldQuantity,
-            bomQuantity: row.bomQuantity,
+            bomQuantity: row.totalBomQuantity,
           ),
         )
         .toList(growable: false);
@@ -1669,42 +1909,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       return rows;
     }
 
-    final wildcardPattern = _buildWildcardRegexPattern(_searchQuery);
-    final wildcardRegex = wildcardPattern == null
-        ? null
-        : RegExp(wildcardPattern, caseSensitive: false);
-
     return rows.where((row) {
-      final bezeichnung = row.bezeichnung.toLowerCase();
-      final beschreibung = row.beschreibung.toLowerCase();
-
-      if (wildcardRegex != null) {
-        return wildcardRegex.hasMatch(bezeichnung) || wildcardRegex.hasMatch(beschreibung);
-      }
-
-      return bezeichnung.contains(_searchQuery) || beschreibung.contains(_searchQuery);
+      return wareinsatzMatchesSearchQuery(
+        query: _searchQuery,
+        bezeichnung: row.bezeichnung,
+        beschreibung: row.beschreibung,
+        category: row.category,
+      );
     }).toList(growable: false);
-  }
-
-  String? _buildWildcardRegexPattern(String query) {
-    if (!query.contains('*') && !query.contains('?')) {
-      return null;
-    }
-
-    final pattern = StringBuffer();
-    for (final rune in query.runes) {
-      final char = String.fromCharCode(rune);
-      switch (char) {
-        case '*':
-          pattern.write('.*');
-        case '?':
-          pattern.write('.');
-        default:
-          pattern.write(RegExp.escape(char));
-      }
-    }
-
-    return pattern.toString();
   }
 
   String _diagnosticsPriceBasisCurrencyLabel(
@@ -1783,8 +1995,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final inPeriod = switch (_selectedGranularity) {
       _PeriodGranularity.total => true,
       _PeriodGranularity.month =>
-        _selectedMonthKey != null &&
-        '${orderDate.year}-${orderDate.month.toString().padLeft(2, '0')}' == _selectedMonthKey,
+        wareinsatzMatchesDeliveryMonths(order.copyWith(oDelivery: order.oDate), _selectedMonthKeys),
       _PeriodGranularity.quarter =>
         _selectedQuarterKey != null &&
         '${orderDate.year}-Q${((orderDate.month - 1) ~/ 3) + 1}' == _selectedQuarterKey,
@@ -1824,7 +2035,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   double _displayBomMenge(_WareinsatzRow row) {
-    return _selectedScope == WareinsatzScope.withoutBom ? 0 : row.bomQuantity;
+    return _selectedScope == WareinsatzScope.withoutBom ? 0 : row.totalBomQuantity;
   }
 }
 
@@ -1833,16 +2044,19 @@ class _WareinsatzMutable {
     required this.itemId,
     required this.idi,
     required this.description,
+    required this.category,
     required this.purchasePriceEur,
   });
 
   final int itemId;
   final String idi;
   final String description;
+  final String category;
   final double purchasePriceEur;
 
   double soldQuantity = 0;
   double bomQuantity = 0;
+  double ownBomQuantity = 0;
   double soldNetValueEur = 0;
 
   _WareinsatzRow toRow() {
@@ -1854,8 +2068,10 @@ class _WareinsatzMutable {
       itemId: itemId,
       bezeichnung: idi,
       beschreibung: normalizedBeschreibung,
+      category: category,
       soldQuantity: soldQuantity,
       bomQuantity: bomQuantity,
+      ownBomQuantity: ownBomQuantity,
       purchasePriceEur: purchasePriceEur,
       soldNetValueEur: soldNetValueEur,
     );
@@ -1933,8 +2149,10 @@ class _WareinsatzRow {
     required this.itemId,
     required this.bezeichnung,
     required this.beschreibung,
+    required this.category,
     required this.soldQuantity,
     required this.bomQuantity,
+    required this.ownBomQuantity,
     required this.purchasePriceEur,
     required this.soldNetValueEur,
   });
@@ -1942,16 +2160,25 @@ class _WareinsatzRow {
   final int itemId;
   final String bezeichnung;
   final String beschreibung;
+  final String category;
   final double soldQuantity;
   final double bomQuantity;
+  final double ownBomQuantity;
   final double purchasePriceEur;
   final double soldNetValueEur;
+
+  double get totalBomQuantity => bomQuantity + ownBomQuantity;
 
   double get totalValueEur => totalQuantity * purchasePriceEur;
   double get marginEur => soldNetValueEur <= 0 ? 0 : soldNetValueEur - totalValueEur;
   double get marginPercent => (soldNetValueEur <= 0 || totalValueEur <= 0) ? 0 : (marginEur / totalValueEur) * 100;
 
-  double get totalQuantity => soldQuantity + bomQuantity;
+  double get totalQuantity {
+    if (ownBomQuantity > 0) {
+      return totalBomQuantity;
+    }
+    return soldQuantity + bomQuantity;
+  }
 }
 
 class _PdfFonts {

@@ -115,6 +115,69 @@ void main() {
       expect(headers.contains('Einzelpreis netto'), isFalse);
       expect(headers.contains('Gesamtpreis netto'), isFalse);
     });
+
+    test('adds HTS header for packing list when delivery is outside EU', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        language: 'DE',
+        delivery: const InvoicePartyData(
+          name: 'Endkunde',
+          countryCode: 'US',
+        ),
+      );
+
+      final headers = service.debugBuildLineHeaders(
+        data: data,
+        useGerman: true,
+        showDiscountColumn: false,
+      );
+
+      expect(
+        headers,
+        equals(<String>['Pos', 'Artikel', 'HTS-Code', 'Gewicht in g', 'Bezeichnung', 'Menge']),
+      );
+    });
+
+    test('adds Weight in g header for English non-EU packing list', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        language: 'EN',
+        delivery: const InvoicePartyData(
+          name: 'End Customer',
+          countryCode: 'US',
+        ),
+      );
+
+      final headers = service.debugBuildLineHeaders(
+        data: data,
+        useGerman: false,
+        showDiscountColumn: false,
+      );
+
+      expect(
+        headers,
+        equals(<String>['Pos.', 'ID', 'HTS code', 'Weight in g', 'Description', 'Qty']),
+      );
+    });
+
+    test('does not add HTS header for packing list when delivery is inside EU', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        language: 'DE',
+        delivery: const InvoicePartyData(
+          name: 'Endkunde',
+          countryCode: 'DE',
+        ),
+      );
+
+      final headers = service.debugBuildLineHeaders(
+        data: data,
+        useGerman: true,
+        showDiscountColumn: false,
+      );
+
+      expect(headers, equals(<String>['Pos', 'Artikel', 'Bezeichnung', 'Menge']));
+    });
   });
 
   group('InvoicePdfService.debugBuildInvoiceHeadlineLabel', () {
@@ -214,6 +277,94 @@ void main() {
     });
   });
 
+  group('InvoicePdfService.generatePdfBytes', () {
+    const service = InvoicePdfService();
+
+    test('creates invoice PDF when grand total is zero', () async {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.invoice,
+        totals: const InvoiceTotalsData(
+          itemsNet: 0,
+          vatRate: 0,
+          vatAmount: 0,
+          itemsGross: 0,
+          shipping: 0,
+          paypalFee: 0,
+          grandTotal: 0,
+          totalWeightInGram: 0,
+        ),
+        lines: const <InvoiceLineData>[],
+      );
+
+      final bytes = await service.generatePdfBytes(data);
+
+      expect(bytes, isNotEmpty);
+    });
+
+    test('creates packing list PDF when grand total is zero', () async {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        totals: const InvoiceTotalsData(
+          itemsNet: 0,
+          vatRate: 0,
+          vatAmount: 0,
+          itemsGross: 0,
+          shipping: 0,
+          paypalFee: 0,
+          grandTotal: 0,
+          totalWeightInGram: 0,
+        ),
+        lines: const <InvoiceLineData>[],
+      );
+
+      final bytes = await service.generatePdfBytes(data);
+
+      expect(bytes, isNotEmpty);
+    });
+
+    test('creates non-EU packing list PDF with HTS column and item rows', () async {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        delivery: const InvoicePartyData(
+          name: 'John Doe',
+          street: 'Dock Road',
+          houseNumber: '7',
+          postalCode: '90210',
+          city: 'Los Angeles',
+          countryCode: 'US',
+        ),
+        totals: const InvoiceTotalsData(
+          itemsNet: 0,
+          vatRate: 0,
+          vatAmount: 0,
+          itemsGross: 0,
+          shipping: 0,
+          paypalFee: 0,
+          grandTotal: 0,
+          totalWeightInGram: 120,
+        ),
+        lines: const <InvoiceLineData>[
+          InvoiceLineData(
+            position: 1,
+            articleId: 100,
+            articleLabel: 'A-100',
+            description: 'Test item',
+            quantity: 1,
+            unitPrice: 0,
+            discountPercent: 0,
+            lineTotal: 0,
+            weightInGram: 120,
+            hts: '1234.56.78',
+          ),
+        ],
+      );
+
+      final bytes = await service.generatePdfBytes(data);
+
+      expect(bytes, isNotEmpty);
+    });
+  });
+
   group('InvoicePdfService proforma shipping/payment behavior', () {
     const service = InvoicePdfService();
 
@@ -238,6 +389,46 @@ void main() {
       );
 
       expect(service.debugShouldShowPaymentLabel(data), isFalse);
+    });
+
+    test('shows separate VAT row for German net invoice with VAT rate', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.invoice,
+        language: 'DE',
+        totals: const InvoiceTotalsData(
+          itemsNet: 100,
+          vatRate: 19,
+          vatAmount: 19,
+          itemsGross: 119,
+          shipping: 0,
+          paypalFee: 0,
+          grandTotal: 119,
+          totalWeightInGram: 0,
+        ),
+      );
+
+      expect(service.debugShouldShowGermanSeparateVat(data), isTrue);
+    });
+
+    test('does not show separate VAT row for German gross invoice', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.invoice,
+        language: 'DE',
+        totals: const InvoiceTotalsData(
+          itemsNet: 100,
+          vatRate: 19,
+          vatAmount: 19,
+          itemsGross: 119,
+          shipping: 0,
+          paypalFee: 0,
+          grandTotal: 119,
+          totalWeightInGram: 0,
+        ),
+      );
+
+      final grossData = data.copyWithPriceBasis('gross');
+
+      expect(service.debugShouldShowGermanSeparateVat(grossData), isFalse);
     });
   });
 
@@ -520,6 +711,36 @@ void main() {
         expect(fileName, equals('1001_Mueller_pl.pdf'));
       },
     );
+
+    test('keeps packing list filename bounded for very long delivery names', () {
+      final data = _documentData(
+        kind: InvoiceDocumentKind.packingList,
+        lastName: 'Mueller',
+        buyer: const InvoicePartyData(
+          name: 'Buyer Name',
+          lastName: 'Mueller',
+          street: 'Main Street',
+          houseNumber: '1',
+          postalCode: '11111',
+          city: 'Stuttgart',
+          countryCode: 'DE',
+        ),
+        delivery: const InvoicePartyData(
+          name: 'AReallyReallyReallyReallyReallyReallyReallyReallyReallyReallyLongDeliverySurnameTokenWithExtraWords',
+          street: 'Lieferweg',
+          houseNumber: '7',
+          postalCode: '12345',
+          city: 'Berlin',
+          countryCode: 'US',
+        ),
+      );
+
+      final fileName = service.buildDefaultFileName(data);
+
+      expect(fileName.endsWith('.pdf'), isTrue);
+      expect(fileName.length <= 120, isTrue);
+      expect(fileName.contains('_pl.pdf'), isTrue);
+    });
   });
 
   group('InvoicePdfService delivery address rubric visibility', () {
@@ -796,6 +1017,8 @@ InvoiceDocumentData _documentData({
   InvoiceDocumentKind kind = InvoiceDocumentKind.invoice,
   InvoicePartyData? buyer,
   InvoicePartyData? delivery,
+  List<InvoiceLineData>? lines,
+  InvoiceTotalsData? totals,
 }) {
   final effectiveBuyer =
       buyer ??
@@ -821,23 +1044,52 @@ InvoiceDocumentData _documentData({
     buyer: effectiveBuyer,
     delivery: delivery ?? const InvoicePartyData(name: 'Delivery'),
     footer: const InvoiceFooterData(),
-    lines: const <InvoiceLineData>[],
-    totals: const InvoiceTotalsData(
-      itemsNet: 100,
-      vatRate: 0,
-      vatAmount: 0,
-      itemsGross: 100,
-      shipping: 20,
-      paypalFee: 5,
-      grandTotal: 125,
-      totalWeightInGram: 0,
-    ),
+    lines: lines ?? const <InvoiceLineData>[],
+    totals:
+        totals ??
+        const InvoiceTotalsData(
+          itemsNet: 100,
+          vatRate: 0,
+          vatAmount: 0,
+          itemsGross: 100,
+          shipping: 20,
+          paypalFee: 5,
+          grandTotal: 125,
+          totalWeightInGram: 0,
+        ),
     note: note,
     paymentLabel: paymentLabel,
   );
 }
 
 extension on InvoiceDocumentData {
+  InvoiceDocumentData copyWithPriceBasis(String nextPriceBasis) {
+    return InvoiceDocumentData(
+      documentKind: documentKind,
+      isProforma: isProforma,
+      invoiceNumber: invoiceNumber,
+      invoiceDate: invoiceDate,
+      orderDate: orderDate,
+      orderId: orderId,
+      currency: currency,
+      language: language,
+      priceBasis: nextPriceBasis,
+      isReseller: isReseller,
+      isNoVatCustomer: isNoVatCustomer,
+      seller: seller,
+      buyer: buyer,
+      delivery: delivery,
+      footer: footer,
+      lines: lines,
+      totals: totals,
+      note: note,
+      paymentLabel: paymentLabel,
+      payDate: payDate,
+      deliveryDate: deliveryDate,
+      trackingCode: trackingCode,
+    );
+  }
+
   InvoiceDocumentData copyWithTrackingCode(String trackingCode) {
     return InvoiceDocumentData(
       documentKind: documentKind,

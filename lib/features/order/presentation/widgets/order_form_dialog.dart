@@ -30,6 +30,36 @@ class OrderFormDialog extends StatefulWidget {
 }
 
 class _OrderFormDialogState extends State<OrderFormDialog> {
+  static const Set<String> _euCountryTokens = {
+    'AT', 'AUT', 'AUSTRIA',
+    'BE', 'BEL', 'BELGIUM',
+    'BG', 'BGR', 'BULGARIA',
+    'HR', 'HRV', 'CROATIA',
+    'CY', 'CYP', 'CYPRUS',
+    'CZ', 'CZE', 'CZECH REPUBLIC',
+    'DK', 'DNK', 'DENMARK',
+    'EE', 'EST', 'ESTONIA',
+    'FI', 'FIN', 'FINLAND',
+    'FR', 'FRA', 'FRANCE',
+    'DE', 'DEU', 'GERMANY', 'DEUTSCHLAND',
+    'GR', 'GRC', 'GREECE',
+    'HU', 'HUN', 'HUNGARY',
+    'IE', 'IRL', 'IRELAND',
+    'IT', 'ITA', 'ITALY',
+    'LV', 'LVA', 'LATVIA',
+    'LT', 'LTU', 'LITHUANIA',
+    'LU', 'LUX', 'LUXEMBOURG',
+    'MT', 'MLT', 'MALTA',
+    'NL', 'NLD', 'NETHERLANDS',
+    'PL', 'POL', 'POLAND',
+    'PT', 'PRT', 'PORTUGAL',
+    'RO', 'ROU', 'ROMANIA',
+    'SK', 'SVK', 'SLOVAKIA',
+    'SI', 'SVN', 'SLOVENIA',
+    'ES', 'ESP', 'SPAIN',
+    'SE', 'SWE', 'SWEDEN',
+    'EU',
+  };
   final _formKey = GlobalKey<FormState>();
   final _orderIdFocusNode = FocusNode();
   final _customerSearchFocusNode = FocusNode();
@@ -570,7 +600,22 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   bool get _isUsdCurrency => _currency.toUpperCase() == 'USD';
-  bool get _isNoVatCustomer => _selectedCustomer?.cVat ?? false;
+  bool get _isNoVatCustomer {
+    final customer = _selectedCustomer;
+    if (customer == null) {
+      return false;
+    }
+    if (customer.cVat) {
+      return true;
+    }
+    return _isEuReverseChargeReseller(customer);
+  }
+  bool get _isResellerCustomer => _selectedCustomer?.cDealer ?? _dealer;
+  bool get _isEditableVatRate =>
+      !_isPuttCashOrder &&
+      _priceBasis == 'net' &&
+      _isResellerCustomer &&
+      !_isNoVatCustomer;
 
   bool get _isEurCurrency => _currency.toUpperCase() == 'EUR';
 
@@ -607,8 +652,63 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       _vatRateController.text = _decimalText(0);
       return;
     }
-    final vatRate = (_priceBasis == 'gross' && !_isNoVatCustomer) ? 19.0 : 0.0;
+
+    if (_isNoVatCustomer) {
+      _vatRateController.text = _decimalText(0);
+      return;
+    }
+
+    double vatRate;
+    if (_priceBasis == 'gross') {
+      vatRate = 19.0;
+    } else if (_isEditableVatRate) {
+      final currentVatRate = _parseDecimal(_vatRateController);
+      vatRate = currentVatRate > 0 ? currentVatRate : 19.0;
+    } else {
+      vatRate = 0.0;
+    }
+
     _vatRateController.text = _decimalText(vatRate);
+  }
+
+  bool _isEuReverseChargeReseller(Customer customer) {
+    if (!_isResellerCustomer) {
+      return false;
+    }
+
+    final vatId = customer.cVatId.trim();
+    if (vatId.isEmpty || vatId == '-') {
+      return false;
+    }
+
+    final countryToken = _normalizedCountryToken(
+      customer.cCountryBId,
+      fallback: customer.cCountryDId,
+    );
+    if (countryToken.isEmpty) {
+      return false;
+    }
+    if (countryToken == 'DE' ||
+        countryToken == 'DEU' ||
+        countryToken == 'GERMANY' ||
+        countryToken == 'DEUTSCHLAND') {
+      return false;
+    }
+
+    return _euCountryTokens.contains(countryToken);
+  }
+
+  String _normalizedCountryToken(String? primary, {String? fallback}) {
+    String normalize(String? value) => value?.trim().toUpperCase() ?? '';
+    final first = normalize(primary);
+    if (first.isNotEmpty && first != '-') {
+      return first;
+    }
+    final second = normalize(fallback);
+    if (second.isNotEmpty && second != '-') {
+      return second;
+    }
+    return '';
   }
 
   double _assignedItemsGrossTotal() {
@@ -639,14 +739,14 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   void _refreshGrossGoodsValueFromInputs() {
     final netValue = _parseDecimal(_valueGoodsController);
     final vatRate = _parseDecimal(_vatRateController);
-    if (_priceBasis == 'net' && vatRate == 0) {
-      const vatValue = 0.0;
+    if (_priceBasis == 'net') {
+      final vatValue = vatRate <= 0 ? 0.0 : netValue * (vatRate / 100);
       final vatText = _decimalText(vatValue);
       if (_vatController.text != vatText) {
         _vatController.text = vatText;
       }
 
-      final grossText = _decimalText(netValue);
+      final grossText = _decimalText(netValue + vatValue);
       if (_valueGoodsGrossController.text != grossText) {
         _valueGoodsGrossController.text = grossText;
       }
@@ -1214,6 +1314,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     String? Function(String?)? validator,
     FocusNode? focusNode,
     bool readOnly = false,
+    void Function(String)? onChanged,
     int maxLines = 1,
   }) {
     return TextFormField(
@@ -1222,6 +1323,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
       keyboardType: keyboardType,
       validator: validator,
       readOnly: readOnly,
+      onChanged: onChanged,
       maxLines: maxLines,
       decoration: InputDecoration(
         labelText: label,
@@ -1582,7 +1684,22 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     _vatRateController,
                     'MwSt-Satz %',
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    readOnly: true,
+                    readOnly: !_isEditableVatRate,
+                    validator: (value) {
+                      final baseError = _validateDecimalFieldValue(
+                        value,
+                        allowEmpty: false,
+                      );
+                      if (baseError != null) {
+                        return baseError;
+                      }
+                      final parsed = _tryParseDecimalFlexible((value ?? '').trim()) ?? 0;
+                      if (_isEditableVatRate && parsed <= 0) {
+                        return 'Bitte MwSt-Satz > 0 eingeben';
+                      }
+                      return null;
+                    },
+                    onChanged: (_) => _refreshGoodsValuesForCurrentBasis(),
                   ),
                   SwitchListTile.adaptive(
                     title: const Text('Reseller'),

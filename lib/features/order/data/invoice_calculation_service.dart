@@ -5,6 +5,37 @@ import '../domain/order_models.dart';
 class InvoiceCalculationService {
   const InvoiceCalculationService();
 
+  static const Set<String> _euCountryTokens = {
+    'AT', 'AUT', 'AUSTRIA',
+    'BE', 'BEL', 'BELGIUM',
+    'BG', 'BGR', 'BULGARIA',
+    'HR', 'HRV', 'CROATIA',
+    'CY', 'CYP', 'CYPRUS',
+    'CZ', 'CZE', 'CZECH REPUBLIC',
+    'DK', 'DNK', 'DENMARK',
+    'EE', 'EST', 'ESTONIA',
+    'FI', 'FIN', 'FINLAND',
+    'FR', 'FRA', 'FRANCE',
+    'DE', 'DEU', 'GERMANY', 'DEUTSCHLAND',
+    'GR', 'GRC', 'GREECE',
+    'HU', 'HUN', 'HUNGARY',
+    'IE', 'IRL', 'IRELAND',
+    'IT', 'ITA', 'ITALY',
+    'LV', 'LVA', 'LATVIA',
+    'LT', 'LTU', 'LITHUANIA',
+    'LU', 'LUX', 'LUXEMBOURG',
+    'MT', 'MLT', 'MALTA',
+    'NL', 'NLD', 'NETHERLANDS',
+    'PL', 'POL', 'POLAND',
+    'PT', 'PRT', 'PORTUGAL',
+    'RO', 'ROU', 'ROMANIA',
+    'SK', 'SVK', 'SLOVAKIA',
+    'SI', 'SVN', 'SLOVENIA',
+    'ES', 'ESP', 'SPAIN',
+    'SE', 'SWE', 'SWEDEN',
+    'EU',
+  };
+
   InvoiceTotalsData calculateTotals({
     required OrderRow order,
     required List<ItemOrderedRow> items,
@@ -19,7 +50,7 @@ class InvoiceCalculationService {
       (sum, item) => sum + item.ioTotalWeight,
     );
 
-    final isNoVatCustomer = customer.cVat;
+    final isNoVatCustomer = _isNoVatCustomer(order: order, customer: customer);
     final effectiveVatRate = isNoVatCustomer ? 0.0 : order.oVatRate;
     final normalizedBasis = isNoVatCustomer
         ? 'net'
@@ -109,5 +140,59 @@ class InvoiceCalculationService {
     }
 
     return '-';
+  }
+
+  bool _isNoVatCustomer({
+    required OrderRow order,
+    required Customer customer,
+  }) {
+    if (customer.cVat) {
+      return true;
+    }
+    return _isEuReverseChargeReseller(order: order, customer: customer);
+  }
+
+  bool _isEuReverseChargeReseller({
+    required OrderRow order,
+    required Customer customer,
+  }) {
+    final isReseller = customer.cDealer || order.oDealer == 1;
+    if (!isReseller) {
+      return false;
+    }
+
+    final vatId = customer.cVatId.trim();
+    if (vatId.isEmpty || vatId == '-') {
+      return false;
+    }
+
+    final countryToken = _normalizedCountryToken(
+      customer.cCountryBId,
+      fallback: customer.cCountryDId,
+    );
+    if (countryToken.isEmpty) {
+      return false;
+    }
+    if (countryToken == 'DE' ||
+        countryToken == 'DEU' ||
+        countryToken == 'GERMANY' ||
+        countryToken == 'DEUTSCHLAND') {
+      return false;
+    }
+
+    return _euCountryTokens.contains(countryToken);
+  }
+
+  String _normalizedCountryToken(String? primary, {String? fallback}) {
+    String normalize(String? value) => value?.trim().toUpperCase() ?? '';
+    final first = normalize(primary);
+    if (first.isNotEmpty && first != '-') {
+      return first;
+    }
+    final second = normalize(fallback);
+    if (second.isNotEmpty && second != '-') {
+      return second;
+    }
+    return '';
   }
 }

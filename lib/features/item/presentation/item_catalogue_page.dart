@@ -228,6 +228,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     try {
       await _repository.syncDerivedPurchasePrices();
       final catalogueItems = await _repository.getCatalogueItems();
+      await _repository.deleteUnusedItemCategories();
       final itemCategories = await _repository.getItemCategories();
       await _repository.deleteOrphanBomItems(
         validCatalogueIds: catalogueItems.map((item) => item.icId).toSet(),
@@ -2007,6 +2008,23 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     if (_searchQuery.isEmpty) {
       return true;
     }
+
+    final categoryTerms = _extractCategorySearchTerms(_searchQuery);
+    if (categoryTerms.isNotEmpty) {
+      final categoryText = item.category.toLowerCase();
+      final matchesCategoryTerms = categoryTerms.every(
+        (term) => categoryText.contains(term),
+      );
+      if (!matchesCategoryTerms) {
+        return false;
+      }
+    }
+
+    final freeTextQuery = _stripCategorySearchTerms(_searchQuery);
+    if (freeTextQuery.isEmpty) {
+      return true;
+    }
+
     final text = [
       item.icIdi,
       item.category,
@@ -2015,7 +2033,39 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       item.icDescriptionEnLong,
       item.icNote,
     ].join(' | ').toLowerCase();
-    return text.contains(_searchQuery);
+    return text.contains(freeTextQuery);
+  }
+
+  List<String> _extractCategorySearchTerms(String query) {
+    final terms = <String>[];
+    for (final token in query.split(RegExp(r'\s+'))) {
+      if (token.startsWith('kat:') ||
+          token.startsWith('kategorie:') ||
+          token.startsWith('cat:')) {
+        final parts = token.split(':');
+        if (parts.length < 2) {
+          continue;
+        }
+        final categoryTerm = parts.sublist(1).join(':').trim();
+        if (categoryTerm.isNotEmpty) {
+          terms.add(categoryTerm);
+        }
+      }
+    }
+    return terms;
+  }
+
+  String _stripCategorySearchTerms(String query) {
+    return query
+        .split(RegExp(r'\s+'))
+        .where(
+          (token) =>
+              !token.startsWith('kat:') &&
+              !token.startsWith('kategorie:') &&
+              !token.startsWith('cat:'),
+        )
+        .join(' ')
+        .trim();
   }
 
   bool _matchesCatalogueFilter(ItemCatalogueRow item) {
