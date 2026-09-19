@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:data_table_2/data_table_2.dart';
 import 'package:file_picker/file_picker.dart';
@@ -14,7 +15,7 @@ import '../../item/domain/item_models.dart';
 import '../../order/data/order_repository.dart';
 import '../../order/domain/order_models.dart';
 
-enum _AnalyticsSubPage { wareinsatz }
+enum _AnalyticsSubPage { chartNetValueOverTime, wareinsatz }
 
 enum _PeriodGranularity { month, quarter, year, total }
 
@@ -332,9 +333,26 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   final OrderRepository _orderRepository = const OrderRepository();
   final ItemRepository _itemRepository = const ItemRepository();
   final TextEditingController _searchController = TextEditingController();
+  static const List<Color> _countryPiePalette = [
+    Color(0xFF0072B2),
+    Color(0xFFE69F00),
+    Color(0xFF009E73),
+    Color(0xFFD55E00),
+    Color(0xFFCC79A7),
+    Color(0xFFF0E442),
+    Color(0xFF56B4E9),
+    Color(0xFF000000),
+    Color(0xFF6C4A8B),
+    Color(0xFF7A7A7A),
+  ];
 
-  _AnalyticsSubPage _selectedSubPage = _AnalyticsSubPage.wareinsatz;
+  _AnalyticsSubPage _selectedSubPage = _AnalyticsSubPage.chartNetValueOverTime;
+  _PeriodGranularity _selectedChartGranularity = _PeriodGranularity.month;
+  String? _selectedChartQuarterKey;
+  String? _selectedChartYearKey;
+  WareinsatzPuttFilter _selectedChartPuttFilter = WareinsatzPuttFilter.all;
   _PeriodGranularity _selectedGranularity = _PeriodGranularity.total;
+  bool _isSideNavigationVisible = true;
   WareinsatzScope _selectedScope = WareinsatzScope.all;
   _MarginDisplay _selectedMarginDisplay = _MarginDisplay.absolute;
   WareinsatzPuttFilter _selectedPuttFilter = WareinsatzPuttFilter.all;
@@ -402,6 +420,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         _catalogueItems = catalogueItems;
         _bomItems = bomItems;
         _ensurePeriodDefaults();
+        _ensureChartPeriodDefaults();
       });
     } catch (error) {
       if (!mounted) {
@@ -451,6 +470,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         .toSet();
   }
 
+  void _ensureChartPeriodDefaults() {
+    final quarterKeys = _availableQuarterKeys(_orders);
+    final yearKeys = _availableYearKeys(_orders);
+    if (_selectedChartQuarterKey == null ||
+        !quarterKeys.contains(_selectedChartQuarterKey)) {
+      _selectedChartQuarterKey = quarterKeys.isEmpty ? null : quarterKeys.first;
+    }
+    if (_selectedChartYearKey == null ||
+        !yearKeys.contains(_selectedChartYearKey)) {
+      _selectedChartYearKey = yearKeys.isEmpty ? null : yearKeys.first;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final offstageAncestor = context.findAncestorWidgetOfExactType<Offstage>();
@@ -465,6 +497,21 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         title: const Text('Auswertung'),
         actions: [
           IconButton(
+            tooltip: _isSideNavigationVisible
+                ? 'Menue ausblenden'
+                : 'Menue einblenden',
+            onPressed: () {
+              setState(() {
+                _isSideNavigationVisible = !_isSideNavigationVisible;
+              });
+            },
+            icon: Icon(
+              _isSideNavigationVisible
+                  ? Icons.menu_open
+                  : Icons.menu,
+            ),
+          ),
+          IconButton(
             tooltip: 'Neu laden',
             onPressed: _loading ? null : _loadData,
             icon: const Icon(Icons.refresh),
@@ -473,31 +520,894 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       ),
       body: Row(
         children: [
-          NavigationRail(
-            selectedIndex: _selectedSubPage.index,
-            onDestinationSelected: (index) {
-              setState(() {
-                _selectedSubPage = _AnalyticsSubPage.values[index];
-              });
-            },
-            labelType: NavigationRailLabelType.all,
-            destinations: const [
-              NavigationRailDestination(
-                icon: Icon(Icons.inventory_2_outlined),
-                selectedIcon: Icon(Icons.inventory_2),
-                label: Text('Wareneinsatz'),
-              ),
-            ],
-          ),
-          const VerticalDivider(width: 1),
+          if (_isSideNavigationVisible) ...[
+            _buildSideNavigation(context),
+            const VerticalDivider(width: 1),
+          ],
           Expanded(
             child: switch (_selectedSubPage) {
+              _AnalyticsSubPage.chartNetValueOverTime =>
+                _buildNetValueChartView(context),
               _AnalyticsSubPage.wareinsatz => _buildWareneinsatzView(context),
             },
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildSideNavigation(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return SizedBox(
+      width: 300,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Text(
+              'Auswertungen',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          Card(
+            color: colorScheme.surfaceContainerLow,
+            child: ExpansionTile(
+              initiallyExpanded: true,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              leading: const Icon(Icons.bar_chart_outlined),
+              title: const Text('Grafik'),
+              childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              children: [
+                _buildNavigationEntry(
+                  icon: Icons.bar_chart,
+                  label: 'Umsatz Netto-Warenwert / Zeit',
+                  subPage: _AnalyticsSubPage.chartNetValueOverTime,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildNavigationEntry(
+            icon: Icons.inventory_2,
+            label: 'Wareneinsatz',
+            subPage: _AnalyticsSubPage.wareinsatz,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavigationEntry({
+    required IconData icon,
+    required String label,
+    required _AnalyticsSubPage subPage,
+  }) {
+    final selected = _selectedSubPage == subPage;
+    return ListTile(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      leading: Icon(icon),
+      title: Text(label),
+      selected: selected,
+      onTap: () {
+        if (selected) {
+          return;
+        }
+        setState(() {
+          _selectedSubPage = subPage;
+        });
+      },
+    );
+  }
+
+  Widget _buildNetValueChartView(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(child: Text(_error!));
+    }
+
+    final chartFilterContext = _buildChartFilterContext(
+      orders: _orders,
+      orderedItems: _orderedItems,
+      puttFilter: _selectedChartPuttFilter,
+      granularity: _selectedChartGranularity,
+      selectedQuarterKey: _selectedChartQuarterKey,
+      selectedYearKey: _selectedChartYearKey,
+    );
+
+    final buckets = _buildNetValueBuckets(
+      context: chartFilterContext,
+      granularity: _selectedChartGranularity,
+    );
+    final yearMonthTableData = _buildNetValueYearMonthTableData(
+      context: chartFilterContext,
+      granularity: _selectedChartGranularity,
+    );
+    final countryShareBuckets = _buildCountryShareBuckets(
+      context: chartFilterContext,
+    );
+    final totalNetValue = buckets.fold<double>(
+      0,
+      (sum, bucket) => sum + bucket.valueEur,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Umsatz Netto-Warenwert / Zeit',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Netto-Warenwert als Saeulendiagramm in EUR auf Basis der Positionswerte je Zeitraum.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SegmentedButton<_PeriodGranularity>(
+                segments: const [
+                  ButtonSegment(value: _PeriodGranularity.month, label: Text('Monat')),
+                  ButtonSegment(value: _PeriodGranularity.quarter, label: Text('Quartal')),
+                  ButtonSegment(value: _PeriodGranularity.year, label: Text('Jahr')),
+                  ButtonSegment(value: _PeriodGranularity.total, label: Text('Gesamt')),
+                ],
+                selected: {_selectedChartGranularity},
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _selectedChartGranularity = selection.first;
+                    _ensureChartPeriodDefaults();
+                  });
+                },
+              ),
+              SegmentedButton<WareinsatzPuttFilter>(
+                segments: const [
+                  ButtonSegment(
+                    value: WareinsatzPuttFilter.all,
+                    label: Text('incl. PUTT'),
+                  ),
+                  ButtonSegment(
+                    value: WareinsatzPuttFilter.withoutPutt,
+                    label: Text('excl. PUTT'),
+                  ),
+                  ButtonSegment(
+                    value: WareinsatzPuttFilter.onlyPutt,
+                    label: Text('nur PUTT'),
+                  ),
+                ],
+                selected: {_selectedChartPuttFilter},
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _selectedChartPuttFilter = selection.first;
+                  });
+                },
+              ),
+              if (_selectedChartGranularity == _PeriodGranularity.quarter)
+                _periodDropdown(
+                  label: 'Quartal',
+                  value: _selectedChartQuarterKey,
+                  values: _availableQuarterKeys(_orders),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedChartQuarterKey = value;
+                    });
+                  },
+                ),
+              if (_selectedChartGranularity == _PeriodGranularity.year)
+                _periodDropdown(
+                  label: 'Jahr',
+                  value: _selectedChartYearKey,
+                  values: _availableYearKeys(_orders),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedChartYearKey = value;
+                    });
+                  },
+                ),
+              _summaryChip('Gefilterte Auftraege', '${chartFilterContext.orderById.length}'),
+              _summaryChip('Gefilterte Positionen', '${chartFilterContext.filteredItems.length}'),
+              _summaryChip('Zeitraeume', '${buckets.length}'),
+              _summaryChip('Σ Netto-Warenwert', _formatMoneyEur(totalNetValue)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final tableHeight = math.max(240.0, constraints.maxHeight * 0.30);
+                final pieHeight = math.max(250.0, constraints.maxHeight * 0.34);
+                final chartHeight = math.max(
+                  180.0,
+                  constraints.maxHeight - tableHeight - pieHeight - 24,
+                );
+
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          height: chartHeight,
+                          child: buckets.isEmpty
+                              ? const Card(
+                                  child: Center(
+                                    child: Text(
+                                      'Keine Daten mit gueltigem Versanddatum vorhanden.',
+                                    ),
+                                  ),
+                                )
+                              : _buildNetValueBarChart(buckets),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: pieHeight,
+                          child: _buildCountrySharePieSection(
+                            countryShareBuckets,
+                            granularity: _selectedChartGranularity,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: tableHeight,
+                          child: _buildNetValueYearMonthTable(
+                            yearMonthTableData,
+                            granularity: _selectedChartGranularity,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<_NetValueBucket> _buildNetValueBuckets({
+    required _ChartFilterContext context,
+    required _PeriodGranularity granularity,
+  }) {
+    final orderById = context.orderById;
+    final valueByPeriod = <String, double>{};
+    final labelByPeriod = <String, String>{};
+
+    for (final item in context.filteredItems) {
+      final order = orderById[item.ioOrderId];
+      if (order == null) {
+        continue;
+      }
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
+      if (delivery == null) {
+        continue;
+      }
+
+      late final String periodKey;
+      late final String periodLabel;
+      switch (granularity) {
+        case _PeriodGranularity.month:
+          periodKey = '${delivery.year}-${delivery.month.toString().padLeft(2, '0')}';
+          periodLabel = '${delivery.month.toString().padLeft(2, '0')}/${delivery.year}';
+        case _PeriodGranularity.quarter:
+          final quarter = ((delivery.month - 1) ~/ 3) + 1;
+          periodKey = '${delivery.year}-Q$quarter';
+          periodLabel = 'Q$quarter ${delivery.year}';
+        case _PeriodGranularity.year:
+          periodKey = delivery.year.toString();
+          periodLabel = periodKey;
+        case _PeriodGranularity.total:
+          periodKey = 'total';
+          periodLabel = 'Gesamt';
+      }
+
+      valueByPeriod.update(
+        periodKey,
+        (value) => value + wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
+        ifAbsent: () => wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
+      );
+      labelByPeriod.putIfAbsent(periodKey, () => periodLabel);
+    }
+
+    if (valueByPeriod.isEmpty) {
+      return const [];
+    }
+
+    final keys = valueByPeriod.keys.toList(growable: false)
+      ..sort((a, b) {
+        if (granularity == _PeriodGranularity.total) {
+          return 0;
+        }
+        return a.compareTo(b);
+      });
+
+    return keys
+        .map(
+          (key) => _NetValueBucket(
+            periodLabel: labelByPeriod[key] ?? key,
+            valueEur: valueByPeriod[key] ?? 0,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Widget _buildNetValueBarChart(List<_NetValueBucket> buckets) {
+    final maxValue = buckets.fold<double>(
+      0,
+      (currentMax, bucket) => math.max(currentMax, bucket.valueEur),
+    );
+    final safeMax = maxValue <= 0 ? 1.0 : maxValue;
+    final minColumnWidth = 180.0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final chartWidth = math.max(
+              constraints.maxWidth,
+              buckets.length * minColumnWidth,
+            );
+
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: chartWidth,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final bucket in buckets)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: Align(
+                                  alignment: Alignment.bottomCenter,
+                                  child: LayoutBuilder(
+                                    builder: (context, barConstraints) {
+                                      final rawHeight =
+                                          (bucket.valueEur / safeMax) * (barConstraints.maxHeight - 24);
+                                      final barHeight = rawHeight.clamp(0.0, barConstraints.maxHeight - 8);
+                                      final showValueInBar = barHeight >= 64;
+                                      final valueText = _formatMoneyEur(bucket.valueEur);
+
+                                      return Stack(
+                                        alignment: Alignment.bottomCenter,
+                                        clipBehavior: Clip.none,
+                                        children: [
+                                          Container(
+                                            width: 88,
+                                            height: barHeight,
+                                            decoration: BoxDecoration(
+                                              color: Colors.lightBlue.shade300,
+                                              borderRadius: const BorderRadius.vertical(
+                                                top: Radius.circular(8),
+                                              ),
+                                            ),
+                                          ),
+                                          if (showValueInBar)
+                                            Positioned(
+                                              left: 6,
+                                              right: 6,
+                                              bottom: 8,
+                                              child: SizedBox(
+                                                height: 18,
+                                                child: FittedBox(
+                                                  fit: BoxFit.scaleDown,
+                                                  child: Text(
+                                                    valueText,
+                                                    maxLines: 1,
+                                                    softWrap: false,
+                                                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                                      color: Theme.of(context).colorScheme.onPrimary,
+                                                      fontWeight: FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          if (!showValueInBar)
+                                            Positioned(
+                                              left: 0,
+                                              right: 0,
+                                              bottom: barHeight + 6,
+                                              child: SizedBox(
+                                                height: 18,
+                                                child: FittedBox(
+                                                  fit: BoxFit.scaleDown,
+                                                  child: Text(
+                                                    valueText,
+                                                    maxLines: 1,
+                                                    softWrap: false,
+                                                    style: Theme.of(context).textTheme.labelSmall,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                bucket.periodLabel,
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.labelMedium,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  List<_CountryShareBucket> _buildCountryShareBuckets({
+    required _ChartFilterContext context,
+  }) {
+    final orderById = context.orderById;
+    final valueByCountry = <String, double>{};
+
+    for (final item in context.filteredItems) {
+      final order = orderById[item.ioOrderId];
+      if (order == null) {
+        continue;
+      }
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
+      if (delivery == null) {
+        continue;
+      }
+
+      final countryRaw = order.oDeliveryCountryId.trim().toUpperCase();
+      final countryKey = countryRaw.isEmpty || countryRaw == '-'
+          ? 'UNBEKANNT'
+          : countryRaw;
+      final valueEur = wareinsatzOrderedItemNetSalesForOrder(
+        item: item,
+        order: order,
+      );
+      valueByCountry.update(countryKey, (value) => value + valueEur, ifAbsent: () => valueEur);
+    }
+
+    final total = valueByCountry.values.fold<double>(0, (sum, value) => sum + value);
+    if (total <= 0) {
+      return const [];
+    }
+
+    final entries = valueByCountry.entries.toList(growable: false)
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return entries
+        .map(
+          (entry) => _CountryShareBucket(
+            countryLabel: entry.key,
+            valueEur: entry.value,
+            share: entry.value / total,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Widget _buildCountrySharePieSection(
+    List<_CountryShareBucket> buckets, {
+    required _PeriodGranularity granularity,
+  }) {
+    if (buckets.isEmpty) {
+      return const Card(
+        child: Center(
+          child: Text('Keine Daten fuer die Laenderverteilung vorhanden.'),
+        ),
+      );
+    }
+
+    final totalValue = buckets.fold<double>(0, (sum, bucket) => sum + bucket.valueEur);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 1000;
+            final pieWidget = Center(
+              child: SizedBox(
+                width: 220,
+                height: 220,
+                child: CustomPaint(
+                  painter: _CountrySharePiePainter(
+                    buckets: buckets,
+                    colors: _countryPiePalette,
+                  ),
+                ),
+              ),
+            );
+
+            final legendWidget = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Verteilung nach Land (${_chartGranularityLabel(granularity)})',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Σ ${_formatMoneyEur(totalValue)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: buckets.length,
+                    itemBuilder: (context, index) {
+                      final bucket = buckets[index];
+                      final color = _countryPiePalette[index % _countryPiePalette.length];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: color,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${bucket.countryLabel}: ${_formatMoneyEur(bucket.valueEur)} (${_formatPercent(bucket.share * 100)})',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+
+            if (isNarrow) {
+              return Column(
+                children: [
+                  pieWidget,
+                  const SizedBox(height: 10),
+                  Expanded(child: legendWidget),
+                ],
+              );
+            }
+
+            return Row(
+              children: [
+                SizedBox(width: 260, child: pieWidget),
+                const SizedBox(width: 16),
+                Expanded(child: legendWidget),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  _NetValueYearMonthTableData _buildNetValueYearMonthTableData({
+    required _ChartFilterContext context,
+    required _PeriodGranularity granularity,
+  }) {
+    final orderById = context.orderById;
+    final columnLabels = switch (granularity) {
+      _PeriodGranularity.month => const <String>[
+          'Jan',
+          'Feb',
+          'Mrz',
+          'Apr',
+          'Mai',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Okt',
+          'Nov',
+          'Dez',
+        ],
+      _PeriodGranularity.quarter => const <String>['Q1', 'Q2', 'Q3', 'Q4'],
+      _PeriodGranularity.year => const <String>['Jahr'],
+      _PeriodGranularity.total => const <String>['Gesamt'],
+    };
+    final valuesByRow = <String, List<double>>{};
+
+    for (final item in context.filteredItems) {
+      final order = orderById[item.ioOrderId];
+      if (order == null) {
+        continue;
+      }
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
+      if (delivery == null) {
+        continue;
+      }
+
+      final rowLabel = granularity == _PeriodGranularity.total
+          ? 'Gesamt'
+          : delivery.year.toString();
+      final columnIndex = switch (granularity) {
+        _PeriodGranularity.month => delivery.month - 1,
+        _PeriodGranularity.quarter => ((delivery.month - 1) ~/ 3),
+        _PeriodGranularity.year => 0,
+        _PeriodGranularity.total => 0,
+      };
+
+      final rowValues = valuesByRow.putIfAbsent(
+        rowLabel,
+        () => List<double>.filled(columnLabels.length, 0),
+      );
+      rowValues[columnIndex] += wareinsatzOrderedItemNetSalesForOrder(
+        item: item,
+        order: order,
+      );
+    }
+
+    final rowLabels = valuesByRow.keys.toList(growable: false)
+      ..sort((a, b) {
+        final aInt = int.tryParse(a);
+        final bInt = int.tryParse(b);
+        if (aInt != null && bInt != null) {
+          return aInt.compareTo(bInt);
+        }
+        return a.compareTo(b);
+      });
+
+    final columnTotals = List<double>.filled(columnLabels.length, 0);
+    var grandTotal = 0.0;
+
+    for (final rowLabel in rowLabels) {
+      final rowValues = valuesByRow[rowLabel] ?? const <double>[];
+      for (var columnIndex = 0; columnIndex < columnLabels.length; columnIndex++) {
+        final value = rowValues[columnIndex];
+        columnTotals[columnIndex] += value;
+        grandTotal += value;
+      }
+    }
+
+    return _NetValueYearMonthTableData(
+      rowHeaderLabel: granularity == _PeriodGranularity.total ? 'Basis' : 'Jahr',
+      rowLabels: rowLabels,
+      columnLabels: columnLabels,
+      valuesByRow: valuesByRow,
+      columnTotals: columnTotals,
+      grandTotal: grandTotal,
+    );
+  }
+
+  _ChartFilterContext _buildChartFilterContext({
+    required List<OrderRow> orders,
+    required List<ItemOrderedRow> orderedItems,
+    required WareinsatzPuttFilter puttFilter,
+    required _PeriodGranularity granularity,
+    required String? selectedQuarterKey,
+    required String? selectedYearKey,
+  }) {
+    final filteredOrders = <OrderRow>[];
+    for (final order in orders) {
+      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
+      if (delivery == null) {
+        continue;
+      }
+      if (granularity == _PeriodGranularity.quarter) {
+        final quarter = ((delivery.month - 1) ~/ 3) + 1;
+        final quarterKey = '${delivery.year}-Q$quarter';
+        if (selectedQuarterKey != null && quarterKey != selectedQuarterKey) {
+          continue;
+        }
+      }
+      if (granularity == _PeriodGranularity.year) {
+        final yearKey = delivery.year.toString();
+        if (selectedYearKey != null && yearKey != selectedYearKey) {
+          continue;
+        }
+      }
+      if (_matchesPuttFilter(order: order, puttFilter: puttFilter)) {
+        filteredOrders.add(order);
+      }
+    }
+
+    final orderById = {
+      for (final order in filteredOrders) order.oId: order,
+    };
+    final filteredItems = orderedItems
+        .where((item) => orderById.containsKey(item.ioOrderId))
+        .toList(growable: false);
+
+    return _ChartFilterContext(
+      orderById: orderById,
+      filteredItems: filteredItems,
+    );
+  }
+
+  bool _matchesPuttFilter({
+    required OrderRow order,
+    required WareinsatzPuttFilter puttFilter,
+  }) {
+    switch (puttFilter) {
+      case WareinsatzPuttFilter.all:
+        return true;
+      case WareinsatzPuttFilter.onlyPutt:
+        return order.oPutt != 0;
+      case WareinsatzPuttFilter.withoutPutt:
+        return order.oPutt == 0;
+    }
+  }
+
+  Widget _buildNetValueYearMonthTable(
+    _NetValueYearMonthTableData data, {
+    required _PeriodGranularity granularity,
+  }) {
+    if (data.rowLabels.isEmpty) {
+      return const Card(
+        child: Center(
+          child: Text('Keine Jahres-/Monatsdaten verfuegbar.'),
+        ),
+      );
+    }
+
+    final zeroValueColor = Theme.of(context).colorScheme.error;
+    TextStyle? moneyCellStyle(
+      double value, {
+      FontWeight weight = FontWeight.w400,
+    }) {
+      final baseStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+        fontSize: 11,
+        fontWeight: weight,
+      );
+      if (value.abs() < 0.0000001) {
+        return (baseStyle ?? const TextStyle()).copyWith(color: zeroValueColor);
+      }
+      return baseStyle;
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowHeight: 36,
+            dataRowMinHeight: 34,
+            dataRowMaxHeight: 38,
+            horizontalMargin: 10,
+            columnSpacing: 12,
+            headingTextStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+            dataTextStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontSize: 11,
+            ),
+            columns: [
+              DataColumn(
+                label: Text(data.rowHeaderLabel),
+              ),
+              for (final columnLabel in data.columnLabels)
+                DataColumn(
+                  numeric: true,
+                  label: Text(columnLabel),
+                ),
+              DataColumn(
+                numeric: true,
+                label: Text(
+                  granularity == _PeriodGranularity.total
+                      ? 'Summe Gesamt'
+                      : 'Summe Jahr',
+                ),
+              ),
+            ],
+            rows: [
+              for (final rowLabel in data.rowLabels)
+                DataRow(
+                  cells: [
+                    DataCell(Text(rowLabel)),
+                    for (var columnIndex = 0;
+                        columnIndex < data.columnLabels.length;
+                        columnIndex++)
+                      DataCell(
+                        // Nullwerte werden bewusst visuell hervorgehoben.
+                        Text(
+                          _formatMoneyEur((data.valuesByRow[rowLabel] ?? const <double>[])[columnIndex]),
+                          style: moneyCellStyle(
+                            (data.valuesByRow[rowLabel] ?? const <double>[])[columnIndex],
+                          ),
+                        ),
+                      ),
+                    DataCell(
+                      // Jahressumme ebenfalls rot, falls exakt 0.
+                      Text(
+                        _formatMoneyEur(
+                          (data.valuesByRow[rowLabel] ?? const <double>[])
+                              .fold<double>(0, (sum, value) => sum + value),
+                        ),
+                        style: moneyCellStyle(
+                          (data.valuesByRow[rowLabel] ?? const <double>[])
+                              .fold<double>(0, (sum, value) => sum + value),
+                          weight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              DataRow(
+                cells: [
+                  const DataCell(
+                    Text(
+                      'Summe',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  for (final columnTotal in data.columnTotals)
+                    DataCell(
+                      // Monatssummen werden konsistent eingefaerbt.
+                      Text(
+                        _formatMoneyEur(columnTotal),
+                        style: moneyCellStyle(
+                          columnTotal,
+                          weight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  DataCell(
+                    // Gesamtsumme in starker Gewichtung, bei 0 ebenfalls rot.
+                    Text(
+                      _formatMoneyEur(data.grandTotal),
+                      style: moneyCellStyle(
+                        data.grandTotal,
+                        weight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _chartGranularityLabel(_PeriodGranularity granularity) {
+    switch (granularity) {
+      case _PeriodGranularity.month:
+        return 'Monat';
+      case _PeriodGranularity.quarter:
+        return 'Quartal';
+      case _PeriodGranularity.year:
+        return 'Jahr';
+      case _PeriodGranularity.total:
+        return 'Gesamt';
+    }
   }
 
   Widget _buildWareneinsatzView(BuildContext context) {
@@ -2026,6 +2936,26 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return value.toStringAsFixed(2).replaceAll('.', ',');
   }
 
+  String _formatMoneyEur(double value) {
+    final absolute = value.abs();
+    final fixed = absolute.toStringAsFixed(2);
+    final parts = fixed.split('.');
+    final integerPart = parts.first;
+    final decimalPart = parts.last;
+    final grouped = StringBuffer();
+
+    for (var index = 0; index < integerPart.length; index++) {
+      final reverseIndex = integerPart.length - index;
+      grouped.write(integerPart[index]);
+      if (reverseIndex > 1 && reverseIndex % 3 == 1) {
+        grouped.write('.');
+      }
+    }
+
+    final sign = value < 0 ? '-' : '';
+    return '$sign${grouped.toString()},$decimalPart EUR';
+  }
+
   String _formatPercent(double value) {
     return '${value.toStringAsFixed(2).replaceAll('.', ',')} %';
   }
@@ -2036,6 +2966,127 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   double _displayBomMenge(_WareinsatzRow row) {
     return _selectedScope == WareinsatzScope.withoutBom ? 0 : row.totalBomQuantity;
+  }
+}
+
+class _NetValueBucket {
+  const _NetValueBucket({
+    required this.periodLabel,
+    required this.valueEur,
+  });
+
+  final String periodLabel;
+  final double valueEur;
+}
+
+class _NetValueYearMonthTableData {
+  const _NetValueYearMonthTableData({
+    required this.rowHeaderLabel,
+    required this.rowLabels,
+    required this.columnLabels,
+    required this.valuesByRow,
+    required this.columnTotals,
+    required this.grandTotal,
+  });
+
+  final String rowHeaderLabel;
+  final List<String> rowLabels;
+  final List<String> columnLabels;
+  final Map<String, List<double>> valuesByRow;
+  final List<double> columnTotals;
+  final double grandTotal;
+}
+
+class _CountryShareBucket {
+  const _CountryShareBucket({
+    required this.countryLabel,
+    required this.valueEur,
+    required this.share,
+  });
+
+  final String countryLabel;
+  final double valueEur;
+  final double share;
+}
+
+class _ChartFilterContext {
+  const _ChartFilterContext({
+    required this.orderById,
+    required this.filteredItems,
+  });
+
+  final Map<String, OrderRow> orderById;
+  final List<ItemOrderedRow> filteredItems;
+}
+
+class _CountrySharePiePainter extends CustomPainter {
+  _CountrySharePiePainter({
+    required this.buckets,
+    required this.colors,
+  });
+
+  final List<_CountryShareBucket> buckets;
+  final List<Color> colors;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (buckets.isEmpty) {
+      return;
+    }
+
+    final total = buckets.fold<double>(0, (sum, entry) => sum + entry.valueEur);
+    if (total <= 0) {
+      return;
+    }
+
+    final radius = size.shortestSide / 2;
+    final center = Offset(size.width / 2, size.height / 2);
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    final basePaint = Paint()
+      ..style = PaintingStyle.fill;
+    final separatorPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.6, radius * 0.02)
+      ..strokeCap = StrokeCap.butt
+      ..color = Colors.white;
+
+    var startAngle = -math.pi / 2;
+    for (var index = 0; index < buckets.length; index++) {
+      final bucket = buckets[index];
+      final sweepAngle = (bucket.valueEur / total) * math.pi * 2;
+      final paint = basePaint..color = colors[index % colors.length];
+
+      canvas.drawArc(rect, startAngle, sweepAngle, true, paint);
+
+      final boundary = Offset(
+        center.dx + math.cos(startAngle) * radius,
+        center.dy + math.sin(startAngle) * radius,
+      );
+      canvas.drawLine(center, boundary, separatorPaint);
+
+      startAngle += sweepAngle;
+    }
+
+    final finalBoundary = Offset(
+      center.dx + math.cos(startAngle) * radius,
+      center.dy + math.sin(startAngle) * radius,
+    );
+    canvas.drawLine(center, finalBoundary, separatorPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CountrySharePiePainter oldDelegate) {
+    if (oldDelegate.buckets.length != buckets.length) {
+      return true;
+    }
+    for (var i = 0; i < buckets.length; i++) {
+      if (oldDelegate.buckets[i].countryLabel != buckets[i].countryLabel ||
+          oldDelegate.buckets[i].valueEur != buckets[i].valueEur) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
