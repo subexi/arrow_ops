@@ -107,6 +107,7 @@ class InvoiceLineData {
     required this.weightInGram,
     this.hts = '-',
     this.color = '-',
+    this.backorderPending = false,
   });
 
   final int position;
@@ -120,6 +121,7 @@ class InvoiceLineData {
   final double weightInGram;
   final String hts;
   final String color;
+  final bool backorderPending;
 }
 
 class InvoiceTotalsData {

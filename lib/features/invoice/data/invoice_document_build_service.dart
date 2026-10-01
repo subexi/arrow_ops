@@ -213,8 +213,17 @@ class InvoiceDocumentBuildService {
     required bool useEnglishCountryNames,
     required Map<String, String> countryNamesByCode,
   }) {
-    final deliveryName = _deliveryName(order, customer);
-    final deliveryCountryCode = _deliveryCountryToken(order, customer);
+    final preferOrderValues = _orderHasExplicitDeliveryAddress(order);
+    final deliveryName = _deliveryName(
+      order,
+      customer,
+      preferOrderValues: preferOrderValues,
+    );
+    final deliveryCountryCode = _deliveryCountryToken(
+      order,
+      customer,
+      preferOrderValues: preferOrderValues,
+    );
 
     return InvoicePartyData(
       name: deliveryName.isEmpty ? '-' : deliveryName,
@@ -223,22 +232,27 @@ class InvoiceDocumentBuildService {
       street: _deliveryValue(
         orderValue: order.oDeliveryStreet,
         customerValue: customer.cStreetD,
+        preferOrderValues: preferOrderValues,
       ),
       houseNumber: _deliveryValue(
         orderValue: order.oDeliveryHouseNumber,
         customerValue: customer.cHouseNumberD,
+        preferOrderValues: preferOrderValues,
       ),
       postalCode: _deliveryValue(
         orderValue: order.oDeliveryPostalCode,
         customerValue: customer.cPostalCodeD,
+        preferOrderValues: preferOrderValues,
       ),
       city: _deliveryValue(
         orderValue: order.oDeliveryCity,
         customerValue: customer.cCityD,
+        preferOrderValues: preferOrderValues,
       ),
       state: _deliveryValue(
         orderValue: order.oDeliveryState,
         customerValue: customer.cStateD,
+        preferOrderValues: preferOrderValues,
       ),
       countryCode: _countryTokenForAddress(
         token: deliveryCountryCode,
@@ -252,17 +266,34 @@ class InvoiceDocumentBuildService {
     );
   }
 
-  String _deliveryName(OrderRow order, Customer customer) {
+  String _deliveryName(
+    OrderRow order,
+    Customer customer, {
+    required bool preferOrderValues,
+  }) {
     final explicitOrderName =
         _normalizedOrFallback(order.oDeliveryName, '').trim();
-    if (explicitOrderName.isNotEmpty && explicitOrderName != '-') {
-      return explicitOrderName;
-    }
-
     final explicitDeliveryName =
         _normalizedOrFallback(customer.cCareofD, '').trim();
-    if (explicitDeliveryName.isNotEmpty && explicitDeliveryName != '-') {
+    final orderNameValid = explicitOrderName.isNotEmpty && explicitOrderName != '-';
+    final customerNameValid =
+        explicitDeliveryName.isNotEmpty && explicitDeliveryName != '-';
+
+    if (preferOrderValues) {
+      if (orderNameValid) {
+        return explicitOrderName;
+      }
+      if (customerNameValid) {
+        return explicitDeliveryName;
+      }
+      return _customerName(customer);
+    }
+
+    if (customerNameValid) {
       return explicitDeliveryName;
+    }
+    if (orderNameValid) {
+      return explicitOrderName;
     }
     return _customerName(customer);
   }
@@ -270,12 +301,29 @@ class InvoiceDocumentBuildService {
   String _deliveryValue({
     required String orderValue,
     required String customerValue,
+    required bool preferOrderValues,
   }) {
     final normalizedOrderValue = _normalizedOrFallback(orderValue, '').trim();
-    if (normalizedOrderValue.isNotEmpty && normalizedOrderValue != '-') {
+    final normalizedCustomerValue = _normalizedOrFallback(customerValue, '-').trim();
+    final orderValueValid =
+        normalizedOrderValue.isNotEmpty && normalizedOrderValue != '-';
+    final customerValueValid =
+        normalizedCustomerValue.isNotEmpty && normalizedCustomerValue != '-';
+
+    if (preferOrderValues) {
+      if (orderValueValid) {
+        return normalizedOrderValue;
+      }
+      return normalizedCustomerValue;
+    }
+
+    if (customerValueValid) {
+      return normalizedCustomerValue;
+    }
+    if (orderValueValid) {
       return normalizedOrderValue;
     }
-    return _normalizedOrFallback(customerValue, '-');
+    return '-';
   }
 
   InvoiceFooterData _buildFooter(InvoiceSellerProfile profile) {
@@ -392,28 +440,57 @@ class InvoiceDocumentBuildService {
         'EN';
     final isNet =
         _normalizedOrFallback(order.oPriceBasis, 'net').toLowerCase() == 'net';
-    final country = _deliveryCountryToken(order, customer);
+    final country = _deliveryCountryToken(
+      order,
+      customer,
+      preferOrderValues: _orderHasExplicitDeliveryAddress(order),
+    );
     final isOutsideEu = country.isNotEmpty && !_isEuCountry(country);
     return isEnglish && isNet && isOutsideEu;
   }
 
-  String _deliveryCountryToken(OrderRow order, Customer customer) {
+  String _deliveryCountryToken(
+    OrderRow order,
+    Customer customer, {
+    required bool preferOrderValues,
+  }) {
     final orderDelivery = _normalizedOrFallback(order.oDeliveryCountryId, '')
         .toUpperCase();
-    if (orderDelivery.isNotEmpty && orderDelivery != '-') {
-      return orderDelivery;
-    }
-
     final delivery = _normalizedOrFallback(customer.cCountryDId, '').toUpperCase();
-    if (delivery.isNotEmpty && delivery != '-') {
-      return delivery;
-    }
     final billing = _normalizedOrFallback(customer.cCountryBId, '')
         .toUpperCase();
-    if (billing.isNotEmpty && billing != '-') {
+
+    final orderValid = orderDelivery.isNotEmpty && orderDelivery != '-';
+    final deliveryValid = delivery.isNotEmpty && delivery != '-';
+    final billingValid = billing.isNotEmpty && billing != '-';
+
+    if (preferOrderValues) {
+      if (orderValid) {
+        return orderDelivery;
+      }
+      if (deliveryValid) {
+        return delivery;
+      }
+      if (billingValid) {
+        return billing;
+      }
+      return '';
+    }
+
+    if (deliveryValid) {
+      return delivery;
+    }
+    if (billingValid) {
       return billing;
     }
+    if (orderValid) {
+      return orderDelivery;
+    }
     return '';
+  }
+
+  bool _orderHasExplicitDeliveryAddress(OrderRow order) {
+    return order.oDeliveryAddressDifferent != 0;
   }
 
   bool _isEuCountry(String countryToken) {

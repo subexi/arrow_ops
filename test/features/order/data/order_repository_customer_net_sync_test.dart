@@ -253,4 +253,155 @@ void main() {
     expect(counts['O-CNT-1'], 2);
     expect(counts['O-CNT-2'], 0);
   });
+
+  test('retoure plus stornierung nimmt erloes raus und fuehrt bestand zurueck', () async {
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(
+        icId: 200,
+        icIdi: 'R-200',
+        icStock: 10,
+      ),
+    );
+
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-RET-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-07-10',
+        oValueGoods: 50,
+        oTotalPrice: 59.5,
+        oShipping: 0,
+        oVat: 9.5,
+        oCanceled: 1,
+        oReturned: 1,
+      ),
+    );
+
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-RET-1',
+        ioPos: 1,
+        ioQuantity: 2,
+        ioItemId: 200,
+        ioIdi: 'R-200',
+      ),
+    );
+
+    var customer = await customerRepository.getById('1000000001');
+    expect(customer, isNotNull);
+    expect(customer!.cTotalValueEur, closeTo(0.0, 0.0001));
+
+    var catalogueItem = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 200);
+    expect(catalogueItem.icStock, 12);
+
+    final returnedOrder = await orderRepository.getOrderById('O-RET-1');
+    expect(returnedOrder, isNotNull);
+
+    await orderRepository.saveOrder(
+      returnedOrder!.copyWith(
+        oCanceled: 0,
+        oReturned: 0,
+      ),
+      originalOrderId: returnedOrder.oId,
+    );
+
+    customer = await customerRepository.getById('1000000001');
+    expect(customer, isNotNull);
+    expect(customer!.cTotalValueEur, closeTo(50.0, 0.0001));
+
+    catalogueItem = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 200);
+    expect(catalogueItem.icStock, 10);
+  });
+
+  test('aktualisiert nachlieferungsstatus sofort in pending-counts bei positionsaenderung', () async {
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(icId: 300, icIdi: 'B-300'),
+    );
+
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-BO-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-07-15',
+      ),
+    );
+
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-BO-1',
+        ioPos: 1,
+        ioQuantity: 1,
+        ioItemId: 300,
+        ioIdi: 'B-300',
+        ioBackorderPending: 0,
+      ),
+    );
+
+    var counts = await orderRepository.getPendingBackorderCountsByOrderIds(
+      const ['O-BO-1'],
+    );
+    expect(counts['O-BO-1'], 0);
+
+    final savedItems = await orderRepository.getItemsForOrder('O-BO-1');
+    expect(savedItems, isNotEmpty);
+    final current = savedItems.first;
+
+    await orderRepository.saveItemOrdered(
+      ItemOrderedRow(
+        ioId: current.ioId,
+        ioOrderId: current.ioOrderId,
+        ioPos: current.ioPos,
+        ioQuantity: current.ioQuantity,
+        ioItemId: current.ioItemId,
+        ioIdi: current.ioIdi,
+        ioDescriptionDeLong: current.ioDescriptionDeLong,
+        ioDescriptionEnLong: current.ioDescriptionEnLong,
+        ioHts: current.ioHts,
+        ioColor: current.ioColor,
+        ioUnitPrice: current.ioUnitPrice,
+        ioDiscount: current.ioDiscount,
+        ioTotalPrice: current.ioTotalPrice,
+        ioItemWeight: current.ioItemWeight,
+        ioTotalWeight: current.ioTotalWeight,
+        ioPhoto: current.ioPhoto,
+        ioBackorderPending: 1,
+      ),
+    );
+
+    counts = await orderRepository.getPendingBackorderCountsByOrderIds(
+      const ['O-BO-1'],
+    );
+    expect(counts['O-BO-1'], 1);
+
+    final updatedItems = await orderRepository.getItemsForOrder('O-BO-1');
+    final updated = updatedItems.first;
+    await orderRepository.saveItemOrdered(
+      ItemOrderedRow(
+        ioId: updated.ioId,
+        ioOrderId: updated.ioOrderId,
+        ioPos: updated.ioPos,
+        ioQuantity: updated.ioQuantity,
+        ioItemId: updated.ioItemId,
+        ioIdi: updated.ioIdi,
+        ioDescriptionDeLong: updated.ioDescriptionDeLong,
+        ioDescriptionEnLong: updated.ioDescriptionEnLong,
+        ioHts: updated.ioHts,
+        ioColor: updated.ioColor,
+        ioUnitPrice: updated.ioUnitPrice,
+        ioDiscount: updated.ioDiscount,
+        ioTotalPrice: updated.ioTotalPrice,
+        ioItemWeight: updated.ioItemWeight,
+        ioTotalWeight: updated.ioTotalWeight,
+        ioPhoto: updated.ioPhoto,
+        ioBackorderPending: 0,
+      ),
+    );
+
+    counts = await orderRepository.getPendingBackorderCountsByOrderIds(
+      const ['O-BO-1'],
+    );
+    expect(counts['O-BO-1'], 0);
+  });
 }

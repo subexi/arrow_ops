@@ -110,6 +110,7 @@ class InvoiceCalculationService {
             weightInGram: item.ioTotalWeight,
             hts: item.ioHts,
             color: item.ioColor,
+            backorderPending: item.ioBackorderPending != 0,
           ),
         )
         .toList(growable: false);
@@ -120,26 +121,55 @@ class InvoiceCalculationService {
     bool useGerman, {
     required bool forceEnglishOnly,
   }) {
+    final externalDesignation = item.ioIde.trim();
+
     if (forceEnglishOnly) {
       final english = item.ioDescriptionEnLong.trim();
-      return english.isEmpty ? '-' : english;
+      return _withExternalDesignation(
+        baseDescription: english.isEmpty ? '-' : english,
+        externalDesignation: externalDesignation,
+      );
     }
 
     final primary = useGerman
         ? item.ioDescriptionDeLong.trim()
         : item.ioDescriptionEnLong.trim();
     if (primary.isNotEmpty) {
-      return primary;
+      return _withExternalDesignation(
+        baseDescription: primary,
+        externalDesignation: externalDesignation,
+      );
     }
 
     final fallback = useGerman
         ? item.ioDescriptionEnLong.trim()
         : item.ioDescriptionDeLong.trim();
     if (fallback.isNotEmpty) {
-      return fallback;
+      return _withExternalDesignation(
+        baseDescription: fallback,
+        externalDesignation: externalDesignation,
+      );
     }
 
-    return '-';
+    return _withExternalDesignation(
+      baseDescription: '-',
+      externalDesignation: externalDesignation,
+    );
+  }
+
+  String _withExternalDesignation({
+    required String baseDescription,
+    required String externalDesignation,
+  }) {
+    if (externalDesignation.isEmpty || externalDesignation == '-') {
+      return baseDescription;
+    }
+
+    if (baseDescription == '-' || baseDescription.trim().isEmpty) {
+      return externalDesignation;
+    }
+
+    return '$externalDesignation\n$baseDescription';
   }
 
   bool _isNoVatCustomer({

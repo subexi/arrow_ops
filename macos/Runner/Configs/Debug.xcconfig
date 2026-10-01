@@ -1,2 +1,6 @@
 #include "../../Flutter/Flutter-Debug.xcconfig"
 #include "Warnings.xcconfig"
+
+// Local debug builds do not need signing and can hang in provisioning checks.
+CODE_SIGNING_ALLOWED = NO
+CODE_SIGNING_REQUIRED = NO

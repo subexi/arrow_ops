@@ -1,10 +1,17 @@
 import '../../../core/database/app_database.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import '../../item/domain/item_models.dart';
 import '../domain/order_models.dart';
 
 class OrderRepository {
   const OrderRepository();
+
+  static final ValueNotifier<int> orderDataVersion = ValueNotifier<int>(0);
+
+  static void _notifyOrderDataChanged() {
+    orderDataVersion.value = orderDataVersion.value + 1;
+  }
 
   Future<List<OrderRow>> getOrders() async {
     final db = await AppDatabase.instance.database;
@@ -37,6 +44,7 @@ class OrderRepository {
         io.io_quantity,
         io.io_item_id,
         io.io_idi,
+        COALESCE(NULLIF(TRIM(ic.ic_ide), ''), '-') AS io_ide,
         io.io_description_de_long,
         io.io_description_en_long,
         COALESCE(NULLIF(TRIM(io.io_hts), '-'), NULLIF(TRIM(ic.ic_hts), ''), '-') AS io_hts,
@@ -44,6 +52,9 @@ class OrderRepository {
         io.io_unit_price,
         io.io_discount,
         io.io_total_price,
+        COALESCE(io.io_backorder_pending, 0) AS io_backorder_pending,
+        COALESCE(NULLIF(TRIM(io.io_backorder_eta), ''), '-') AS io_backorder_eta,
+        COALESCE(io.io_backorder_completed, 0) AS io_backorder_completed,
         COALESCE((
           SELECT SUM(COALESCE(component.ic_weight, 0) * COALESCE(child.ib_quantity, 0))
           FROM item_bom parent
@@ -111,6 +122,51 @@ class OrderRepository {
     return countsByOrderId;
   }
 
+  Future<Map<String, int>> getPendingBackorderCountsByOrderIds(
+    Iterable<String> orderIds,
+  ) async {
+    final normalizedOrderIds = orderIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (normalizedOrderIds.isEmpty) {
+      return const {};
+    }
+
+    final db = await AppDatabase.instance.database;
+    final placeholders = List.filled(normalizedOrderIds.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        io_order_id,
+        SUM(CASE WHEN COALESCE(io_backorder_pending, 0) != 0 THEN 1 ELSE 0 END)
+          AS pending_backorder_count
+      FROM item_ordered
+      WHERE io_order_id IN ($placeholders)
+      GROUP BY io_order_id
+      ''',
+      normalizedOrderIds,
+    );
+
+    final countsByOrderId = <String, int>{
+      for (final orderId in normalizedOrderIds) orderId: 0,
+    };
+
+    for (final row in rows) {
+      final orderId = row['io_order_id']?.toString().trim() ?? '';
+      if (orderId.isEmpty) {
+        continue;
+      }
+      final count =
+          int.tryParse(row['pending_backorder_count']?.toString() ?? '') ?? 0;
+      countsByOrderId[orderId] = count;
+    }
+
+    return countsByOrderId;
+  }
+
   Future<void> saveOrder(OrderRow order, {String? originalOrderId}) async {
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {
@@ -119,16 +175,26 @@ class OrderRepository {
           : order.oId;
 
       String? previousCustomerId;
+      int previousCanceled = 0;
+      int previousReturned = 0;
       final existingRows = await txn.query(
         '"order"',
-        columns: ['o_customer_id'],
+        columns: ['o_customer_id', 'o_canceled', 'o_returned'],
         where: 'o_id = ?',
         whereArgs: [lookupId],
         limit: 1,
       );
       if (existingRows.isNotEmpty) {
-        previousCustomerId = existingRows.first['o_customer_id']?.toString();
+        final existing = existingRows.first;
+        previousCustomerId = existing['o_customer_id']?.toString();
+        previousCanceled = int.tryParse(existing['o_canceled']?.toString() ?? '') ?? 0;
+        previousReturned = int.tryParse(existing['o_returned']?.toString() ?? '') ?? 0;
       }
+
+      final wasReturnedCancelled =
+          previousCanceled != 0 && previousReturned != 0;
+      final isReturnedCancelled =
+          order.oCanceled != 0 && order.oReturned != 0;
 
       final updated = await txn.update(
         '"order"',
@@ -140,6 +206,20 @@ class OrderRepository {
         await txn.insert('"order"', order.toMap());
       }
 
+      if (!wasReturnedCancelled && isReturnedCancelled) {
+        await _adjustStockForOrderItemsInTransaction(
+          txn,
+          orderId: order.oId,
+          multiplier: 1,
+        );
+      } else if (wasReturnedCancelled && !isReturnedCancelled) {
+        await _adjustStockForOrderItemsInTransaction(
+          txn,
+          orderId: order.oId,
+          multiplier: -1,
+        );
+      }
+
       await _syncCustomerNetRevenueInTransaction(
         txn,
         <String>{
@@ -149,6 +229,7 @@ class OrderRepository {
         },
       );
     });
+    _notifyOrderDataChanged();
   }
 
   Future<void> syncItemDescriptionsFromCatalogueForOrder(String orderId) async {
@@ -184,7 +265,7 @@ class OrderRepository {
     await db.transaction((txn) async {
       final existingRows = await txn.query(
         '"order"',
-        columns: ['o_customer_id'],
+        columns: ['o_customer_id', 'o_canceled', 'o_returned'],
         where: 'o_id = ?',
         whereArgs: [orderId],
         limit: 1,
@@ -192,6 +273,17 @@ class OrderRepository {
       final customerId = existingRows.isEmpty
           ? null
           : existingRows.first['o_customer_id']?.toString();
+      final wasReturnedCancelled = existingRows.isNotEmpty &&
+          (int.tryParse(existingRows.first['o_canceled']?.toString() ?? '') ?? 0) != 0 &&
+          (int.tryParse(existingRows.first['o_returned']?.toString() ?? '') ?? 0) != 0;
+
+      if (wasReturnedCancelled) {
+        await _adjustStockForOrderItemsInTransaction(
+          txn,
+          orderId: orderId,
+          multiplier: -1,
+        );
+      }
 
       await txn.delete(
         'item_ordered',
@@ -209,6 +301,7 @@ class OrderRepository {
         <String>{if (customerId != null && customerId.trim().isNotEmpty) customerId},
       );
     });
+    _notifyOrderDataChanged();
   }
 
   Future<int> nextItemOrderedId() async {
@@ -256,7 +349,7 @@ class OrderRepository {
         ic.ic_stock,
         ic.ic_ic
       FROM item_catalogue ic
-      WHERE COALESCE(ic.ic_ic, 0) = 0
+      WHERE COALESCE(ic.ic_archive, 0) = 0
       ORDER BY ic.ic_idi COLLATE NOCASE ASC, ic.ic_id ASC
       ''',
     );
@@ -266,8 +359,33 @@ class OrderRepository {
   Future<void> saveItemOrdered(ItemOrderedRow item) async {
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {
+      final orderRows = await txn.query(
+        '"order"',
+        columns: ['o_canceled', 'o_returned'],
+        where: 'o_id = ?',
+        whereArgs: [item.ioOrderId],
+        limit: 1,
+      );
+      final stockReturnApplies = orderRows.isNotEmpty &&
+          (int.tryParse(orderRows.first['o_canceled']?.toString() ?? '') ?? 0) != 0 &&
+          (int.tryParse(orderRows.first['o_returned']?.toString() ?? '') ?? 0) != 0;
+
       final existing = item.ioId;
       final ioId = existing ?? await _nextItemOrderedIdInTransaction(txn);
+      Map<String, Object?>? previousItemRow;
+      if (existing != null) {
+        final previousRows = await txn.query(
+          'item_ordered',
+          columns: ['io_item_id', 'io_quantity'],
+          where: 'io_id = ?',
+          whereArgs: [existing],
+          limit: 1,
+        );
+        if (previousRows.isNotEmpty) {
+          previousItemRow = previousRows.first;
+        }
+      }
+
       final normalized = ItemOrderedRow(
         ioId: ioId,
         ioOrderId: item.ioOrderId,
@@ -285,6 +403,9 @@ class OrderRepository {
         ioItemWeight: item.ioItemWeight,
         ioTotalWeight: item.ioTotalWeight,
         ioPhoto: item.ioPhoto,
+        ioBackorderPending: item.ioBackorderPending,
+        ioBackorderEta: item.ioBackorderEta,
+        ioBackorderCompleted: item.ioBackorderCompleted,
       );
 
       final updated = await txn.update(
@@ -296,15 +417,149 @@ class OrderRepository {
       if (updated == 0) {
         await txn.insert('item_ordered', normalized.toMap());
       }
+
+      if (stockReturnApplies) {
+        final newItemId = normalized.ioItemId;
+        final newQuantity = normalized.ioQuantity;
+
+        if (previousItemRow == null) {
+          await _adjustItemStockInTransaction(
+            txn,
+            itemId: newItemId,
+            quantityDelta: newQuantity,
+          );
+        } else {
+          final oldItemId =
+              int.tryParse(previousItemRow['io_item_id']?.toString() ?? '') ?? 0;
+          final oldQuantity =
+              int.tryParse(previousItemRow['io_quantity']?.toString() ?? '') ?? 0;
+          if (oldItemId == newItemId) {
+            final delta = newQuantity - oldQuantity;
+            if (delta != 0) {
+              await _adjustItemStockInTransaction(
+                txn,
+                itemId: newItemId,
+                quantityDelta: delta,
+              );
+            }
+          } else {
+            if (oldItemId > 0 && oldQuantity != 0) {
+              await _adjustItemStockInTransaction(
+                txn,
+                itemId: oldItemId,
+                quantityDelta: -oldQuantity,
+              );
+            }
+            if (newItemId > 0 && newQuantity != 0) {
+              await _adjustItemStockInTransaction(
+                txn,
+                itemId: newItemId,
+                quantityDelta: newQuantity,
+              );
+            }
+          }
+        }
+      }
     });
+    _notifyOrderDataChanged();
   }
 
   Future<void> deleteItemOrdered(int ioId) async {
     final db = await AppDatabase.instance.database;
-    await db.delete(
-      'item_ordered',
-      where: 'io_id = ?',
-      whereArgs: [ioId],
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'item_ordered',
+        columns: ['io_order_id', 'io_item_id', 'io_quantity'],
+        where: 'io_id = ?',
+        whereArgs: [ioId],
+        limit: 1,
+      );
+
+      if (rows.isNotEmpty) {
+        final row = rows.first;
+        final orderId = row['io_order_id']?.toString().trim() ?? '';
+        final itemId = int.tryParse(row['io_item_id']?.toString() ?? '') ?? 0;
+        final quantity = int.tryParse(row['io_quantity']?.toString() ?? '') ?? 0;
+
+        if (orderId.isNotEmpty && itemId > 0 && quantity > 0) {
+          final orderRows = await txn.query(
+            '"order"',
+            columns: ['o_canceled', 'o_returned'],
+            where: 'o_id = ?',
+            whereArgs: [orderId],
+            limit: 1,
+          );
+          final stockReturnApplies = orderRows.isNotEmpty &&
+              (int.tryParse(orderRows.first['o_canceled']?.toString() ?? '') ?? 0) != 0 &&
+              (int.tryParse(orderRows.first['o_returned']?.toString() ?? '') ?? 0) != 0;
+
+          if (stockReturnApplies) {
+            await _adjustItemStockInTransaction(
+              txn,
+              itemId: itemId,
+              quantityDelta: -quantity,
+            );
+          }
+        }
+      }
+
+      await txn.delete(
+        'item_ordered',
+        where: 'io_id = ?',
+        whereArgs: [ioId],
+      );
+    });
+    _notifyOrderDataChanged();
+  }
+
+  Future<void> _adjustStockForOrderItemsInTransaction(
+    Transaction txn, {
+    required String orderId,
+    required int multiplier,
+  }) async {
+    if (multiplier == 0) {
+      return;
+    }
+
+    final rows = await txn.rawQuery(
+      '''
+      SELECT io_item_id, SUM(COALESCE(io_quantity, 0)) AS qty
+      FROM item_ordered
+      WHERE io_order_id = ?
+      GROUP BY io_item_id
+      ''',
+      [orderId],
+    );
+
+    for (final row in rows) {
+      final itemId = int.tryParse(row['io_item_id']?.toString() ?? '') ?? 0;
+      final quantity = int.tryParse(row['qty']?.toString() ?? '') ?? 0;
+      if (itemId <= 0 || quantity == 0) {
+        continue;
+      }
+      await _adjustItemStockInTransaction(
+        txn,
+        itemId: itemId,
+        quantityDelta: quantity * multiplier,
+      );
+    }
+  }
+
+  Future<void> _adjustItemStockInTransaction(
+    Transaction txn, {
+    required int itemId,
+    required int quantityDelta,
+  }) async {
+    if (itemId <= 0 || quantityDelta == 0) {
+      return;
+    }
+    await txn.rawUpdate(
+      '''
+      UPDATE item_catalogue
+      SET ic_stock = COALESCE(ic_stock, 0) + ?
+      WHERE ic_id = ?
+      ''',
+      [quantityDelta, itemId],
     );
   }
 
@@ -334,19 +589,29 @@ class OrderRepository {
               WHEN COALESCE(o_value_goods, 0) != 0
                    AND o_payment_actual IS NULL
                    AND o_paypal_fee_actual IS NULL
+                   AND NOT (
+                     COALESCE(o_canceled, 0) != 0
+                     AND COALESCE(o_returned, 0) != 0
+                   )
                 THEN o_value_goods
               ELSE
-                COALESCE(o_total_price, 0)
-                - COALESCE(o_shipping, 0)
-                - COALESCE(
-                    CASE
-                      WHEN o_paypal_fee_actual IS NOT NULL THEN o_paypal_fee_actual
-                      WHEN o_payment_actual IS NOT NULL AND o_payment_actual != 1 THEN 0
-                      ELSE o_paypal_fee
-                    END,
-                    0
-                  )
-                - COALESCE(o_vat, 0)
+                CASE
+                  WHEN COALESCE(o_canceled, 0) != 0
+                       AND COALESCE(o_returned, 0) != 0
+                    THEN 0
+                  ELSE
+                    COALESCE(o_total_price, 0)
+                    - COALESCE(o_shipping, 0)
+                    - COALESCE(
+                        CASE
+                          WHEN o_paypal_fee_actual IS NOT NULL THEN o_paypal_fee_actual
+                          WHEN o_payment_actual IS NOT NULL AND o_payment_actual != 1 THEN 0
+                          ELSE o_paypal_fee
+                        END,
+                        0
+                      )
+                    - COALESCE(o_vat, 0)
+                END
             END
           )
           FROM "order"

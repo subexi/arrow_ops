@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +29,8 @@ class _InvoicePageState extends State<InvoicePage> {
     'Versand erfolgt nach Zahlungseingang per Banküberweisung',
     'We deliver after having received the payment',
     'We deliver after having received the payment via bank transfer',
+    'Zur Beachtung bei Benutzung des Arrow-Fix:\nSchaftdurchmesser vor Bearbeitung prüfen und ggf. durch Schleifen anpassen\nWenn Schaftdurchmesser zu groß ist, kann durch die entstehende Reibungswärme das Werkzeug Schaden nehmen',
+    'Important notes when using the Arrow-Fix:\nCheck the shank diameter before machining and adjust it by grinding if necessary.\nIf the shank diameter is too large, the resulting frictional heat may damage the tool.',
   ];
   static const InvoiceSellerProfile _fixedSellerProfile = InvoiceSellerProfile(
     company: 'Arrow-Engineering UG',
@@ -49,6 +51,7 @@ class _InvoicePageState extends State<InvoicePage> {
 
   final _invoiceNoteController = TextEditingController();
   final _documentDateController = TextEditingController();
+  final _exportDirectoryController = TextEditingController();
 
   List<OrderRow> _orders = [];
   Map<String, Customer> _customerById = {};
@@ -63,6 +66,7 @@ class _InvoicePageState extends State<InvoicePage> {
   bool _buildingPreview = false;
   bool _exportingPdf = false;
   String? _rememberedExportDirectory;
+  String? _fallbackExportDirectory;
   bool _loadingRememberedExportDirectory = true;
 
   @override
@@ -76,6 +80,8 @@ class _InvoicePageState extends State<InvoicePage> {
   Future<void> _loadRememberedExportDirectory() async {
     final prefs = await SharedPreferences.getInstance();
     final savedDirectory = prefs.getString(_lastExportDirectoryKey)?.trim();
+    final docsDir = await getApplicationDocumentsDirectory();
+    final fallbackDirectory = p.join(docsDir.path, 'pdf_exports');
     if (!mounted) {
       return;
     }
@@ -84,6 +90,8 @@ class _InvoicePageState extends State<InvoicePage> {
           (savedDirectory == null || savedDirectory.isEmpty)
           ? null
           : savedDirectory;
+      _fallbackExportDirectory = fallbackDirectory;
+      _exportDirectoryController.text = _rememberedExportDirectory ?? '';
       _loadingRememberedExportDirectory = false;
     });
   }
@@ -92,6 +100,7 @@ class _InvoicePageState extends State<InvoicePage> {
   void dispose() {
     _invoiceNoteController.dispose();
     _documentDateController.dispose();
+    _exportDirectoryController.dispose();
     super.dispose();
   }
 
@@ -154,14 +163,14 @@ class _InvoicePageState extends State<InvoicePage> {
       if (_selectedOrderId != null) {
         await _buildPreview();
       }
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Auftraege konnten nicht geladen werden: $error'),
-        ),
+      await _showErrorDialog(
+        title: 'Auftraege konnten nicht geladen werden',
+        error: error,
+        stackTrace: stackTrace,
       );
     } finally {
       if (mounted) {
@@ -311,14 +320,14 @@ class _InvoicePageState extends State<InvoicePage> {
           _selectedOrderId = orders.isEmpty ? null : orders.first.oId;
         }
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Auftraege konnten nicht aktualisiert werden: $error'),
-        ),
+      await _showErrorDialog(
+        title: 'Auftraege konnten nicht aktualisiert werden',
+        error: error,
+        stackTrace: stackTrace,
       );
     }
   }
@@ -384,7 +393,7 @@ class _InvoicePageState extends State<InvoicePage> {
       final preview = await _documentBuilder.buildFromOrder(
         orderId: orderId,
         documentKind: targetKind,
-          isProforma: _isProforma,
+        isProforma: _isProforma,
         sellerProfile: _fixedSellerProfile,
         invoiceDate: _documentDateController.text.trim().isEmpty
             ? null
@@ -400,12 +409,14 @@ class _InvoicePageState extends State<InvoicePage> {
         _preview = preview;
         _previewDocumentKind = targetKind;
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Vorschau konnte nicht erzeugt werden: $error')),
+      await _showErrorDialog(
+        title: 'Vorschau konnte nicht erzeugt werden',
+        error: error,
+        stackTrace: stackTrace,
       );
     } finally {
       if (mounted) {
@@ -453,8 +464,12 @@ class _InvoicePageState extends State<InvoicePage> {
         return;
       }
 
-      await File(targetPath).writeAsBytes(bytes, flush: true);
-      await _saveLastExportDirectory(targetPath);
+      final savedPath = await _writePdfWithFallback(
+        bytes: bytes,
+        preferredPath: targetPath,
+        fileName: fileName,
+      );
+      await _saveLastExportDirectory(savedPath);
 
       if (!mounted) {
         return;
@@ -465,15 +480,17 @@ class _InvoicePageState extends State<InvoicePage> {
           : 'Rechnung';
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$documentName gespeichert: $targetPath')),
+        SnackBar(content: Text('$documentName gespeichert: $savedPath')),
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('PDF-Export fehlgeschlagen: $error')),
+      await _showErrorDialog(
+        title: 'PDF-Export fehlgeschlagen',
+        error: error,
+        stackTrace: stackTrace,
       );
     } finally {
       if (mounted) {
@@ -488,19 +505,11 @@ class _InvoicePageState extends State<InvoicePage> {
     required String fileName,
     required InvoiceDocumentKind documentKind,
   }) async {
-    final initialDirectory = await _resolveInitialExportDirectory();
-    final dialogTitle = documentKind == InvoiceDocumentKind.packingList
-        ? 'Lieferschein als PDF exportieren'
-        : 'Rechnung als PDF exportieren';
-    final uri = await FilePicker.saveFile(
-      dialogTitle: dialogTitle,
+    final exportDirectory = await _resolveInitialExportDirectory();
+    return _nextAvailablePath(
+      directoryPath: exportDirectory,
       fileName: fileName,
-      bytes: Uint8List(0),
-      initialDirectory: initialDirectory,
-      allowedExtensions: const ['pdf'],
-      type: FileType.custom,
     );
-    return uri?.toFilePath();
   }
 
   Future<String> _resolveInitialExportDirectory() async {
@@ -512,9 +521,7 @@ class _InvoicePageState extends State<InvoicePage> {
         return savedDirectory;
       }
     }
-
-    final docsDir = await getApplicationDocumentsDirectory();
-    return docsDir.path;
+    return _ensureFallbackExportDirectory();
   }
 
   Future<void> _saveLastExportDirectory(String targetPath) async {
@@ -523,14 +530,79 @@ class _InvoicePageState extends State<InvoicePage> {
       return;
     }
 
+    await _setRememberedExportDirectory(directory);
+  }
+
+  Future<void> _setRememberedExportDirectory(String directory) async {
+    final normalizedDirectory = directory.trim();
+    if (normalizedDirectory.isEmpty) {
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_lastExportDirectoryKey, directory);
+    await prefs.setString(_lastExportDirectoryKey, normalizedDirectory);
     if (!mounted) {
       return;
     }
     setState(() {
-      _rememberedExportDirectory = directory;
+      _rememberedExportDirectory = normalizedDirectory;
+      _exportDirectoryController.text = normalizedDirectory;
     });
+  }
+
+  Future<String> _writePdfWithFallback({
+    required List<int> bytes,
+    required String preferredPath,
+    required String fileName,
+  }) async {
+    final normalizedPreferredPath = preferredPath.trim();
+    try {
+      final preferredDirectory = Directory(p.dirname(normalizedPreferredPath));
+      await preferredDirectory.create(recursive: true);
+      await File(normalizedPreferredPath).writeAsBytes(bytes, flush: true);
+      return normalizedPreferredPath;
+    } on FileSystemException {
+      final fallbackDirectory = await _ensureFallbackExportDirectory();
+      final fallbackPath = await _nextAvailablePath(
+        directoryPath: fallbackDirectory,
+        fileName: fileName,
+      );
+      await File(fallbackPath).writeAsBytes(bytes, flush: true);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Konnte nicht am ausgewaehlten Ort speichern. Fallback verwendet: $fallbackPath',
+            ),
+          ),
+        );
+      }
+
+      return fallbackPath;
+    }
+  }
+
+  Future<String> _ensureFallbackExportDirectory() async {
+    final docsDir = await getApplicationDocumentsDirectory();
+    final fallbackDirectory = Directory(p.join(docsDir.path, 'pdf_exports'));
+    await fallbackDirectory.create(recursive: true);
+    return fallbackDirectory.path;
+  }
+
+  Future<String> _nextAvailablePath({
+    required String directoryPath,
+    required String fileName,
+  }) async {
+    final extension = p.extension(fileName);
+    final baseName = p.basenameWithoutExtension(fileName);
+    var candidatePath = p.join(directoryPath, fileName);
+    var counter = 1;
+    while (await File(candidatePath).exists()) {
+      candidatePath = p.join(directoryPath, '$baseName($counter)$extension');
+      counter++;
+    }
+    return candidatePath;
   }
 
   Future<void> _resetLastExportDirectory() async {
@@ -541,6 +613,7 @@ class _InvoicePageState extends State<InvoicePage> {
     }
     setState(() {
       _rememberedExportDirectory = null;
+      _exportDirectoryController.clear();
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -549,12 +622,197 @@ class _InvoicePageState extends State<InvoicePage> {
     );
   }
 
+  Future<void> _openExportDirectoryInFinder() async {
+    final configuredDirectory = _rememberedExportDirectory?.trim() ?? '';
+    final fallbackDirectory = (await getApplicationDocumentsDirectory()).path;
+    final directory = configuredDirectory.isEmpty
+        ? fallbackDirectory
+        : configuredDirectory;
+
+    final exists = await Directory(directory).exists();
+    if (!exists) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ordner nicht gefunden: $directory')),
+      );
+      return;
+    }
+
+    final result = await Process.run('open', [directory]);
+    if (!mounted) {
+      return;
+    }
+
+    if (result.exitCode == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ordner im Finder geoeffnet: $directory')),
+      );
+      return;
+    }
+
+    final stderrText = (result.stderr ?? '').toString().trim();
+    final suffix = stderrText.isEmpty ? '' : ' ($stderrText)';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Ordner konnte nicht geoeffnet werden$suffix')),
+    );
+  }
+
+  Future<void> _pickExportDirectory() async {
+    String? selectedPath;
+    try {
+      selectedPath = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Exportordner für PDFs auswählen',
+      );
+    } on PlatformException catch (error, stackTrace) {
+      final entitlementBlocked = error.code.toUpperCase().contains(
+        'ENTITLEMENT_REQUIRED',
+      );
+      if (entitlementBlocked) {
+        final appleScriptPath = await _pickDirectoryViaAppleScript();
+        if (appleScriptPath != null && appleScriptPath.trim().isNotEmpty) {
+          await _setExportDirectory(appleScriptPath);
+          return;
+        }
+
+        final fallbackDirectory = await _ensureFallbackExportDirectory();
+        await _setRememberedExportDirectory(fallbackDirectory);
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Ordnerdialog hat keine Berechtigung. Exportordner wurde auf App-Ordner gesetzt: $fallbackDirectory',
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+      await _showErrorDialog(
+        title: 'Exportordner konnte nicht ausgewählt werden',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return;
+    }
+
+    if (selectedPath == null || selectedPath.trim().isEmpty) {
+      if (Platform.isMacOS) {
+        final appleScriptPath = await _pickDirectoryViaAppleScript();
+        if (appleScriptPath != null && appleScriptPath.trim().isNotEmpty) {
+          await _setExportDirectory(appleScriptPath);
+        }
+      }
+      return;
+    }
+
+    await _setExportDirectory(selectedPath);
+  }
+
+  Future<String?> _pickDirectoryViaAppleScript() async {
+    if (!Platform.isMacOS) {
+      return null;
+    }
+
+    final result = await Process.run('osascript', [
+      '-e',
+      'try',
+      '-e',
+      'set chosenFolder to choose folder with prompt "Exportordner fuer PDFs auswaehlen"',
+      '-e',
+      'POSIX path of chosenFolder',
+      '-e',
+      'on error number -128',
+      '-e',
+      'return ""',
+      '-e',
+      'end try',
+    ]);
+
+    if (result.exitCode != 0) {
+      return null;
+    }
+
+    final output = (result.stdout ?? '').toString().trim();
+    return output.isEmpty ? null : output;
+  }
+
+  Future<void> _setExportDirectoryFromInput() async {
+    final candidate = _exportDirectoryController.text.trim();
+    if (candidate.isEmpty) {
+      return;
+    }
+    await _setExportDirectory(candidate);
+  }
+
+  Future<void> _setExportDirectory(String directoryPath) async {
+    final normalized = directoryPath.trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    try {
+      final directory = Directory(normalized);
+      await directory.create(recursive: true);
+      final probeFile = File(
+        p.join(
+          normalized,
+          '.arrow_ops_write_probe_${DateTime.now().microsecondsSinceEpoch}',
+        ),
+      );
+      await probeFile.writeAsString('probe', flush: true);
+      if (await probeFile.exists()) {
+        await probeFile.delete();
+      }
+      if (!mounted) {
+        return;
+      }
+
+      await _setRememberedExportDirectory(normalized);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exportordner gesetzt: $normalized')),
+      );
+    } on FileSystemException catch (error, stackTrace) {
+      final fallbackDirectory = await _ensureFallbackExportDirectory();
+      await _setRememberedExportDirectory(fallbackDirectory);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ausgewählter Ordner nicht beschreibbar. App-Ordner gesetzt: $fallbackDirectory',
+          ),
+        ),
+      );
+      await _showErrorDialog(
+        title: 'Exportordner konnte nicht direkt gesetzt werden',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rechnungen / Lieferscheine'),
         actions: [
+          IconButton(
+            onPressed: _openExportDirectoryInFinder,
+            tooltip: 'Exportordner im Finder oeffnen',
+            icon: const Icon(Icons.folder_open_outlined),
+          ),
           IconButton(
             onPressed: _resetLastExportDirectory,
             tooltip: 'Exportordner zuruecksetzen',
@@ -611,58 +869,58 @@ class _InvoicePageState extends State<InvoicePage> {
                   ),
                 ),
               ),
-                  SizedBox(
-                    width: 420,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.receipt_long,
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Proforma',
-                                  style: Theme.of(context).textTheme.titleSmall
-                                      ?.copyWith(fontWeight: FontWeight.w700),
-                                ),
-                                Text(
-                                  'Aktiv: Proforma Rechnung / Proforma invoice',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Switch.adaptive(
-                            value: _isProforma,
-                            onChanged: (value) async {
-                              setState(() {
-                                _isProforma = value;
-                              });
-                              await _buildPreview(
-                                documentKind: _selectedDocumentKind,
-                              );
-                            },
-                          ),
-                        ],
-                      ),
+              SizedBox(
+                width: 420,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.receipt_long,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Proforma',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            Text(
+                              'Aktiv: Proforma Rechnung / Proforma invoice',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch.adaptive(
+                        value: _isProforma,
+                        onChanged: (value) async {
+                          setState(() {
+                            _isProforma = value;
+                          });
+                          await _buildPreview(
+                            documentKind: _selectedDocumentKind,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               SizedBox(
                 width: 320,
                 child: SegmentedButton<InvoiceDocumentKind>(
@@ -725,6 +983,8 @@ class _InvoicePageState extends State<InvoicePage> {
             ],
           ),
           const SizedBox(height: 8),
+          _buildExportDirectoryControls(),
+          const SizedBox(height: 8),
           _buildRememberedDirectoryHint(),
           const SizedBox(height: 16),
           Expanded(
@@ -748,26 +1008,23 @@ class _InvoicePageState extends State<InvoicePage> {
         padding: const EdgeInsets.all(12),
         child: ListView(
           children: [
-            Text(
-              'Verkäuferprofil',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Verkäuferprofil',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _copySellerProfileToClipboard,
+                  icon: const Icon(Icons.copy_all_outlined),
+                  label: const Text('Kopieren'),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
-            _buildLockedValue('Firma', _fixedSellerProfile.company),
-            const SizedBox(height: 8),
-            _buildLockedValue('Strasse', _fixedSellerProfile.street),
-            const SizedBox(height: 8),
-            _buildLockedValue('Hausnummer', _fixedSellerProfile.houseNumber),
-            const SizedBox(height: 8),
-            _buildLockedValue('Ort', _fixedSellerProfile.city),
-            const SizedBox(height: 8),
-            _buildLockedValue('Land', _fixedSellerProfile.countryCode),
-            const SizedBox(height: 8),
-            _buildLockedValue('Phone', _fixedSellerProfile.phone),
-            const SizedBox(height: 8),
-            _buildLockedValue('E-Mail', _fixedSellerProfile.email),
-            const SizedBox(height: 8),
-            _buildLockedValue('Web', _fixedSellerProfile.web),
+            _buildSellerProfileBlock(),
             const SizedBox(height: 8),
             TextField(
               controller: _documentDateController,
@@ -841,21 +1098,141 @@ class _InvoicePageState extends State<InvoicePage> {
     }
 
     final path = _rememberedExportDirectory;
-    final label = (path == null || path.isEmpty) ? 'nicht gesetzt' : path;
-    return Text(
-      'Gemerkter Exportordner: $label',
-      style: Theme.of(context).textTheme.bodySmall,
+    final fallbackPath = _fallbackExportDirectory;
+    final hasPath = path != null && path.isNotEmpty;
+    final isFallbackActive =
+        hasPath &&
+        fallbackPath != null &&
+        fallbackPath.isNotEmpty &&
+        p.equals(path, fallbackPath);
+    final statusText = !hasPath
+        ? 'kein Exportordner gesetzt'
+        : (isFallbackActive ? 'Fallback-Ordner aktiv' : 'Benutzerordner aktiv');
+    final label = hasPath ? path : 'nicht gesetzt';
+
+    final statusColor = !hasPath
+        ? Theme.of(context).colorScheme.outline
+        : (isFallbackActive ? Colors.orange.shade700 : Colors.green.shade700);
+    final statusIcon = !hasPath
+        ? Icons.info_outline
+        : (isFallbackActive
+              ? Icons.warning_amber_outlined
+              : Icons.check_circle_outline);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(statusIcon, size: 18, color: statusColor),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            'Status: $statusText\nGemerkter Exportordner: $label',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: statusColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildLockedValue(String label, String value) {
-    return InputDecorator(
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-      ),
-      child: Text(value.trim().isEmpty ? '-' : value.trim()),
+  Widget _buildExportDirectoryControls() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _exportDirectoryController,
+                decoration: const InputDecoration(
+                  labelText: 'PDF-Ablageordner',
+                  hintText: '/Pfad/zum/Ordner',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onSubmitted: (_) => _setExportDirectoryFromInput(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _setExportDirectoryFromInput,
+              child: const Text('Pfad setzen'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _pickExportDirectory,
+              icon: const Icon(Icons.folder_open_outlined),
+              label: const Text('Exportordner waehlen'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _openExportDirectoryInFinder,
+              icon: const Icon(Icons.open_in_new_outlined),
+              label: const Text('Im Finder oeffnen'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _resetLastExportDirectory,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Exportordner zuruecksetzen'),
+            ),
+          ],
+        ),
+      ],
     );
+  }
+
+  Widget _buildSellerProfileBlock() {
+    final profileText = _sellerProfileText();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: SelectableText(
+        profileText,
+        style: Theme.of(context).textTheme.bodyMedium,
+      ),
+    );
+  }
+
+  String _sellerProfileText() {
+    String valueOrDash(String value) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? '-' : trimmed;
+    }
+
+    final lines = <String>[
+      valueOrDash(_fixedSellerProfile.company),
+      '${valueOrDash(_fixedSellerProfile.street)} ${valueOrDash(_fixedSellerProfile.houseNumber)}',
+      '${valueOrDash(_fixedSellerProfile.postalCode)} ${valueOrDash(_fixedSellerProfile.city)}',
+      valueOrDash(_fixedSellerProfile.countryCode),
+      'Phone: ${valueOrDash(_fixedSellerProfile.phone)}',
+      'E-Mail: ${valueOrDash(_fixedSellerProfile.email)}',
+      'Web: ${valueOrDash(_fixedSellerProfile.web)}',
+    ];
+
+    return lines.join('\n');
+  }
+
+  Future<void> _copySellerProfileToClipboard() async {
+    final profileText = _sellerProfileText();
+    await Clipboard.setData(ClipboardData(text: profileText));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Verkaeuferprofil kopiert.')));
   }
 
   Widget _buildPreviewCard() {
@@ -881,7 +1258,10 @@ class _InvoicePageState extends State<InvoicePage> {
                   _kv('Preisart', _priceTypeLabel(preview.priceBasis)),
                   _kv('Kunde', _partyOneLine(preview.buyer)),
                   _kv('Positionen', preview.lines.length.toString()),
-                  _kv('Warengewicht', _weight(preview.totals.totalWeightInGram)),
+                  _kv(
+                    'Warengewicht',
+                    _weight(preview.totals.totalWeightInGram),
+                  ),
                   if (preview.documentKind == InvoiceDocumentKind.invoice) ...[
                     const Divider(height: 24),
                     Text(
@@ -987,6 +1367,63 @@ class _InvoicePageState extends State<InvoicePage> {
     final adjusted =
         data.totals.grandTotal - data.totals.shipping - data.totals.paypalFee;
     return adjusted < 0 ? 0 : adjusted;
+  }
+
+  Future<void> _showErrorDialog({
+    required String title,
+    required Object error,
+    StackTrace? stackTrace,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+
+    final details = StringBuffer(error.toString());
+    if (stackTrace != null) {
+      final stackLines = stackTrace
+          .toString()
+          .split('\n')
+          .where((line) => line.trim().isNotEmpty)
+          .take(8)
+          .join('\n');
+      if (stackLines.isNotEmpty) {
+        details
+          ..write('\n\nStacktrace:\n')
+          ..write(stackLines);
+      }
+    }
+
+    final detailText = details.toString();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 720,
+            child: SingleChildScrollView(child: SelectableText(detailText)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: detailText));
+                if (!mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Fehlerdetails kopiert')),
+                );
+              },
+              child: const Text('Details kopieren'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Schliessen'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _applyNoteTemplate(String template) {

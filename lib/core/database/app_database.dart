@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 22;
+  static const int _currentVersion = 25;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -41,6 +41,9 @@ class AppDatabase {
     DatabaseMigration(version: 20, run: _migrationV20),
     DatabaseMigration(version: 21, run: _migrationV21),
     DatabaseMigration(version: 22, run: _migrationV22),
+    DatabaseMigration(version: 23, run: _migrationV23),
+    DatabaseMigration(version: 24, run: _migrationV24),
+    DatabaseMigration(version: 25, run: _migrationV25),
   ];
 
   Future<Database> get database async {
@@ -1080,5 +1083,89 @@ class AppDatabase {
         'ALTER TABLE "order" ADD COLUMN o_paypal_fee_actual REAL',
       );
     }
+  }
+
+  static Future<void> _migrationV23(Database db) async {
+    final orderedColumns = await db.rawQuery('PRAGMA table_info(item_ordered)');
+    if (orderedColumns.isEmpty) {
+      return;
+    }
+
+    final hasBackorderColumn = orderedColumns.any(
+      (column) => column['name'] == 'io_backorder_pending',
+    );
+    if (!hasBackorderColumn) {
+      await db.execute(
+        'ALTER TABLE item_ordered ADD COLUMN io_backorder_pending INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+
+    await db.execute('''
+      UPDATE item_ordered
+      SET io_backorder_pending = 0
+      WHERE io_backorder_pending IS NULL
+    ''');
+  }
+
+  static Future<void> _migrationV24(Database db) async {
+    final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    if (orderColumns.isEmpty) {
+      return;
+    }
+
+    final hasCanceledColumn = orderColumns.any(
+      (column) => column['name'] == 'o_canceled',
+    );
+    final hasReturnedColumn = orderColumns.any(
+      (column) => column['name'] == 'o_returned',
+    );
+
+    if (!hasCanceledColumn) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_canceled INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!hasReturnedColumn) {
+      await db.execute(
+        'ALTER TABLE "order" ADD COLUMN o_returned INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+  }
+
+  static Future<void> _migrationV25(Database db) async {
+    final orderedColumns = await db.rawQuery('PRAGMA table_info(item_ordered)');
+    if (orderedColumns.isEmpty) {
+      return;
+    }
+
+    final hasBackorderEtaColumn = orderedColumns.any(
+      (column) => column['name'] == 'io_backorder_eta',
+    );
+    final hasBackorderCompletedColumn = orderedColumns.any(
+      (column) => column['name'] == 'io_backorder_completed',
+    );
+
+    if (!hasBackorderEtaColumn) {
+      await db.execute(
+        'ALTER TABLE item_ordered ADD COLUMN io_backorder_eta TEXT NOT NULL DEFAULT "-"',
+      );
+    }
+    if (!hasBackorderCompletedColumn) {
+      await db.execute(
+        'ALTER TABLE item_ordered ADD COLUMN io_backorder_completed INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+
+    await db.execute('''
+      UPDATE item_ordered
+      SET io_backorder_eta = '-'
+      WHERE io_backorder_eta IS NULL OR TRIM(io_backorder_eta) = ''
+    ''');
+
+    await db.execute('''
+      UPDATE item_ordered
+      SET io_backorder_completed = 0
+      WHERE io_backorder_completed IS NULL
+    ''');
   }
 }

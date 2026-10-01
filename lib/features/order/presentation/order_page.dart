@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:data_table_2/data_table_2.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../customer/data/customer_repository.dart';
@@ -114,7 +118,13 @@ String buildPaymentDisplayLabel({
 }
 
 String _paymentLabelFromCode(int code) {
-  const labels = ['Sonstiges', 'PayPal', 'Banküberweisung', 'Kreditkarte', 'Bar'];
+  const labels = [
+    'Sonstiges',
+    'PayPal',
+    'Banküberweisung',
+    'Kreditkarte',
+    'Bar',
+  ];
   if (code < 0 || code >= labels.length) return code.toString();
   return labels[code];
 }
@@ -125,7 +135,8 @@ OrderRow recalculateOrderHeaderTotals({
   required List<ItemOrderedRow> items,
   required Customer? customer,
   required int cashPaymentCode,
-  InvoiceCalculationService calculationService = const InvoiceCalculationService(),
+  InvoiceCalculationService calculationService =
+      const InvoiceCalculationService(),
 }) {
   final summedItemsValue = items.fold<double>(
     0,
@@ -183,6 +194,8 @@ enum _OrderStatusQuickFilter {
   all,
   paidNotShipped,
   shippedNotPaid,
+  withPendingBackorder,
+  returnedOrCanceled,
 }
 
 class _OrderPageState extends State<OrderPage> {
@@ -196,6 +209,7 @@ class _OrderPageState extends State<OrderPage> {
   List<Customer> _allCustomers = [];
   List<CountryTld> _allCountries = [];
   Map<String, Customer> _customerById = {};
+  Map<String, int> _pendingBackorderCountsByOrderId = {};
 
   bool _loading = true;
   String? _loadError;
@@ -245,6 +259,10 @@ class _OrderPageState extends State<OrderPage> {
       final customers = await _customerRepo.getAll();
       final countries = await _customerRepo.getAllCountries();
       final customerMap = {for (final c in customers) c.cId: c};
+      final pendingBackorderCountsByOrderId = await _orderRepo
+          .getPendingBackorderCountsByOrderIds(
+            orders.map((order) => order.oId),
+          );
 
       if (!_didInitialHeaderReconciliation && orders.isNotEmpty) {
         _didInitialHeaderReconciliation = true;
@@ -265,7 +283,8 @@ class _OrderPageState extends State<OrderPage> {
           orders.any((order) => order.oId == pendingInitialId)) {
         nextSelectedId = pendingInitialId;
       }
-      if (nextSelectedId == null || !orders.any((o) => o.oId == nextSelectedId)) {
+      if (nextSelectedId == null ||
+          !orders.any((o) => o.oId == nextSelectedId)) {
         nextSelectedId = orders.isEmpty ? null : orders.first.oId;
       }
       _pendingInitialOrderId = null;
@@ -274,9 +293,9 @@ class _OrderPageState extends State<OrderPage> {
       if (nextSelectedId != null) {
         items = await _orderRepo.getItemsForOrder(nextSelectedId);
         final selectedOrder = orders.cast<OrderRow?>().firstWhere(
-              (order) => order?.oId == nextSelectedId,
-              orElse: () => null,
-            );
+          (order) => order?.oId == nextSelectedId,
+          orElse: () => null,
+        );
         if (selectedOrder != null) {
           final customer = customerMap[selectedOrder.oCustomerId];
           final recalculatedOrder = _recalculateOrderFromItems(
@@ -295,9 +314,12 @@ class _OrderPageState extends State<OrderPage> {
 
       String? nextSelectedItemKey = _selectedItemOrderedKey;
       if (nextSelectedItemKey == null ||
-          !items.any((item) => _itemSelectionKey(item) == nextSelectedItemKey)) {
-        nextSelectedItemKey =
-            items.isEmpty ? null : _itemSelectionKey(items.first);
+          !items.any(
+            (item) => _itemSelectionKey(item) == nextSelectedItemKey,
+          )) {
+        nextSelectedItemKey = items.isEmpty
+            ? null
+            : _itemSelectionKey(items.first);
       }
 
       if (!mounted) return;
@@ -306,6 +328,7 @@ class _OrderPageState extends State<OrderPage> {
         _allCustomers = customers;
         _allCountries = countries;
         _customerById = customerMap;
+        _pendingBackorderCountsByOrderId = pendingBackorderCountsByOrderId;
         _selectedOrderId = nextSelectedId;
         _items = items;
         _selectedItemOrderedKey = nextSelectedItemKey;
@@ -318,6 +341,7 @@ class _OrderPageState extends State<OrderPage> {
         _items = [];
         _selectedOrderId = null;
         _selectedItemOrderedKey = null;
+        _pendingBackorderCountsByOrderId = {};
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -343,9 +367,9 @@ class _OrderPageState extends State<OrderPage> {
     try {
       final items = await _orderRepo.getItemsForOrder(id);
       final selectedOrder = _orders.cast<OrderRow?>().firstWhere(
-            (order) => order?.oId == id,
-            orElse: () => null,
-          );
+        (order) => order?.oId == id,
+        orElse: () => null,
+      );
       if (selectedOrder != null) {
         final customer = _customerById[selectedOrder.oCustomerId];
         final recalculatedOrder = _recalculateOrderFromItems(
@@ -364,9 +388,12 @@ class _OrderPageState extends State<OrderPage> {
       setState(() {
         _items = items;
         if (_selectedItemOrderedKey == null ||
-            !items.any((item) => _itemSelectionKey(item) == _selectedItemOrderedKey)) {
-          _selectedItemOrderedKey =
-              items.isEmpty ? null : _itemSelectionKey(items.first);
+            !items.any(
+              (item) => _itemSelectionKey(item) == _selectedItemOrderedKey,
+            )) {
+          _selectedItemOrderedKey = items.isEmpty
+              ? null
+              : _itemSelectionKey(items.first);
         }
       });
     } catch (error) {
@@ -376,7 +403,9 @@ class _OrderPageState extends State<OrderPage> {
         _selectedItemOrderedKey = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Positionen konnten nicht geladen werden: $error')),
+        SnackBar(
+          content: Text('Positionen konnten nicht geladen werden: $error'),
+        ),
       );
     }
   }
@@ -387,12 +416,48 @@ class _OrderPageState extends State<OrderPage> {
       return;
     }
 
-    final items = await _orderRepo.getItemsForOrder(order.oId);
-    final customer = _customerById[order.oCustomerId];
-    final updatedOrder = _recalculateOrderFromItems(order, items, customer);
+    try {
+      final items = await _orderRepo.getItemsForOrder(order.oId);
+      final customer = _customerById[order.oCustomerId];
+      final updatedOrder = _recalculateOrderFromItems(order, items, customer);
 
-    await _orderRepo.saveOrder(updatedOrder);
-    await _loadData();
+      await _orderRepo.saveOrder(updatedOrder);
+
+      final nextOrders = _orders
+          .map(
+            (current) =>
+                current.oId == updatedOrder.oId ? updatedOrder : current,
+          )
+          .toList(growable: false);
+      final pendingBackorderCountsByOrderId = await _orderRepo
+          .getPendingBackorderCountsByOrderIds(
+            nextOrders.map((entry) => entry.oId),
+          );
+
+      if (!mounted) return;
+      setState(() {
+        _orders = nextOrders;
+        _items = items;
+        _pendingBackorderCountsByOrderId = pendingBackorderCountsByOrderId;
+
+        if (_selectedItemOrderedKey == null ||
+            !items.any(
+              (item) => _itemSelectionKey(item) == _selectedItemOrderedKey,
+            )) {
+          _selectedItemOrderedKey = items.isEmpty
+              ? null
+              : _itemSelectionKey(items.first);
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Positionen konnten nicht aktualisiert werden: $error'),
+        ),
+      );
+      await _loadData();
+    }
   }
 
   OrderRow _recalculateOrderFromItems(
@@ -459,7 +524,10 @@ class _OrderPageState extends State<OrderPage> {
     if (uri == null) {
       return false;
     }
-    for (final mode in [LaunchMode.externalApplication, LaunchMode.platformDefault]) {
+    for (final mode in [
+      LaunchMode.externalApplication,
+      LaunchMode.platformDefault,
+    ]) {
       try {
         if (await launchUrl(uri, mode: mode)) {
           return true;
@@ -475,12 +543,17 @@ class _OrderPageState extends State<OrderPage> {
 
     if ((lat == 0 && lon == 0) || lat.isNaN || lon.isNaN) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Keine gültigen Koordinaten für Lieferadresse vorhanden.')),
+        const SnackBar(
+          content: Text(
+            'Keine gültigen Koordinaten für Lieferadresse vorhanden.',
+          ),
+        ),
       );
       return;
     }
 
-    final mapUrl = 'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon';
+    final mapUrl =
+        'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon';
     final location = LatLng(lat, lon);
     final mapController = MapController();
     final screenSize = MediaQuery.of(context).size;
@@ -514,7 +587,8 @@ class _OrderPageState extends State<OrderPage> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.example.arrow_ops',
                           ),
                           MarkerLayer(
@@ -618,6 +692,35 @@ class _OrderPageState extends State<OrderPage> {
 
   String _formatDate(String raw) => raw.trim().isEmpty ? '-' : raw.trim();
 
+  Widget _buildBackorderStatusCell(ItemOrderedRow item) {
+    final isPending = item.ioBackorderPending != 0;
+    final isCompleted = item.ioBackorderCompleted != 0;
+    final etaRaw = item.ioBackorderEta.trim();
+    final eta = (etaRaw.isEmpty || etaRaw == '-') ? '-' : etaRaw;
+
+    if (isPending) {
+      return Tooltip(
+        message: eta == '-'
+            ? 'Nachlieferung offen'
+            : 'Nachlieferung offen, voraussichtlich: $eta',
+        child: Icon(
+          Icons.local_shipping_outlined,
+          size: 18,
+          color: Colors.orange.shade700,
+        ),
+      );
+    }
+
+    if (isCompleted) {
+      return Tooltip(
+        message: 'Nachlieferung erfolgt',
+        child: Icon(Icons.check_circle, size: 18, color: Colors.green.shade700),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
   Uri _trackingUri(String trackingCode) {
     final encodedTrackingCode = Uri.encodeComponent(trackingCode.trim());
     return Uri.parse('https://parcelsapp.com/de/tracking/$encodedTrackingCode');
@@ -657,7 +760,11 @@ class _OrderPageState extends State<OrderPage> {
 
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tracking-Link konnte nicht geöffnet werden: $normalized')),
+        SnackBar(
+          content: Text(
+            'Tracking-Link konnte nicht geöffnet werden: $normalized',
+          ),
+        ),
       );
     }
   }
@@ -685,6 +792,129 @@ class _OrderPageState extends State<OrderPage> {
 
   String _formatDecimal(double v, int digits) =>
       v.toStringAsFixed(digits).replaceAll('.', ',');
+
+  String _csvEscape(String value) {
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  String _buildFileTimestamp(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    final year = value.year.toString().padLeft(4, '0');
+    final month = twoDigits(value.month);
+    final day = twoDigits(value.day);
+    final hour = twoDigits(value.hour);
+    final minute = twoDigits(value.minute);
+    final second = twoDigits(value.second);
+    return '$year$month${day}_$hour$minute$second';
+  }
+
+  Future<String?> _defaultPickerDirectory() async {
+    if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'];
+      if (home != null && home.isNotEmpty) {
+        final desktop = Directory(p.join(home, 'Desktop'));
+        if (desktop.existsSync()) {
+          return desktop.path;
+        }
+      }
+    }
+    final docsDir = await getApplicationDocumentsDirectory();
+    return docsDir.path;
+  }
+
+  Future<void> _exportPendingBackorderCsv() async {
+    if (_orders.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine Aufträge vorhanden.')),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final buffer = StringBuffer(
+        'order_id,position,customer_id,customer_name,article_id,article_label,description,quantity,backorder_eta,delivery_date,payment_date,tracking_code\n',
+      );
+
+      var rowCount = 0;
+      for (final order in _orders) {
+        final items = await _orderRepo.getItemsForOrder(order.oId);
+        final pendingItems = items.where(
+          (item) => item.ioBackorderPending != 0,
+        );
+        final customerName = _customerName(order.oCustomerId);
+
+        for (final item in pendingItems) {
+          final description = _positionDescription(item, order.oLanguage);
+          buffer.writeln(
+            '${_csvEscape(order.oId)},${_csvEscape(item.ioPos.toString())},${_csvEscape(order.oCustomerId)},${_csvEscape(customerName)},${_csvEscape(item.ioItemId.toString())},${_csvEscape(item.ioIdi)},${_csvEscape(description)},${_csvEscape(item.ioQuantity.toString())},${_csvEscape(item.ioBackorderEta.trim())},${_csvEscape(order.oDelivery.trim())},${_csvEscape(order.oPayDate.trim())},${_csvEscape(order.oTrackingCode.trim())}',
+          );
+          rowCount += 1;
+        }
+      }
+
+      if (rowCount == 0) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Keine offenen Nachlieferungspositionen gefunden.'),
+          ),
+        );
+        return;
+      }
+
+      final initialDirectory = await _defaultPickerDirectory();
+      final fileName =
+          'backorder_report_${_buildFileTimestamp(DateTime.now())}.csv';
+
+      String? targetPath;
+      if (Platform.isMacOS) {
+        targetPath = (await FilePicker.saveFile(
+          dialogTitle: 'Nachlieferungsreport als CSV exportieren',
+          fileName: fileName,
+          bytes: Uint8List(0),
+          initialDirectory: initialDirectory,
+          type: FileType.custom,
+          allowedExtensions: const ['csv'],
+        ))?.toFilePath();
+      }
+
+      targetPath ??= p.join(
+        (await getApplicationDocumentsDirectory()).path,
+        fileName,
+      );
+
+      await File(targetPath).writeAsString(buffer.toString());
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Nachlieferungsreport ($rowCount Positionen) exportiert nach: $targetPath',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Export fehlgeschlagen: $error')));
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
 
   bool _isUsdOrder(OrderRow order) {
     return order.oCurrency.trim().toUpperCase() == 'USD';
@@ -726,7 +956,9 @@ class _OrderPageState extends State<OrderPage> {
 
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('HTS-Link konnte nicht geöffnet werden: $normalized')),
+        SnackBar(
+          content: Text('HTS-Link konnte nicht geöffnet werden: $normalized'),
+        ),
       );
     }
   }
@@ -737,10 +969,7 @@ class _OrderPageState extends State<OrderPage> {
     VoidCallback? onDoubleTap,
   }) {
     return DataCell(
-      Align(
-        alignment: Alignment.centerRight,
-        child: Text(value),
-      ),
+      Align(alignment: Alignment.centerRight, child: Text(value)),
       onTap: onTap,
       onDoubleTap: onDoubleTap,
     );
@@ -813,10 +1042,7 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-  DataCell _htsLinkCell(
-    String htsCode, {
-    VoidCallback? onDoubleTap,
-  }) {
+  DataCell _htsLinkCell(String htsCode, {VoidCallback? onDoubleTap}) {
     final normalized = htsCode.trim();
     if (normalized.isEmpty || normalized == '-') {
       return _singleLineCell('-', onDoubleTap: onDoubleTap);
@@ -899,9 +1125,10 @@ class _OrderPageState extends State<OrderPage> {
                     child: Image.file(
                       file,
                       fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => const Center(
-                        child: Text('Bild konnte nicht geladen werden.'),
-                      ),
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Center(
+                            child: Text('Bild konnte nicht geladen werden.'),
+                          ),
                     ),
                   ),
                 ),
@@ -951,12 +1178,16 @@ class _OrderPageState extends State<OrderPage> {
 
   String _positionDescription(ItemOrderedRow item, String orderLanguage) {
     final isGerman = orderLanguage.trim().toUpperCase() == 'DE';
-    final primary = isGerman ? item.ioDescriptionDeLong.trim() : item.ioDescriptionEnLong.trim();
+    final primary = isGerman
+        ? item.ioDescriptionDeLong.trim()
+        : item.ioDescriptionEnLong.trim();
     if (primary.isNotEmpty) {
       return primary;
     }
 
-    final fallback = isGerman ? item.ioDescriptionEnLong.trim() : item.ioDescriptionDeLong.trim();
+    final fallback = isGerman
+        ? item.ioDescriptionEnLong.trim()
+        : item.ioDescriptionDeLong.trim();
     if (fallback.isNotEmpty) {
       return fallback;
     }
@@ -972,9 +1203,7 @@ class _OrderPageState extends State<OrderPage> {
         title: const Text('Beschreibung'),
         content: SizedBox(
           width: 720,
-          child: SingleChildScrollView(
-            child: SelectableText(text),
-          ),
+          child: SingleChildScrollView(child: SelectableText(text)),
         ),
         actions: [
           FilledButton.tonal(
@@ -994,12 +1223,14 @@ class _OrderPageState extends State<OrderPage> {
     final deliveryCountryName = deliveryCountryId.isEmpty
         ? ''
         : _allCountries
-            .firstWhere(
-              (c) => c.coTld.trim().toLowerCase() == deliveryCountryId.toLowerCase(),
-              orElse: () => const CountryTld(coTld: '', coName: ''),
-            )
-            .coName
-            .trim();
+              .firstWhere(
+                (c) =>
+                    c.coTld.trim().toLowerCase() ==
+                    deliveryCountryId.toLowerCase(),
+                orElse: () => const CountryTld(coTld: '', coName: ''),
+              )
+              .coName
+              .trim();
 
     final haystack = <String>[
       order.oId,
@@ -1013,6 +1244,8 @@ class _OrderPageState extends State<OrderPage> {
       _paymentLabel(order.oPayment),
       _paymentLabel(_effectivePaymentCode(order)),
       _paymentDisplayLabel(order),
+      _hasPendingBackorder(order) ? 'nachlieferung backorder pending' : '',
+      _orderLifecycleStatusLabel(order),
       deliveryCountryId,
       deliveryCountryName,
       order.oDate,
@@ -1036,6 +1269,8 @@ class _OrderPageState extends State<OrderPage> {
   bool _matchesOrderStatusQuickFilter(OrderRow order) {
     final hasPayDate = _hasPayDate(order);
     final hasDeliveryDate = _hasDeliveryDate(order);
+    final hasPendingBackorder = _hasPendingBackorder(order);
+    final isReturnedOrCanceled = order.oCanceled != 0 || order.oReturned != 0;
     switch (_orderStatusQuickFilter) {
       case _OrderStatusQuickFilter.all:
         return true;
@@ -1043,7 +1278,41 @@ class _OrderPageState extends State<OrderPage> {
         return hasPayDate && !hasDeliveryDate;
       case _OrderStatusQuickFilter.shippedNotPaid:
         return hasDeliveryDate && !hasPayDate;
+      case _OrderStatusQuickFilter.withPendingBackorder:
+        return hasPendingBackorder;
+      case _OrderStatusQuickFilter.returnedOrCanceled:
+        return isReturnedOrCanceled;
     }
+  }
+
+  bool _hasPendingBackorder(OrderRow order) {
+    return (_pendingBackorderCountsByOrderId[order.oId] ?? 0) > 0;
+  }
+
+  int _pendingBackorderCountForOrder(OrderRow? order) {
+    if (order == null) {
+      return 0;
+    }
+    return _pendingBackorderCountsByOrderId[order.oId] ?? 0;
+  }
+
+  bool _isReturnedCancelled(OrderRow order) {
+    return order.oCanceled != 0 && order.oReturned != 0;
+  }
+
+  String _orderLifecycleStatusLabel(OrderRow order) {
+    if (_isReturnedCancelled(order)) {
+      return 'Retoure';
+    }
+    if (order.oCanceled != 0) {
+      return 'Storniert';
+    }
+    final isPaid = order.oPayDate.trim().isNotEmpty;
+    final isShipped = order.oDelivery.trim().isNotEmpty;
+    if (isPaid && isShipped) {
+      return 'Abgeschlossen';
+    }
+    return 'Aktiv';
   }
 
   List<OrderRow> _sortedOrders() {
@@ -1064,8 +1333,9 @@ class _OrderPageState extends State<OrderPage> {
         case 0:
           cmp = a.oId.compareTo(b.oId);
         case 1:
-          cmp = _customerName(a.oCustomerId)
-              .compareTo(_customerName(b.oCustomerId));
+          cmp = _customerName(
+            a.oCustomerId,
+          ).compareTo(_customerName(b.oCustomerId));
         case 2:
           cmp = _endCustomerLabel(a).compareTo(_endCustomerLabel(b));
         case 3:
@@ -1174,7 +1444,9 @@ class _OrderPageState extends State<OrderPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Auftrag löschen?'),
-        content: Text('Auftrag ${order.oId} wird inklusive aller Positionen gelöscht.'),
+        content: Text(
+          'Auftrag ${order.oId} wird inklusive aller Positionen gelöscht.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1209,7 +1481,8 @@ class _OrderPageState extends State<OrderPage> {
       return;
     }
 
-    final nextPos = initialValue?.ioPos ?? await _orderRepo.nextItemOrderedPos(order.oId);
+    final nextPos =
+        initialValue?.ioPos ?? await _orderRepo.nextItemOrderedPos(order.oId);
     if (!mounted) return;
 
     final result = await showDialog<ItemOrderedRow>(
@@ -1232,12 +1505,12 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   ItemOrderedRow? get _selectedItemOrdered {
-      final key = _selectedItemOrderedKey;
-      if (key == null) return null;
+    final key = _selectedItemOrderedKey;
+    if (key == null) return null;
     return _items.cast<ItemOrderedRow?>().firstWhere(
-        (item) => item != null && _itemSelectionKey(item) == key,
-          orElse: () => null,
-        );
+      (item) => item != null && _itemSelectionKey(item) == key,
+      orElse: () => null,
+    );
   }
 
   Future<void> _deleteSelectedItemOrdered() async {
@@ -1250,7 +1523,9 @@ class _OrderPageState extends State<OrderPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Position löschen?'),
-        content: Text('Position ${selected.ioPos.toString().padLeft(2, '0')} (${selected.ioIdi}) wird gelöscht.'),
+        content: Text(
+          'Position ${selected.ioPos.toString().padLeft(2, '0')} (${selected.ioIdi}) wird gelöscht.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1280,9 +1555,9 @@ class _OrderPageState extends State<OrderPage> {
     final id = _selectedOrderId;
     if (id == null) return null;
     return _orders.cast<OrderRow?>().firstWhere(
-          (o) => o?.oId == id,
-          orElse: () => null,
-        );
+      (o) => o?.oId == id,
+      orElse: () => null,
+    );
   }
 
   @override
@@ -1293,35 +1568,40 @@ class _OrderPageState extends State<OrderPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : loadError != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(loadError, textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        FilledButton.icon(
-                          onPressed: _loadData,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Erneut laden'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(loadError, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _loadData,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Erneut laden'),
                     ),
-                  ),
-                )
+                  ],
+                ),
+              ),
+            )
           : LayoutBuilder(
               builder: (context, constraints) {
                 final totalH = constraints.maxHeight;
-                final availableH = (totalH - _splitterHeight).clamp(0.0, double.infinity);
+                final availableH = (totalH - _splitterHeight).clamp(
+                  0.0,
+                  double.infinity,
+                );
                 final minCombined = _minTopHeight + _minBottomHeight;
 
                 late final double topH;
                 if (availableH <= minCombined) {
                   topH = availableH * _splitterRatio;
                 } else {
-                  topH = (availableH * _splitterRatio)
-                      .clamp(_minTopHeight, availableH - _minBottomHeight);
+                  topH = (availableH * _splitterRatio).clamp(
+                    _minTopHeight,
+                    availableH - _minBottomHeight,
+                  );
                 }
                 final bottomH = (availableH - topH).clamp(0.0, double.infinity);
 
@@ -1343,7 +1623,10 @@ class _OrderPageState extends State<OrderPage> {
       onVerticalDragStart: (_) => setState(() => _isDragging = true),
       onVerticalDragEnd: (_) => setState(() => _isDragging = false),
       onVerticalDragUpdate: (details) {
-        final availableH = (totalH - _splitterHeight).clamp(0.0, double.infinity);
+        final availableH = (totalH - _splitterHeight).clamp(
+          0.0,
+          double.infinity,
+        );
         final minCombined = _minTopHeight + _minBottomHeight;
 
         setState(() {
@@ -1354,10 +1637,15 @@ class _OrderPageState extends State<OrderPage> {
           if (availableH <= minCombined) {
             newTopH = targetTop.clamp(0.0, availableH);
           } else {
-            newTopH = targetTop.clamp(_minTopHeight, availableH - _minBottomHeight);
+            newTopH = targetTop.clamp(
+              _minTopHeight,
+              availableH - _minBottomHeight,
+            );
           }
 
-          _splitterRatio = availableH <= 0 ? _splitterRatio : (newTopH / availableH);
+          _splitterRatio = availableH <= 0
+              ? _splitterRatio
+              : (newTopH / availableH);
           _splitterRatio = _splitterRatio.clamp(0.1, 0.9);
         });
       },
@@ -1373,6 +1661,18 @@ class _OrderPageState extends State<OrderPage> {
 
   Widget _buildOrderTable() {
     final sorted = _sortedOrders();
+    final selectedOrder = _selectedOrder;
+    final selectedOrderPendingBackorderCount = _pendingBackorderCountForOrder(
+      selectedOrder,
+    );
+    final normalizedQuery = _orderSearchQuery.trim().toLowerCase();
+    final returnedOrCanceledCount = _orders
+        .where(
+          (order) =>
+              _matchesOrderSearch(order, normalizedQuery) &&
+              (order.oCanceled != 0 || order.oReturned != 0),
+        )
+        .length;
     final showNetEurColumn =
         _orderSearchQuery.trim().isNotEmpty && sorted.any(_isUsdOrder);
 
@@ -1395,6 +1695,27 @@ class _OrderPageState extends State<OrderPage> {
                       : 'Bestellungen (${sorted.length} / ${_orders.length})',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
+                Chip(
+                  avatar: Icon(
+                    selectedOrderPendingBackorderCount > 0
+                        ? Icons.local_shipping_outlined
+                        : Icons.check_circle_outline,
+                    size: 16,
+                    color: selectedOrderPendingBackorderCount > 0
+                        ? Colors.orange.shade800
+                        : Colors.green.shade700,
+                  ),
+                  label: Text(
+                    selectedOrderPendingBackorderCount > 0
+                        ? 'Nachlieferung offen: $selectedOrderPendingBackorderCount'
+                        : 'Keine Nachlieferung offen',
+                  ),
+                  side: BorderSide(
+                    color: selectedOrderPendingBackorderCount > 0
+                        ? Colors.orange.shade300
+                        : Colors.green.shade300,
+                  ),
+                ),
                 FilledButton.icon(
                   onPressed: _loading ? null : () => _showOrderForm(),
                   icon: const Icon(Icons.add),
@@ -1414,6 +1735,11 @@ class _OrderPageState extends State<OrderPage> {
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Löschen'),
                 ),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _exportPendingBackorderCsv,
+                  icon: const Icon(Icons.file_download_outlined),
+                  label: const Text('Nachlieferung CSV'),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -1421,7 +1747,8 @@ class _OrderPageState extends State<OrderPage> {
               controller: _orderSearchController,
               decoration: InputDecoration(
                 labelText: 'Bestellungen suchen',
-                hintText: 'Auftrags-ID, Kunde, Endkunde, Firma, Trade Show, Trackingcode, Zahlart, Datum',
+                hintText:
+                    'Auftrags-ID, Kunde, Endkunde, Firma, Trade Show, Trackingcode, Zahlart, Datum',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _orderSearchQuery.trim().isEmpty
                     ? null
@@ -1444,7 +1771,8 @@ class _OrderPageState extends State<OrderPage> {
               children: [
                 ChoiceChip(
                   label: const Text('Alle'),
-                  selected: _orderStatusQuickFilter == _OrderStatusQuickFilter.all,
+                  selected:
+                      _orderStatusQuickFilter == _OrderStatusQuickFilter.all,
                   onSelected: (_) {
                     setState(() {
                       _orderStatusQuickFilter = _OrderStatusQuickFilter.all;
@@ -1453,19 +1781,49 @@ class _OrderPageState extends State<OrderPage> {
                 ),
                 ChoiceChip(
                   label: const Text('Bezahlt und nicht versendet'),
-                  selected: _orderStatusQuickFilter == _OrderStatusQuickFilter.paidNotShipped,
+                  selected:
+                      _orderStatusQuickFilter ==
+                      _OrderStatusQuickFilter.paidNotShipped,
                   onSelected: (_) {
                     setState(() {
-                      _orderStatusQuickFilter = _OrderStatusQuickFilter.paidNotShipped;
+                      _orderStatusQuickFilter =
+                          _OrderStatusQuickFilter.paidNotShipped;
                     });
                   },
                 ),
                 ChoiceChip(
                   label: const Text('Versendet und nicht bezahlt'),
-                  selected: _orderStatusQuickFilter == _OrderStatusQuickFilter.shippedNotPaid,
+                  selected:
+                      _orderStatusQuickFilter ==
+                      _OrderStatusQuickFilter.shippedNotPaid,
                   onSelected: (_) {
                     setState(() {
-                      _orderStatusQuickFilter = _OrderStatusQuickFilter.shippedNotPaid;
+                      _orderStatusQuickFilter =
+                          _OrderStatusQuickFilter.shippedNotPaid;
+                    });
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Mit Nachlieferung'),
+                  selected:
+                      _orderStatusQuickFilter ==
+                      _OrderStatusQuickFilter.withPendingBackorder,
+                  onSelected: (_) {
+                    setState(() {
+                      _orderStatusQuickFilter =
+                          _OrderStatusQuickFilter.withPendingBackorder;
+                    });
+                  },
+                ),
+                ChoiceChip(
+                  label: Text('Retoure/Storno ($returnedOrCanceledCount)'),
+                  selected:
+                      _orderStatusQuickFilter ==
+                      _OrderStatusQuickFilter.returnedOrCanceled,
+                  onSelected: (_) {
+                    setState(() {
+                      _orderStatusQuickFilter =
+                          _OrderStatusQuickFilter.returnedOrCanceled;
                     });
                   },
                 ),
@@ -1486,176 +1844,400 @@ class _OrderPageState extends State<OrderPage> {
                       isHorizontalScrollBarVisible: true,
                       fixedTopRows: 1,
                       fixedLeftColumns: 3,
-                      headingRowHeight: 56,
+                      headingRowHeight: 64,
                       headingRowColor: WidgetStateProperty.resolveWith(
-                        (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
+                        (_) => Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                       ),
-                      headingTextStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
+                      headingTextStyle: Theme.of(context).textTheme.labelLarge
+                          ?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
                       border: TableBorder(
                         horizontalInside: BorderSide(
                           color: Theme.of(context).dividerColor,
                           width: 0.6,
                         ),
                       ),
-                      minWidth: showNetEurColumn ? 2900 : 2760,
+                      minWidth: showNetEurColumn ? 3550 : 3400,
                       columns: [
-                        DataColumn2(label: const Text('Auftrags-ID'), onSort: _onOrderSort, fixedWidth: 140),
-                        DataColumn2(label: const Text('Kunde'), onSort: _onOrderSort, size: ColumnSize.L),
-                        DataColumn2(label: const Text('Endkunde'), onSort: _onOrderSort, size: ColumnSize.L),
-                        const DataColumn2(label: Text('Map'), fixedWidth: 86),
-                        DataColumn2(label: const Text('Trade Show'), onSort: _onOrderSort, size: ColumnSize.M),
-                        DataColumn2(label: const Text('Putt'), onSort: _onOrderSort, fixedWidth: 112),
-                        DataColumn2(label: const Text('Währung'), onSort: _onOrderSort, fixedWidth: 148),
-                        DataColumn2(label: const Text('Netto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
+                        DataColumn2(
+                          label: const Text('Auftrags-ID'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 150,
+                        ),
+                        DataColumn2(
+                          label: const Text('Kunde'),
+                          onSort: _onOrderSort,
+                          size: ColumnSize.L,
+                        ),
+                        DataColumn2(
+                          label: const Text('Endkunde'),
+                          onSort: _onOrderSort,
+                          size: ColumnSize.L,
+                        ),
+                        const DataColumn2(label: Text('Map'), fixedWidth: 90),
+                        DataColumn2(
+                          label: const Text('Trade Show'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 180,
+                        ),
+                        DataColumn2(
+                          label: const Text('Putt'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 100,
+                        ),
+                        DataColumn2(
+                          label: const Text('Währung'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 165,
+                        ),
+                        DataColumn2(
+                          label: const Text('Netto'),
+                          numeric: true,
+                          onSort: _onOrderSort,
+                          fixedWidth: 130,
+                        ),
                         if (showNetEurColumn)
                           const DataColumn2(
                             label: Text('Netto (EUR)'),
                             numeric: true,
-                            fixedWidth: 132,
+                            fixedWidth: 145,
                           ),
-                        DataColumn2(label: const Text('MwSt'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
-                        DataColumn2(label: const Text('Brutto'), numeric: true, onSort: _onOrderSort, fixedWidth: 120),
-                        DataColumn2(label: const Text('Gesamtgewicht in g'), numeric: true, onSort: _onOrderSort, fixedWidth: 182),
-                        DataColumn2(label: const Text('Versand'), numeric: true, onSort: _onOrderSort, fixedWidth: 132),
-                        DataColumn2(label: const Text('Trackingcode'), onSort: _onOrderSort, fixedWidth: 200),
-                        DataColumn2(label: const Text('Zahlart (Plan -> Ist)'), onSort: _onOrderSort, fixedWidth: 220),
-                        DataColumn2(label: const Text('PayPal-Gebühr'), numeric: true, onSort: _onOrderSort, fixedWidth: 166),
                         DataColumn2(
-                          label: const Text('Gesamt-\npreis', textAlign: TextAlign.center),
+                          label: const Text('MwSt'),
                           numeric: true,
                           onSort: _onOrderSort,
-                          fixedWidth: 176,
+                          fixedWidth: 130,
                         ),
-                        DataColumn2(label: const Text('Bezahlt-Datum'), onSort: _onOrderSort, fixedWidth: 182),
-                        DataColumn2(label: const Text('Versand-Datum'), onSort: _onOrderSort, fixedWidth: 178),
+                        DataColumn2(
+                          label: const Text('Brutto'),
+                          numeric: true,
+                          onSort: _onOrderSort,
+                          fixedWidth: 130,
+                        ),
+                        DataColumn2(
+                          label: const Text('Gesamtgewicht in g'),
+                          numeric: true,
+                          onSort: _onOrderSort,
+                          fixedWidth: 215,
+                        ),
+                        DataColumn2(
+                          label: const Text('Versand'),
+                          numeric: true,
+                          onSort: _onOrderSort,
+                          fixedWidth: 145,
+                        ),
+                        DataColumn2(
+                          label: const Text('Trackingcode'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 240,
+                        ),
+                        DataColumn2(
+                          label: const Text('Zahlart (Plan -> Ist)'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 255,
+                        ),
+                        DataColumn2(
+                          label: const Text('PayPal-Gebühr'),
+                          numeric: true,
+                          onSort: _onOrderSort,
+                          fixedWidth: 190,
+                        ),
+                        DataColumn2(
+                          label: const Text(
+                            'Gesamt-\npreis',
+                            textAlign: TextAlign.center,
+                          ),
+                          numeric: true,
+                          onSort: _onOrderSort,
+                          fixedWidth: 190,
+                        ),
+                        DataColumn2(
+                          label: const Text('Bezahlt-Datum'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 205,
+                        ),
+                        DataColumn2(
+                          label: const Text('Versand-Datum'),
+                          onSort: _onOrderSort,
+                          fixedWidth: 205,
+                        ),
+                        const DataColumn2(
+                          label: Text('Nachlieferung'),
+                          fixedWidth: 175,
+                        ),
+                        const DataColumn2(
+                          label: Text('Status'),
+                          fixedWidth: 160,
+                        ),
                       ],
-                      rows: sorted.map((order) {
-                        final selected = order.oId == _selectedOrderId;
-                        final hasDeliveryDate = order.oDelivery.trim().isNotEmpty;
-                        final hasPayDate = order.oPayDate.trim().isNotEmpty;
-                        Future<void> handleSelectOrder() async {
-                          setState(() => _selectedOrderId = order.oId);
-                          await _loadItemsForSelected();
-                        }
-                        Future<void> handleOpenEdit() async {
-                          await handleSelectOrder();
-                          if (!mounted) return;
-                          await _showOrderForm(initialValue: order);
-                        }
-                        return DataRow(
-                          selected: selected,
-                          onSelectChanged: (isSelected) async {
-                            if (isSelected != true) {
-                              return;
-                            }
-                            await handleSelectOrder();
-                          },
-                          cells: [
-                            DataCell(
-                              Text(order.oId),
-                              onTap: () => handleSelectOrder(),
-                              onDoubleTap: () => handleOpenEdit(),
-                            ),
-                            _singleLineCell(_customerName(order.oCustomerId), tooltip: _customerName(order.oCustomerId), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _singleLineCell(_endCustomerLabel(order), tooltip: _endCustomerLabel(order), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            DataCell(
-                              Builder(
-                                builder: (cellContext) {
-                                  final hasCoords = !(order.oDeliveryLat == 0 && order.oDeliveryLon == 0) &&
-                                      !order.oDeliveryLat.isNaN &&
-                                      !order.oDeliveryLon.isNaN;
-                                  return Tooltip(
-                                    message: hasCoords
-                                        ? 'Lieferadresse auf Karte anzeigen'
-                                        : 'Keine Koordinaten vorhanden',
-                                    child: IconButton(
-                                      onPressed: hasCoords
-                                          ? () => _showOrderDeliveryMapDialog(order)
-                                          : null,
-                                      icon: Icon(
-                                        Icons.location_on_outlined,
-                                        color: hasCoords
-                                            ? Theme.of(cellContext).colorScheme.primary
-                                            : Theme.of(cellContext).disabledColor,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            DataCell(Text(order.oTradeShow.trim().isEmpty ? '-' : order.oTradeShow), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            DataCell(Text(_puttLabel(order.oPutt)), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _currencyCell(
+                      rows: sorted
+                          .map((order) {
+                            final selected = order.oId == _selectedOrderId;
+                            final hasDeliveryDate = order.oDelivery
+                                .trim()
+                                .isNotEmpty;
+                            final hasPayDate = order.oPayDate.trim().isNotEmpty;
+                            final hasPendingBackorder = _hasPendingBackorder(
                               order,
-                              onTap: () => handleSelectOrder(),
-                              onDoubleTap: () => handleOpenEdit(),
-                            ),
-                            _numericCell(_formatDecimal(order.oValueGoods, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            if (showNetEurColumn)
-                              _numericCell(
-                                _formatOrderNetValueEur(order),
-                                onTap: () => handleSelectOrder(),
-                                onDoubleTap: () => handleOpenEdit(),
-                              ),
-                            _numericCell(_formatDecimal(order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _numericCell(_formatDecimal(order.oValueGoods + order.oVat, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _numericCell(_formatDecimal(order.oTotalWeight, 1), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _numericCell(_formatDecimal(order.oShipping, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            DataCell(_buildTrackingCodeCell(order.oTrackingCode), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            DataCell(
-                              Row(
-                                children: [
-                                  if (_hasPaymentOverride(order)) ...[
-                                    Icon(
-                                      Icons.swap_horiz,
-                                      size: 16,
-                                      color: Theme.of(context).colorScheme.primary,
-                                    ),
-                                    const SizedBox(width: 6),
-                                  ],
-                                  Expanded(
-                                    child: Text(
-                                      _paymentDisplayLabel(order),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: _hasPaymentOverride(order)
-                                          ? TextStyle(
-                                              color: Theme.of(context).colorScheme.primary,
-                                              fontWeight: FontWeight.w700,
-                                            )
-                                          : null,
-                                    ),
+                            );
+                            Future<void> handleSelectOrder() async {
+                              setState(() => _selectedOrderId = order.oId);
+                              await _loadItemsForSelected();
+                            }
+
+                            Future<void> handleOpenEdit() async {
+                              await handleSelectOrder();
+                              if (!mounted) return;
+                              await _showOrderForm(initialValue: order);
+                            }
+
+                            return DataRow(
+                              selected: selected,
+                              onSelectChanged: (isSelected) async {
+                                if (isSelected != true) {
+                                  return;
+                                }
+                                await handleSelectOrder();
+                              },
+                              cells: [
+                                DataCell(
+                                  Text(order.oId),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _singleLineCell(
+                                  _customerName(order.oCustomerId),
+                                  tooltip: _customerName(order.oCustomerId),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _singleLineCell(
+                                  _endCustomerLabel(order),
+                                  tooltip: _endCustomerLabel(order),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                DataCell(
+                                  Builder(
+                                    builder: (cellContext) {
+                                      final hasCoords =
+                                          !(order.oDeliveryLat == 0 &&
+                                              order.oDeliveryLon == 0) &&
+                                          !order.oDeliveryLat.isNaN &&
+                                          !order.oDeliveryLon.isNaN;
+                                      return Tooltip(
+                                        message: hasCoords
+                                            ? 'Lieferadresse auf Karte anzeigen'
+                                            : 'Keine Koordinaten vorhanden',
+                                        child: IconButton(
+                                          onPressed: hasCoords
+                                              ? () =>
+                                                    _showOrderDeliveryMapDialog(
+                                                      order,
+                                                    )
+                                              : null,
+                                          icon: Icon(
+                                            Icons.location_on_outlined,
+                                            color: hasCoords
+                                                ? Theme.of(
+                                                    cellContext,
+                                                  ).colorScheme.primary
+                                                : Theme.of(
+                                                    cellContext,
+                                                  ).disabledColor,
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
-                                ],
-                              ),
-                              onTap: () => handleSelectOrder(),
-                              onDoubleTap: () => handleOpenEdit(),
-                            ),
-                            _numericCell(_formatDecimal(order.oPaypalFee, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _numericCell(_formatDecimal(order.oTotalPrice, 2), onTap: () => handleSelectOrder(), onDoubleTap: () => handleOpenEdit()),
-                            _singleLineCell(
-                              _formatDate(order.oPayDate),
-                              style: TextStyle(
-                                color: hasDeliveryDate ? Colors.black : Colors.green,
-                              ),
-                              onTap: () => handleSelectOrder(),
-                              onDoubleTap: () => handleOpenEdit(),
-                            ),
-                            _singleLineCell(
-                              _formatDate(order.oDelivery),
-                              style: TextStyle(
-                                color: hasPayDate ? Colors.black : Colors.red,
-                              ),
-                              onTap: () => handleSelectOrder(),
-                              onDoubleTap: () => handleOpenEdit(),
-                            ),
-                          ],
-                        );
-                      }).toList(growable: false),
+                                ),
+                                DataCell(
+                                  Text(
+                                    order.oTradeShow.trim().isEmpty
+                                        ? '-'
+                                        : order.oTradeShow,
+                                  ),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                DataCell(
+                                  Text(_puttLabel(order.oPutt)),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _currencyCell(
+                                  order,
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(order.oValueGoods, 2),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                if (showNetEurColumn)
+                                  _numericCell(
+                                    _formatOrderNetValueEur(order),
+                                    onTap: () => handleSelectOrder(),
+                                    onDoubleTap: () => handleOpenEdit(),
+                                  ),
+                                _numericCell(
+                                  _formatDecimal(order.oVat, 2),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(
+                                    order.oValueGoods + order.oVat,
+                                    2,
+                                  ),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(order.oTotalWeight, 1),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(order.oShipping, 2),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                DataCell(
+                                  _buildTrackingCodeCell(order.oTrackingCode),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                DataCell(
+                                  Row(
+                                    children: [
+                                      if (_hasPaymentOverride(order)) ...[
+                                        Icon(
+                                          Icons.swap_horiz,
+                                          size: 16,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Expanded(
+                                        child: Text(
+                                          _paymentDisplayLabel(order),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: _hasPaymentOverride(order)
+                                              ? TextStyle(
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary,
+                                                  fontWeight: FontWeight.w700,
+                                                )
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(order.oPaypalFee, 2),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(order.oTotalPrice, 2),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _singleLineCell(
+                                  _formatDate(order.oPayDate),
+                                  style: TextStyle(
+                                    color: hasDeliveryDate
+                                        ? Colors.black
+                                        : Colors.green,
+                                  ),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                _singleLineCell(
+                                  _formatDate(order.oDelivery),
+                                  style: TextStyle(
+                                    color: hasPayDate
+                                        ? Colors.black
+                                        : Colors.red,
+                                  ),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                DataCell(
+                                  Row(
+                                    children: [
+                                      if (hasPendingBackorder) ...[
+                                        Icon(
+                                          Icons.local_shipping_outlined,
+                                          size: 16,
+                                          color: Colors.orange.shade700,
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Expanded(
+                                        child: Text(
+                                          hasPendingBackorder ? 'Offen' : '-',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: hasPendingBackorder
+                                              ? TextStyle(
+                                                  color: Colors.orange.shade800,
+                                                  fontWeight: FontWeight.w700,
+                                                )
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                                DataCell(
+                                  Row(
+                                    children: [
+                                      if (_isReturnedCancelled(order) ||
+                                          order.oCanceled != 0) ...[
+                                        Icon(
+                                          _isReturnedCancelled(order)
+                                              ? Icons.assignment_return_outlined
+                                              : Icons.cancel_outlined,
+                                          size: 16,
+                                          color: _isReturnedCancelled(order)
+                                              ? Colors.deepOrange
+                                              : Colors.red,
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Expanded(
+                                        child: Text(
+                                          _orderLifecycleStatusLabel(order),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () => handleSelectOrder(),
+                                  onDoubleTap: () => handleOpenEdit(),
+                                ),
+                              ],
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
           ],
@@ -1686,14 +2268,18 @@ class _OrderPageState extends State<OrderPage> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 FilledButton.icon(
-                  onPressed: order == null ? null : () => _showItemOrderedForm(),
+                  onPressed: order == null
+                      ? null
+                      : () => _showItemOrderedForm(),
                   icon: const Icon(Icons.add),
                   label: const Text('Neu'),
                 ),
                 OutlinedButton.icon(
                   onPressed: order == null || _selectedItemOrdered == null
                       ? null
-                      : () => _showItemOrderedForm(initialValue: _selectedItemOrdered),
+                      : () => _showItemOrderedForm(
+                          initialValue: _selectedItemOrdered,
+                        ),
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Bearbeiten'),
                 ),
@@ -1709,76 +2295,130 @@ class _OrderPageState extends State<OrderPage> {
             const SizedBox(height: 8),
             Expanded(
               child: order == null
-                  ? const Center(child: Text('Bitte oben einen Auftrag auswählen.'))
+                  ? const Center(
+                      child: Text('Bitte oben einen Auftrag auswählen.'),
+                    )
                   : _items.isEmpty
-                      ? const Center(child: Text('Keine Positionen vorhanden.'))
-                      : DataTable2(
-                          showCheckboxColumn: false,
-                          scrollController: _itemsVerticalController,
-                          horizontalScrollController: _itemsHorizontalController,
-                          isVerticalScrollBarVisible: true,
-                          isHorizontalScrollBarVisible: true,
-                          fixedTopRows: 1,
-                          headingRowHeight: 56,
-                          headingRowColor: WidgetStateProperty.resolveWith(
-                            (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
-                          ),
-                          headingTextStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  ? const Center(child: Text('Keine Positionen vorhanden.'))
+                  : DataTable2(
+                      showCheckboxColumn: false,
+                      scrollController: _itemsVerticalController,
+                      horizontalScrollController: _itemsHorizontalController,
+                      isVerticalScrollBarVisible: true,
+                      isHorizontalScrollBarVisible: true,
+                      fixedTopRows: 1,
+                      columnSpacing: 10,
+                      horizontalMargin: 8,
+                      headingRowHeight: 56,
+                      headingRowColor: WidgetStateProperty.resolveWith(
+                        (_) => Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                      ),
+                      headingTextStyle: Theme.of(context).textTheme.labelLarge
+                          ?.copyWith(
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.onSurface,
                           ),
-                          border: TableBorder(
-                            horizontalInside: BorderSide(
-                              color: Theme.of(context).dividerColor,
-                              width: 0.6,
-                            ),
+                      border: TableBorder(
+                        horizontalInside: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                          width: 0.6,
+                        ),
+                      ),
+                      minWidth: 1890,
+                      columns: const [
+                        DataColumn2(label: Text('Pos.'), fixedWidth: 58),
+                        DataColumn2(label: Text('Artikel-ID'), fixedWidth: 132),
+                        DataColumn2(
+                          label: Text('Bezeichnung'),
+                          size: ColumnSize.S,
+                        ),
+                        DataColumn2(
+                          label: Text('Beschreibung'),
+                          size: ColumnSize.L,
+                        ),
+                        DataColumn2(label: Text('Bild'), fixedWidth: 84),
+                        DataColumn2(label: Text('HTS Code'), fixedWidth: 126),
+                        DataColumn2(
+                          label: Text('Menge'),
+                          numeric: true,
+                          fixedWidth: 108,
+                        ),
+                        DataColumn2(
+                          label: Text('Gewicht\nin g'),
+                          numeric: true,
+                          fixedWidth: 120,
+                        ),
+                        DataColumn2(
+                          label: Text('Gesamtgewicht\nin g'),
+                          numeric: true,
+                          fixedWidth: 170,
+                        ),
+                        DataColumn2(
+                          label: Text('Einzelpreis'),
+                          numeric: true,
+                          fixedWidth: 136,
+                        ),
+                        DataColumn2(
+                          label: Text('Rabatt %'),
+                          numeric: true,
+                          fixedWidth: 96,
+                        ),
+                        DataColumn2(
+                          label: Text(
+                            'Gesamt-\npreis',
+                            textAlign: TextAlign.center,
                           ),
-                          minWidth: 1810,
-                          columns: const [
-                            DataColumn2(label: Text('Pos.'), fixedWidth: 70),
-                            DataColumn2(label: Text('Artikel-ID'), fixedWidth: 126),
-                            DataColumn2(label: Text('Bezeichnung'), fixedWidth: 170),
-                            DataColumn2(label: Text('Beschreibung'), size: ColumnSize.L),
-                            DataColumn2(label: Text('Bild'), fixedWidth: 84),
-                            DataColumn2(label: Text('HTS Code'), fixedWidth: 126),
-                            DataColumn2(label: Text('Menge'), numeric: true, fixedWidth: 108),
-                            DataColumn2(
-                              label: Text('Gewicht\nin g'),
-                              numeric: true,
-                              fixedWidth: 120,
-                            ),
-                            DataColumn2(
-                              label: Text('Gesamtgewicht\nin g'),
-                              numeric: true,
-                              fixedWidth: 170,
-                            ),
-                            DataColumn2(label: Text('Einzelpreis'), numeric: true, fixedWidth: 136),
-                            DataColumn2(label: Text('Rabatt %'), numeric: true, fixedWidth: 96),
-                            DataColumn2(
-                              label: Text('Gesamt-\npreis', textAlign: TextAlign.center),
-                              numeric: true,
-                              fixedWidth: 122,
-                            ),
-                            DataColumn2(label: Text('Farbe'), size: ColumnSize.M),
-                          ],
-                          rows: _items.map((item) {
+                          numeric: true,
+                          fixedWidth: 122,
+                        ),
+                        DataColumn2(label: Text('Farbe'), fixedWidth: 100),
+                        DataColumn2(
+                          label: Text('Nachlieferung'),
+                          fixedWidth: 138,
+                        ),
+                      ],
+                      rows: _items
+                          .map((item) {
                             final itemSelectionKey = _itemSelectionKey(item);
-                            final isSelected = itemSelectionKey == _selectedItemOrderedKey;
-                            final description = _positionDescription(item, order.oLanguage);
+                            final isSelected =
+                                itemSelectionKey == _selectedItemOrderedKey;
+                            final description = _positionDescription(
+                              item,
+                              order.oLanguage,
+                            );
                             void handleOpenEdit() {
-                              setState(() => _selectedItemOrderedKey = itemSelectionKey);
+                              setState(
+                                () =>
+                                    _selectedItemOrderedKey = itemSelectionKey,
+                              );
                               _showItemOrderedForm(initialValue: item);
                             }
+
                             return DataRow(
                               selected: isSelected,
                               onSelectChanged: (_) {
-                                setState(() => _selectedItemOrderedKey = itemSelectionKey);
+                                setState(
+                                  () => _selectedItemOrderedKey =
+                                      itemSelectionKey,
+                                );
                               },
                               cells: [
-                                _numericCell(item.ioPos.toString().padLeft(2, '0'), onDoubleTap: handleOpenEdit),
-                                _numericCell(item.ioItemId.toString(), onDoubleTap: handleOpenEdit),
-                                _singleLineCell(item.ioIdi, tooltip: item.ioIdi, onDoubleTap: handleOpenEdit),
+                                _numericCell(
+                                  item.ioPos.toString().padLeft(2, '0'),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _numericCell(
+                                  item.ioItemId.toString(),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _singleLineCell(
+                                  item.ioIdi,
+                                  tooltip: item.ioIdi,
+                                  onDoubleTap: handleOpenEdit,
+                                ),
                                 DataCell(
                                   Tooltip(
                                     message: 'Klicken zum Vergroessern',
@@ -1788,22 +2428,56 @@ class _OrderPageState extends State<OrderPage> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  onTap: () => _showPositionDescriptionDialog(description),
+                                  onTap: () => _showPositionDescriptionDialog(
+                                    description,
+                                  ),
                                   onDoubleTap: handleOpenEdit,
                                 ),
-                                DataCell(_buildOrderedItemImageCell(item.ioPhoto), onDoubleTap: handleOpenEdit),
-                                _htsLinkCell(item.ioHts, onDoubleTap: handleOpenEdit),
-                                _numericCell(item.ioQuantity.toString(), onDoubleTap: handleOpenEdit),
-                                _selectableNumericCell(_formatDecimal(item.ioItemWeight, 1)),
-                                _numericCell(_formatDecimal(item.ioTotalWeight, 1), onDoubleTap: handleOpenEdit),
-                                _selectableNumericCell(_formatDecimal(item.ioUnitPrice, 2)),
-                                _numericCell(_formatDecimal(item.ioDiscount, 2), onDoubleTap: handleOpenEdit),
-                                _numericCell(_formatDecimal(item.ioTotalPrice, 2), onDoubleTap: handleOpenEdit),
-                                DataCell(Text(item.ioColor), onDoubleTap: handleOpenEdit),
+                                DataCell(
+                                  _buildOrderedItemImageCell(item.ioPhoto),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _htsLinkCell(
+                                  item.ioHts,
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _numericCell(
+                                  item.ioQuantity.toString(),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _selectableNumericCell(
+                                  _formatDecimal(item.ioItemWeight, 1),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(item.ioTotalWeight, 1),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _selectableNumericCell(
+                                  _formatDecimal(item.ioUnitPrice, 2),
+                                ),
+                                _numericCell(
+                                  _formatDecimal(item.ioDiscount, 2),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                _numericCell(
+                                  _formatDecimal(item.ioTotalPrice, 2),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                DataCell(
+                                  Text(item.ioColor),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                DataCell(
+                                  Center(
+                                    child: _buildBackorderStatusCell(item),
+                                  ),
+                                  onDoubleTap: handleOpenEdit,
+                                ),
                               ],
                             );
-                          }).toList(growable: false),
-                        ),
+                          })
+                          .toList(growable: false),
+                    ),
             ),
           ],
         ),

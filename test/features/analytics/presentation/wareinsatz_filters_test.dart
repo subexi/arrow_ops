@@ -169,6 +169,60 @@ void main() {
       expect(matches, isTrue);
       expect(noMatch, isFalse);
     });
+
+    test('unterstuetzt Ausschluss mit !token', () {
+      final matches = wareinsatzMatchesSearchQuery(
+        query: 'bs !carbon',
+        bezeichnung: 'bs-3540',
+        beschreibung: 'Bambusschaft Premium',
+        category: 'Bambusschaefte',
+      );
+      final noMatch = wareinsatzMatchesSearchQuery(
+        query: 'bs !carbon',
+        bezeichnung: 'bs-3540',
+        beschreibung: 'Carbon-Schaft Premium',
+        category: 'Schaefte',
+      );
+
+      expect(matches, isTrue);
+      expect(noMatch, isFalse);
+    });
+
+    test('unterstuetzt Ausschluss mit Wildcard-Muster', () {
+      final matches = wareinsatzMatchesSearchQuery(
+        query: 'bs-???? !bs-????s*',
+        bezeichnung: 'bs-3540',
+        beschreibung: 'Bambusschaft',
+        category: 'Bambusschaefte',
+      );
+      final noMatch = wareinsatzMatchesSearchQuery(
+        query: 'bs-???? !bs-????s*',
+        bezeichnung: 'bs-3540s',
+        beschreibung: 'Bambusschaft',
+        category: 'Bambusschaefte',
+      );
+
+      expect(matches, isTrue);
+      expect(noMatch, isFalse);
+    });
+
+    test('interpretiert Wildcards als Volltreffer pro Feld', () {
+      final exactMatch = wareinsatzMatchesSearchQuery(
+        query: 'bs-????',
+        bezeichnung: 'bs-3540',
+        beschreibung: 'Bambusschaft',
+        category: 'Bambusschaefte',
+      );
+      final noLongerSubstringMatch = wareinsatzMatchesSearchQuery(
+        query: 'bs-????',
+        bezeichnung: 'bs-3540s',
+        beschreibung: 'Bambusschaft',
+        category: 'Bambusschaefte',
+      );
+
+      expect(exactMatch, isTrue);
+      expect(noLongerSubstringMatch, isFalse);
+    });
   });
 
 }

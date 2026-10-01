@@ -114,6 +114,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   bool _isUpdatingDateFromOrderId = false;
   bool _deliveryAddressDifferent = false;
   bool _isFetchingDeliveryCoordinates = false;
+  bool _canceled = false;
+  bool _returned = false;
 
   static const int _paypalPaymentCode = 1;
   static const int _cashPaymentCode = 4;
@@ -191,6 +193,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _putt = (v?.oPutt ?? 0) != 0;
     _dealer = (v?.oDealer ?? 0) != 0;
     _deliveryAddressDifferent = (v?.oDeliveryAddressDifferent ?? 0) != 0;
+    _canceled = (v?.oCanceled ?? 0) != 0;
+    _returned = (v?.oReturned ?? 0) != 0;
 
     _syncFxRateWithCurrency(forceUsdReset: false);
     _syncPriceBasisWithCurrency();
@@ -1882,6 +1886,35 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                   },
                   contentPadding: EdgeInsets.zero,
                 ),
+                SwitchListTile.adaptive(
+                  title: const Text('Auftrag storniert'),
+                  value: _canceled,
+                  onChanged: (value) {
+                    setState(() {
+                      _canceled = value;
+                      if (!_canceled) {
+                        _returned = false;
+                      }
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
+                ),
+                SwitchListTile.adaptive(
+                  title: const Text('Retoure (Ware zurückgenommen)'),
+                  subtitle: const Text(
+                    'Bei Retoure zählt der Auftrag nicht mehr als Erlös und Positionen gehen in den Bestand zurück.',
+                  ),
+                  value: _returned,
+                  onChanged: (value) {
+                    setState(() {
+                      _returned = value;
+                      if (_returned) {
+                        _canceled = true;
+                      }
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
+                ),
                 const SizedBox(height: 12),
 
                 // ── Notiz
@@ -1975,6 +2008,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
               oPutt: _putt ? 1 : 0,
               oTrackingCode: _trackingCodeController.text.trim(),
               oNote: _noteController.text.trim().isEmpty ? '-' : _noteController.text.trim(),
+                oCanceled: _canceled ? 1 : 0,
+                oReturned: _returned ? 1 : 0,
                 oDeliveryAddressDifferent: _deliveryAddressDifferent ? 1 : 0,
                 oDeliveryName: _normalizeDeliveryField(_deliveryNameController.text),
                 oDeliveryStreet: _normalizeDeliveryField(_deliveryStreetController.text),

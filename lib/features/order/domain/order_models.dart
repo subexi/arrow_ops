@@ -24,6 +24,8 @@ class OrderRow {
     this.oPutt = 0,
     this.oTrackingCode = '',
     this.oNote = '-',
+    this.oCanceled = 0,
+    this.oReturned = 0,
     this.oDeliveryAddressDifferent = 0,
     this.oDeliveryName = '-',
     this.oDeliveryStreet = '-',
@@ -60,6 +62,8 @@ class OrderRow {
   final int oPutt;
   final String oTrackingCode;
   final String oNote;
+  final int oCanceled;
+  final int oReturned;
   final int oDeliveryAddressDifferent;
   final String oDeliveryName;
   final String oDeliveryStreet;
@@ -97,6 +101,8 @@ class OrderRow {
       oPutt: _int(map['o_putt']),
       oTrackingCode: _str(map['o_tracking_code']),
       oNote: _str(map['o_note'], fallback: '-'),
+      oCanceled: _int(map['o_canceled']),
+      oReturned: _int(map['o_returned']),
       oDeliveryAddressDifferent: _int(map['o_delivery_address_different']),
       oDeliveryName: _str(map['o_delivery_name'], fallback: '-'),
       oDeliveryStreet: _str(map['o_delivery_street'], fallback: '-'),
@@ -135,6 +141,8 @@ class OrderRow {
         'o_putt': oPutt,
         'o_tracking_code': oTrackingCode,
         'o_note': oNote,
+        'o_canceled': oCanceled,
+        'o_returned': oReturned,
         'o_delivery_address_different': oDeliveryAddressDifferent,
         'o_delivery_name': oDeliveryName,
         'o_delivery_street': oDeliveryStreet,
@@ -172,6 +180,8 @@ class OrderRow {
     int? oPutt,
     String? oTrackingCode,
     String? oNote,
+    int? oCanceled,
+    int? oReturned,
     int? oDeliveryAddressDifferent,
     String? oDeliveryName,
     String? oDeliveryStreet,
@@ -208,6 +218,8 @@ class OrderRow {
         oPutt: oPutt ?? this.oPutt,
         oTrackingCode: oTrackingCode ?? this.oTrackingCode,
         oNote: oNote ?? this.oNote,
+        oCanceled: oCanceled ?? this.oCanceled,
+        oReturned: oReturned ?? this.oReturned,
         oDeliveryAddressDifferent:
           oDeliveryAddressDifferent ?? this.oDeliveryAddressDifferent,
         oDeliveryName: oDeliveryName ?? this.oDeliveryName,
@@ -281,6 +293,7 @@ class ItemOrderedRow {
     this.ioQuantity = 1,
     this.ioItemId = 0,
     this.ioIdi = '',
+    this.ioIde = '',
     this.ioDescriptionDeLong = '',
     this.ioDescriptionEnLong = '',
     this.ioHts = '-',
@@ -291,6 +304,9 @@ class ItemOrderedRow {
     this.ioItemWeight = 0,
     this.ioTotalWeight = 0,
     this.ioPhoto = '-',
+    this.ioBackorderPending = 0,
+    this.ioBackorderEta = '-',
+    this.ioBackorderCompleted = 0,
   });
 
   final int? ioId;
@@ -299,6 +315,7 @@ class ItemOrderedRow {
   final int ioQuantity;
   final int ioItemId;
   final String ioIdi;
+  final String ioIde;
   final String ioDescriptionDeLong;
   final String ioDescriptionEnLong;
   final String ioHts;
@@ -309,6 +326,9 @@ class ItemOrderedRow {
   final double ioItemWeight;
   final double ioTotalWeight;
   final String ioPhoto;
+  final int ioBackorderPending;
+  final String ioBackorderEta;
+  final int ioBackorderCompleted;
 
   factory ItemOrderedRow.fromMap(Map<String, Object?> map) {
     return ItemOrderedRow(
@@ -318,6 +338,7 @@ class ItemOrderedRow {
       ioQuantity: _int(map['io_quantity']),
       ioItemId: _int(map['io_item_id']),
       ioIdi: _str(map['io_idi']),
+      ioIde: _str(map['io_ide']),
       ioDescriptionDeLong: _str(map['io_description_de_long']),
       ioDescriptionEnLong: _str(map['io_description_en_long']),
       ioHts: _str(map['io_hts'], fallback: '-'),
@@ -328,6 +349,9 @@ class ItemOrderedRow {
       ioItemWeight: _double(map['io_item_weight']),
       ioTotalWeight: _double(map['io_total_weight']),
       ioPhoto: _str(map['io_photo'], fallback: '-'),
+      ioBackorderPending: _int(map['io_backorder_pending']),
+      ioBackorderEta: _str(map['io_backorder_eta'], fallback: '-'),
+      ioBackorderCompleted: _int(map['io_backorder_completed']),
     );
   }
 
@@ -348,6 +372,9 @@ class ItemOrderedRow {
         'io_item_weight': ioItemWeight,
         'io_total_weight': ioTotalWeight,
         'io_photo': ioPhoto,
+        'io_backorder_pending': ioBackorderPending,
+        'io_backorder_eta': ioBackorderEta,
+        'io_backorder_completed': ioBackorderCompleted,
       };
 
   static String _str(Object? v, {String fallback = ''}) =>

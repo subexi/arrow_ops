@@ -10,12 +10,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'import_export_page.dart';
 import '../../item/data/item_repository.dart';
 import '../../item/domain/item_models.dart';
 import '../../order/data/order_repository.dart';
 import '../../order/domain/order_models.dart';
 
-enum _AnalyticsSubPage { chartNetValueOverTime, wareinsatz }
+enum _AnalyticsSubPage { chartNetValueOverTime, wareinsatz, importExport }
 
 enum _PeriodGranularity { month, quarter, year, total }
 
@@ -44,23 +45,25 @@ List<OrderRow> wareinsatzFilterOrdersByTradeShowAndPutt({
   required Set<String> selectedTradeShows,
   required WareinsatzPuttFilter puttFilter,
 }) {
-  return orders.where((order) {
-    if (selectedTradeShows.isNotEmpty) {
-      final tradeShow = order.oTradeShow.trim();
-      if (!selectedTradeShows.contains(tradeShow)) {
-        return false;
-      }
-    }
+  return orders
+      .where((order) {
+        if (selectedTradeShows.isNotEmpty) {
+          final tradeShow = order.oTradeShow.trim();
+          if (!selectedTradeShows.contains(tradeShow)) {
+            return false;
+          }
+        }
 
-    switch (puttFilter) {
-      case WareinsatzPuttFilter.all:
-        return true;
-      case WareinsatzPuttFilter.onlyPutt:
-        return order.oPutt != 0;
-      case WareinsatzPuttFilter.withoutPutt:
-        return order.oPutt == 0;
-    }
-  }).toList(growable: false);
+        switch (puttFilter) {
+          case WareinsatzPuttFilter.all:
+            return true;
+          case WareinsatzPuttFilter.onlyPutt:
+            return order.oPutt != 0;
+          case WareinsatzPuttFilter.withoutPutt:
+            return order.oPutt == 0;
+        }
+      })
+      .toList(growable: false);
 }
 
 bool wareinsatzRowMatchesScope({
@@ -83,26 +86,26 @@ bool wareinsatzRowMatchesScope({
 List<String> wareinsatzExportHeaders(WareinsatzScope scope) {
   return switch (scope) {
     WareinsatzScope.all => const [
-        'Bezeichnung',
-        'Beschreibung',
-        'Menge ohne BOM',
-        'BOM-Menge',
-        'Gesamtmenge',
-      ],
+      'Bezeichnung',
+      'Beschreibung',
+      'Menge ohne BOM',
+      'BOM-Menge',
+      'Gesamtmenge',
+    ],
     WareinsatzScope.bomOnly => const [
-        'Bezeichnung',
-        'Beschreibung',
-        'BOM-Menge',
-      ],
+      'Bezeichnung',
+      'Beschreibung',
+      'BOM-Menge',
+    ],
     WareinsatzScope.withoutBom => const [
-        'Bezeichnung',
-        'Beschreibung',
-        'Menge ohne BOM',
-        'EK netto (EUR)',
-        'Σ EK netto (EUR)',
-        'Σ Verkauf netto (EUR)',
-        'Marge EUR',
-      ],
+      'Bezeichnung',
+      'Beschreibung',
+      'Menge ohne BOM',
+      'EK netto (EUR)',
+      'Σ EK netto (EUR)',
+      'Σ Verkauf netto (EUR)',
+      'Marge EUR',
+    ],
   };
 }
 
@@ -118,20 +121,15 @@ List<double> wareinsatzPdfColumnFlexes({
     if (showMengeOhneBomColumn) 1.0,
     if (showBomMengeColumn) 1.0,
     if (showGesamtmengeColumn) 1.0,
-    if (showFinancialColumns) ...[
-      1.1,
-      1.2,
-      1.2,
-      1.1,
-    ],
+    if (showFinancialColumns) ...[1.1, 1.2, 1.2, 1.1],
   ];
 }
 
 double wareinsatzOrderedItemNetSales(ItemOrderedRow? item) =>
     item?.ioTotalPrice ?? 0;
 
-double wareinsatzSumOrderedItemNetSales(Iterable<ItemOrderedRow> items) =>
-    items.fold<double>(0, (sum, item) => sum + wareinsatzOrderedItemNetSales(item));
+double wareinsatzSumOrderedItemNetSales(Iterable<ItemOrderedRow> items) => items
+    .fold<double>(0, (sum, item) => sum + wareinsatzOrderedItemNetSales(item));
 
 double wareinsatzOrderedItemNetSalesForOrder({
   required ItemOrderedRow item,
@@ -177,7 +175,9 @@ DateTime? wareinsatzParseDeliveryDate(String raw) {
     return DateTime(parsedIso.year, parsedIso.month, parsedIso.day);
   }
 
-  final dotMatch = RegExp(r'^(\d{2})\.(\d{2})\.(\d{4})$').firstMatch(normalized);
+  final dotMatch = RegExp(
+    r'^(\d{2})\.(\d{2})\.(\d{4})$',
+  ).firstMatch(normalized);
   if (dotMatch == null) {
     return null;
   }
@@ -219,7 +219,9 @@ List<String> wareinsatzExtractCategorySearchTerms(String query) {
     return terms;
   }
   for (final token in normalized.split(RegExp(r'\s+'))) {
-    if (token.startsWith('kat:') || token.startsWith('kategorie:') || token.startsWith('cat:')) {
+    if (token.startsWith('kat:') ||
+        token.startsWith('kategorie:') ||
+        token.startsWith('cat:')) {
       final index = token.indexOf(':');
       if (index < 0 || index >= token.length - 1) {
         continue;
@@ -268,10 +270,7 @@ String? wareinsatzBuildWildcardRegexPattern(String query) {
   return pattern.toString();
 }
 
-bool wareinsatzTextMatchesQuery({
-  required String text,
-  required String query,
-}) {
+bool wareinsatzTextMatchesQuery({required String text, required String query}) {
   if (query.isEmpty) {
     return true;
   }
@@ -279,7 +278,7 @@ bool wareinsatzTextMatchesQuery({
   if (wildcardPattern == null) {
     return text.contains(query);
   }
-  return RegExp(wildcardPattern, caseSensitive: false).hasMatch(text);
+  return RegExp('^$wildcardPattern\$', caseSensitive: false).hasMatch(text);
 }
 
 bool wareinsatzMatchesSearchQuery({
@@ -306,14 +305,30 @@ bool wareinsatzMatchesSearchQuery({
     return true;
   }
 
-  final searchTokens = freeQuery.split(RegExp(r'\s+')).where((token) => token.isNotEmpty);
+  final searchTokens = freeQuery
+      .split(RegExp(r'\s+'))
+      .where((token) => token.isNotEmpty);
   final normalizedBezeichnung = bezeichnung.toLowerCase();
   final normalizedBeschreibung = beschreibung.toLowerCase();
-  for (final token in searchTokens) {
+  for (final rawToken in searchTokens) {
+    final isNegated = rawToken.startsWith('!') && rawToken.length > 1;
+    final token = isNegated ? rawToken.substring(1) : rawToken;
+    if (token.isEmpty) {
+      continue;
+    }
     final matchesToken =
         wareinsatzTextMatchesQuery(text: normalizedBezeichnung, query: token) ||
-        wareinsatzTextMatchesQuery(text: normalizedBeschreibung, query: token) ||
+        wareinsatzTextMatchesQuery(
+          text: normalizedBeschreibung,
+          query: token,
+        ) ||
         wareinsatzTextMatchesQuery(text: normalizedCategory, query: token);
+    if (isNegated) {
+      if (matchesToken) {
+        return false;
+      }
+      continue;
+    }
     if (!matchesToken) {
       return false;
     }
@@ -348,7 +363,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   _AnalyticsSubPage _selectedSubPage = _AnalyticsSubPage.chartNetValueOverTime;
   _PeriodGranularity _selectedChartGranularity = _PeriodGranularity.month;
-  String? _selectedChartQuarterKey;
+  Set<String> _selectedChartQuarterKeys = const <String>{};
   String? _selectedChartYearKey;
   WareinsatzPuttFilter _selectedChartPuttFilter = WareinsatzPuttFilter.all;
   _PeriodGranularity _selectedGranularity = _PeriodGranularity.total;
@@ -374,9 +389,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   Set<String> _selectedTradeShows = const <String>{};
   bool _wasVisibleInBuild = false;
 
+  void _handleOrderDataVersionChanged() {
+    if (!mounted || _loading) {
+      return;
+    }
+    _loadData();
+  }
+
   @override
   void initState() {
     super.initState();
+    OrderRepository.orderDataVersion.addListener(
+      _handleOrderDataVersionChanged,
+    );
     _searchController.addListener(() {
       final nextQuery = _searchController.text.trim().toLowerCase();
       if (nextQuery == _searchQuery) {
@@ -391,6 +416,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   @override
   void dispose() {
+    OrderRepository.orderDataVersion.removeListener(
+      _handleOrderDataVersionChanged,
+    );
     _searchController.dispose();
     super.dispose();
   }
@@ -403,9 +431,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     try {
       final orders = await _orderRepository.getOrders();
-      final itemFutures = orders.map((order) => _orderRepository.getItemsForOrder(order.oId));
+      final itemFutures = orders.map(
+        (order) => _orderRepository.getItemsForOrder(order.oId),
+      );
       final itemLists = await Future.wait(itemFutures);
-      final orderedItems = itemLists.expand((rows) => rows).toList(growable: false);
+      final orderedItems = itemLists
+          .expand((rows) => rows)
+          .toList(growable: false);
 
       final catalogueItems = await _itemRepository.getCatalogueItems();
       final bomItems = await _itemRepository.getBomItems();
@@ -447,7 +479,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     if (_selectedMonthKeys.isEmpty && monthKeys.isNotEmpty) {
       _selectedMonthKeys = {monthKeys.first};
     }
-    if (_selectedQuarterKey == null || !quarterKeys.contains(_selectedQuarterKey)) {
+    if (_selectedQuarterKey == null ||
+        !quarterKeys.contains(_selectedQuarterKey)) {
       _selectedQuarterKey = quarterKeys.isEmpty ? null : quarterKeys.first;
     }
     if (_selectedYearKey == null || !yearKeys.contains(_selectedYearKey)) {
@@ -457,14 +490,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     if (_selectedGranularity == _PeriodGranularity.month && monthKeys.isEmpty) {
       _selectedGranularity = _PeriodGranularity.total;
     }
-    if (_selectedGranularity == _PeriodGranularity.quarter && _selectedQuarterKey == null) {
+    if (_selectedGranularity == _PeriodGranularity.quarter &&
+        _selectedQuarterKey == null) {
       _selectedGranularity = _PeriodGranularity.total;
     }
-    if (_selectedGranularity == _PeriodGranularity.year && _selectedYearKey == null) {
+    if (_selectedGranularity == _PeriodGranularity.year &&
+        _selectedYearKey == null) {
       _selectedGranularity = _PeriodGranularity.total;
     }
 
-    final availableTradeShows = wareinsatzAvailableTradeShowOptions(_orders).toSet();
+    final availableTradeShows = wareinsatzAvailableTradeShowOptions(
+      _orders,
+    ).toSet();
     _selectedTradeShows = _selectedTradeShows
         .where(availableTradeShows.contains)
         .toSet();
@@ -473,10 +510,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   void _ensureChartPeriodDefaults() {
     final quarterKeys = _availableQuarterKeys(_orders);
     final yearKeys = _availableYearKeys(_orders);
-    if (_selectedChartQuarterKey == null ||
-        !quarterKeys.contains(_selectedChartQuarterKey)) {
-      _selectedChartQuarterKey = quarterKeys.isEmpty ? null : quarterKeys.first;
-    }
+    _selectedChartQuarterKeys = _selectedChartQuarterKeys
+        .where(quarterKeys.contains)
+        .toSet();
     if (_selectedChartYearKey == null ||
         !yearKeys.contains(_selectedChartYearKey)) {
       _selectedChartYearKey = yearKeys.isEmpty ? null : yearKeys.first;
@@ -485,8 +521,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final offstageAncestor = context.findAncestorWidgetOfExactType<Offstage>();
-    final isVisibleInShell = offstageAncestor?.offstage != true;
+    final tickerMode = TickerMode.valuesOf(context);
+    final isVisibleInShell = tickerMode.enabled;
     if (isVisibleInShell && !_wasVisibleInBuild && !_loading) {
       _loadData();
     }
@@ -505,11 +541,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 _isSideNavigationVisible = !_isSideNavigationVisible;
               });
             },
-            icon: Icon(
-              _isSideNavigationVisible
-                  ? Icons.menu_open
-                  : Icons.menu,
-            ),
+            icon: Icon(_isSideNavigationVisible ? Icons.menu_open : Icons.menu),
           ),
           IconButton(
             tooltip: 'Neu laden',
@@ -529,6 +561,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               _AnalyticsSubPage.chartNetValueOverTime =>
                 _buildNetValueChartView(context),
               _AnalyticsSubPage.wareinsatz => _buildWareneinsatzView(context),
+              _AnalyticsSubPage.importExport => const ImportExportPage(),
             },
           ),
         ],
@@ -575,6 +608,12 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             label: 'Wareneinsatz',
             subPage: _AnalyticsSubPage.wareinsatz,
           ),
+          const SizedBox(height: 8),
+          _buildNavigationEntry(
+            icon: Icons.import_export,
+            label: 'Import / Export',
+            subPage: _AnalyticsSubPage.importExport,
+          ),
         ],
       ),
     );
@@ -615,7 +654,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       orderedItems: _orderedItems,
       puttFilter: _selectedChartPuttFilter,
       granularity: _selectedChartGranularity,
-      selectedQuarterKey: _selectedChartQuarterKey,
+      selectedQuarterKeys: _selectedChartQuarterKeys,
       selectedYearKey: _selectedChartYearKey,
     );
 
@@ -634,6 +673,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       0,
       (sum, bucket) => sum + bucket.valueEur,
     );
+    final netValueFxHint = _buildNetValueFxHint(context: chartFilterContext);
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -649,6 +689,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             'Netto-Warenwert als Saeulendiagramm in EUR auf Basis der Positionswerte je Zeitraum.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
+          const SizedBox(height: 4),
+          Text(netValueFxHint, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 16),
           Wrap(
             spacing: 12,
@@ -657,10 +699,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             children: [
               SegmentedButton<_PeriodGranularity>(
                 segments: const [
-                  ButtonSegment(value: _PeriodGranularity.month, label: Text('Monat')),
-                  ButtonSegment(value: _PeriodGranularity.quarter, label: Text('Quartal')),
-                  ButtonSegment(value: _PeriodGranularity.year, label: Text('Jahr')),
-                  ButtonSegment(value: _PeriodGranularity.total, label: Text('Gesamt')),
+                  ButtonSegment(
+                    value: _PeriodGranularity.month,
+                    label: Text('Monat'),
+                  ),
+                  ButtonSegment(
+                    value: _PeriodGranularity.quarter,
+                    label: Text('Quartal'),
+                  ),
+                  ButtonSegment(
+                    value: _PeriodGranularity.year,
+                    label: Text('Jahr'),
+                  ),
+                  ButtonSegment(
+                    value: _PeriodGranularity.total,
+                    label: Text('Gesamt'),
+                  ),
                 ],
                 selected: {_selectedChartGranularity},
                 onSelectionChanged: (selection) {
@@ -693,16 +747,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 },
               ),
               if (_selectedChartGranularity == _PeriodGranularity.quarter)
-                _periodDropdown(
-                  label: 'Quartal',
-                  value: _selectedChartQuarterKey,
-                  values: _availableQuarterKeys(_orders),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedChartQuarterKey = value;
-                    });
-                  },
-                ),
+                _chartQuarterFilterButton(_availableQuarterKeys(_orders)),
               if (_selectedChartGranularity == _PeriodGranularity.year)
                 _periodDropdown(
                   label: 'Jahr',
@@ -714,8 +759,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     });
                   },
                 ),
-              _summaryChip('Gefilterte Auftraege', '${chartFilterContext.orderById.length}'),
-              _summaryChip('Gefilterte Positionen', '${chartFilterContext.filteredItems.length}'),
+              _summaryChip(
+                'Gefilterte Auftraege',
+                '${chartFilterContext.orderById.length}',
+              ),
+              _summaryChip(
+                'Gefilterte Positionen',
+                '${chartFilterContext.filteredItems.length}',
+              ),
               _summaryChip('Zeitraeume', '${buckets.length}'),
               _summaryChip('Σ Netto-Warenwert', _formatMoneyEur(totalNetValue)),
             ],
@@ -724,7 +775,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final tableHeight = math.max(240.0, constraints.maxHeight * 0.30);
+                final tableHeight = math.max(
+                  240.0,
+                  constraints.maxHeight * 0.30,
+                );
                 final pieHeight = math.max(250.0, constraints.maxHeight * 0.34);
                 final chartHeight = math.max(
                   180.0,
@@ -733,7 +787,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
                 return SingleChildScrollView(
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -799,8 +855,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       late final String periodLabel;
       switch (granularity) {
         case _PeriodGranularity.month:
-          periodKey = '${delivery.year}-${delivery.month.toString().padLeft(2, '0')}';
-          periodLabel = '${delivery.month.toString().padLeft(2, '0')}/${delivery.year}';
+          periodKey =
+              '${delivery.year}-${delivery.month.toString().padLeft(2, '0')}';
+          periodLabel =
+              '${delivery.month.toString().padLeft(2, '0')}/${delivery.year}';
         case _PeriodGranularity.quarter:
           final quarter = ((delivery.month - 1) ~/ 3) + 1;
           periodKey = '${delivery.year}-Q$quarter';
@@ -815,8 +873,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
       valueByPeriod.update(
         periodKey,
-        (value) => value + wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
-        ifAbsent: () => wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
+        (value) =>
+            value +
+            wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
+        ifAbsent: () =>
+            wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
       );
       labelByPeriod.putIfAbsent(periodKey, () => periodLabel);
     }
@@ -841,6 +902,27 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           ),
         )
         .toList(growable: false);
+  }
+
+  String _buildNetValueFxHint({required _ChartFilterContext context}) {
+    final filteredOrders = context.orderById.values;
+    final usdOrders = filteredOrders
+        .where((order) => order.oCurrency.trim().toUpperCase() == 'USD')
+        .toList(growable: false);
+    final usdOrderCount = usdOrders.length;
+    final usdOrdersWithoutFxCount = usdOrders
+        .where((order) => order.oFxToEur <= 0)
+        .length;
+
+    if (usdOrderCount == 0) {
+      return 'Hinweis: Netto-Warenwert wird in EUR ausgewiesen.';
+    }
+
+    if (usdOrdersWithoutFxCount == 0) {
+      return 'Hinweis: $usdOrderCount USD-Auftraege wurden mit dem jeweiligen USD→EUR-Kurs in den Netto-Warenwert eingerechnet.';
+    }
+
+    return 'Hinweis: $usdOrderCount USD-Auftraege werden per USD→EUR-Kurs umgerechnet; $usdOrdersWithoutFxCount ohne gueltigen Kurs sind nicht beruecksichtigt.';
   }
 
   Widget _buildNetValueBarChart(List<_NetValueBucket> buckets) {
@@ -881,10 +963,16 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                   child: LayoutBuilder(
                                     builder: (context, barConstraints) {
                                       final rawHeight =
-                                          (bucket.valueEur / safeMax) * (barConstraints.maxHeight - 24);
-                                      final barHeight = rawHeight.clamp(0.0, barConstraints.maxHeight - 8);
+                                          (bucket.valueEur / safeMax) *
+                                          (barConstraints.maxHeight - 24);
+                                      final barHeight = rawHeight.clamp(
+                                        0.0,
+                                        barConstraints.maxHeight - 8,
+                                      );
                                       final showValueInBar = barHeight >= 64;
-                                      final valueText = _formatMoneyEur(bucket.valueEur);
+                                      final valueText = _formatMoneyEur(
+                                        bucket.valueEur,
+                                      );
 
                                       return Stack(
                                         alignment: Alignment.bottomCenter,
@@ -895,9 +983,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                             height: barHeight,
                                             decoration: BoxDecoration(
                                               color: Colors.lightBlue.shade300,
-                                              borderRadius: const BorderRadius.vertical(
-                                                top: Radius.circular(8),
-                                              ),
+                                              borderRadius:
+                                                  const BorderRadius.vertical(
+                                                    top: Radius.circular(8),
+                                                  ),
                                             ),
                                           ),
                                           if (showValueInBar)
@@ -913,10 +1002,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                                     valueText,
                                                     maxLines: 1,
                                                     softWrap: false,
-                                                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                      color: Theme.of(context).colorScheme.onPrimary,
-                                                      fontWeight: FontWeight.w700,
-                                                    ),
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .labelSmall
+                                                        ?.copyWith(
+                                                          color:
+                                                              Theme.of(context)
+                                                                  .colorScheme
+                                                                  .onPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
                                                   ),
                                                 ),
                                               ),
@@ -934,7 +1030,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                                     valueText,
                                                     maxLines: 1,
                                                     softWrap: false,
-                                                    style: Theme.of(context).textTheme.labelSmall,
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.labelSmall,
                                                   ),
                                                 ),
                                               ),
@@ -989,10 +1087,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         item: item,
         order: order,
       );
-      valueByCountry.update(countryKey, (value) => value + valueEur, ifAbsent: () => valueEur);
+      valueByCountry.update(
+        countryKey,
+        (value) => value + valueEur,
+        ifAbsent: () => valueEur,
+      );
     }
 
-    final total = valueByCountry.values.fold<double>(0, (sum, value) => sum + value);
+    final total = valueByCountry.values.fold<double>(
+      0,
+      (sum, value) => sum + value,
+    );
     if (total <= 0) {
       return const [];
     }
@@ -1023,7 +1128,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       );
     }
 
-    final totalValue = buckets.fold<double>(0, (sum, bucket) => sum + bucket.valueEur);
+    final totalValue = buckets.fold<double>(
+      0,
+      (sum, bucket) => sum + bucket.valueEur,
+    );
 
     return Card(
       child: Padding(
@@ -1062,7 +1170,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     itemCount: buckets.length,
                     itemBuilder: (context, index) {
                       final bucket = buckets[index];
-                      final color = _countryPiePalette[index % _countryPiePalette.length];
+                      final color =
+                          _countryPiePalette[index % _countryPiePalette.length];
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 3),
                         child: Row(
@@ -1123,19 +1232,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final orderById = context.orderById;
     final columnLabels = switch (granularity) {
       _PeriodGranularity.month => const <String>[
-          'Jan',
-          'Feb',
-          'Mrz',
-          'Apr',
-          'Mai',
-          'Jun',
-          'Jul',
-          'Aug',
-          'Sep',
-          'Okt',
-          'Nov',
-          'Dez',
-        ],
+        'Jan',
+        'Feb',
+        'Mrz',
+        'Apr',
+        'Mai',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Okt',
+        'Nov',
+        'Dez',
+      ],
       _PeriodGranularity.quarter => const <String>['Q1', 'Q2', 'Q3', 'Q4'],
       _PeriodGranularity.year => const <String>['Jahr'],
       _PeriodGranularity.total => const <String>['Gesamt'],
@@ -1187,7 +1296,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     for (final rowLabel in rowLabels) {
       final rowValues = valuesByRow[rowLabel] ?? const <double>[];
-      for (var columnIndex = 0; columnIndex < columnLabels.length; columnIndex++) {
+      for (
+        var columnIndex = 0;
+        columnIndex < columnLabels.length;
+        columnIndex++
+      ) {
         final value = rowValues[columnIndex];
         columnTotals[columnIndex] += value;
         grandTotal += value;
@@ -1195,7 +1308,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
 
     return _NetValueYearMonthTableData(
-      rowHeaderLabel: granularity == _PeriodGranularity.total ? 'Basis' : 'Jahr',
+      rowHeaderLabel: granularity == _PeriodGranularity.total
+          ? 'Basis'
+          : 'Jahr',
       rowLabels: rowLabels,
       columnLabels: columnLabels,
       valuesByRow: valuesByRow,
@@ -1209,7 +1324,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     required List<ItemOrderedRow> orderedItems,
     required WareinsatzPuttFilter puttFilter,
     required _PeriodGranularity granularity,
-    required String? selectedQuarterKey,
+    required Set<String> selectedQuarterKeys,
     required String? selectedYearKey,
   }) {
     final filteredOrders = <OrderRow>[];
@@ -1221,7 +1336,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       if (granularity == _PeriodGranularity.quarter) {
         final quarter = ((delivery.month - 1) ~/ 3) + 1;
         final quarterKey = '${delivery.year}-Q$quarter';
-        if (selectedQuarterKey != null && quarterKey != selectedQuarterKey) {
+        if (selectedQuarterKeys.isNotEmpty &&
+            !selectedQuarterKeys.contains(quarterKey)) {
           continue;
         }
       }
@@ -1236,9 +1352,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       }
     }
 
-    final orderById = {
-      for (final order in filteredOrders) order.oId: order,
-    };
+    final orderById = {for (final order in filteredOrders) order.oId: order};
     final filteredItems = orderedItems
         .where((item) => orderById.containsKey(item.ioOrderId))
         .toList(growable: false);
@@ -1269,9 +1383,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }) {
     if (data.rowLabels.isEmpty) {
       return const Card(
-        child: Center(
-          child: Text('Keine Jahres-/Monatsdaten verfuegbar.'),
-        ),
+        child: Center(child: Text('Keine Jahres-/Monatsdaten verfuegbar.')),
       );
     }
 
@@ -1280,10 +1392,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       double value, {
       FontWeight weight = FontWeight.w400,
     }) {
-      final baseStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
-        fontSize: 11,
-        fontWeight: weight,
-      );
+      final baseStyle = Theme.of(
+        context,
+      ).textTheme.bodySmall?.copyWith(fontSize: 11, fontWeight: weight);
       if (value.abs() < 0.0000001) {
         return (baseStyle ?? const TextStyle()).copyWith(color: zeroValueColor);
       }
@@ -1305,18 +1416,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               fontSize: 11,
               fontWeight: FontWeight.w700,
             ),
-            dataTextStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontSize: 11,
-            ),
+            dataTextStyle: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontSize: 11),
             columns: [
-              DataColumn(
-                label: Text(data.rowHeaderLabel),
-              ),
+              DataColumn(label: Text(data.rowHeaderLabel)),
               for (final columnLabel in data.columnLabels)
-                DataColumn(
-                  numeric: true,
-                  label: Text(columnLabel),
-                ),
+                DataColumn(numeric: true, label: Text(columnLabel)),
               DataColumn(
                 numeric: true,
                 label: Text(
@@ -1331,15 +1437,21 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 DataRow(
                   cells: [
                     DataCell(Text(rowLabel)),
-                    for (var columnIndex = 0;
-                        columnIndex < data.columnLabels.length;
-                        columnIndex++)
+                    for (
+                      var columnIndex = 0;
+                      columnIndex < data.columnLabels.length;
+                      columnIndex++
+                    )
                       DataCell(
                         // Nullwerte werden bewusst visuell hervorgehoben.
                         Text(
-                          _formatMoneyEur((data.valuesByRow[rowLabel] ?? const <double>[])[columnIndex]),
+                          _formatMoneyEur(
+                            (data.valuesByRow[rowLabel] ??
+                                const <double>[])[columnIndex],
+                          ),
                           style: moneyCellStyle(
-                            (data.valuesByRow[rowLabel] ?? const <double>[])[columnIndex],
+                            (data.valuesByRow[rowLabel] ??
+                                const <double>[])[columnIndex],
                           ),
                         ),
                       ),
@@ -1436,7 +1548,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       orderedItems: _orderedItems,
       allowedItemIds: scopedItemIds,
     );
-    final rows = _sortWareinsatzRows(_filterRowsBySearch(_filterRowsByScope(allRows)));
+    final rows = _sortWareinsatzRows(
+      _filterRowsBySearch(_filterRowsByScope(allRows)),
+    );
     final priceBasisCurrencyLabel = _diagnosticsPriceBasisCurrencyLabel(
       orderNetContributions,
     );
@@ -1449,18 +1563,44 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       WareinsatzScope.bomOnly => 3,
       WareinsatzScope.withoutBom => 7,
     };
-    final effectiveSortColumnIndex =
-        _tableSortColumnIndex < visibleColumnCount ? _tableSortColumnIndex : 0;
+    final effectiveSortColumnIndex = _tableSortColumnIndex < visibleColumnCount
+        ? _tableSortColumnIndex
+        : 0;
 
-    final totalMengeOhneBom = rows.fold<double>(0, (sum, row) => sum + _displayMengeOhneBom(row));
-    final totalBomQty = rows.fold<double>(0, (sum, row) => sum + _displayBomMenge(row));
-    final totalGesamtmenge = rows.fold<double>(0, (sum, row) => sum + row.totalQuantity);
-    final totalValue = rows.fold<double>(0, (sum, row) => sum + row.totalValueEur);
-    final totalSalesNet = rows.fold<double>(0, (sum, row) => sum + row.soldNetValueEur);
-    final totalMargin = rows.fold<double>(0, (sum, row) => sum + row.marginEur);
-    final totalMarginPercent = totalValue <= 0 ? 0.0 : (totalMargin / totalValue) * 100;
-    final diagnosticsTableMaxHeight =
-      (MediaQuery.sizeOf(context).height * 0.34).clamp(220.0, 420.0).toDouble();
+    final totalMengeOhneBom = rows.fold<double>(
+      0,
+      (sum, row) => sum + _displayMengeOhneBom(row),
+    );
+    final totalBomQty = rows.fold<double>(
+      0,
+      (sum, row) => sum + _displayBomMenge(row),
+    );
+    final totalGesamtmenge = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totalQuantity,
+    );
+    final totalValue = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.soldValueEur,
+    );
+    final totalSalesNet = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.soldNetValueEur,
+    );
+    final totalMargin = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.soldMarginEur,
+    );
+    final totalMarginPercent = totalValue <= 0
+        ? 0.0
+        : (totalMargin / totalValue) * 100;
+    final debugEkNettoFromRows = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.soldValueEur,
+    );
+    final diagnosticsTableMaxHeight = (MediaQuery.sizeOf(context).height * 0.34)
+        .clamp(220.0, 420.0)
+        .toDouble();
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -1484,10 +1624,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             children: [
               SegmentedButton<_PeriodGranularity>(
                 segments: const [
-                  ButtonSegment(value: _PeriodGranularity.month, label: Text('Monat')),
-                  ButtonSegment(value: _PeriodGranularity.quarter, label: Text('Quartal')),
-                  ButtonSegment(value: _PeriodGranularity.year, label: Text('Jahr')),
-                  ButtonSegment(value: _PeriodGranularity.total, label: Text('Gesamt')),
+                  ButtonSegment(
+                    value: _PeriodGranularity.month,
+                    label: Text('Monat'),
+                  ),
+                  ButtonSegment(
+                    value: _PeriodGranularity.quarter,
+                    label: Text('Quartal'),
+                  ),
+                  ButtonSegment(
+                    value: _PeriodGranularity.year,
+                    label: Text('Jahr'),
+                  ),
+                  ButtonSegment(
+                    value: _PeriodGranularity.total,
+                    label: Text('Gesamt'),
+                  ),
                 ],
                 selected: {_selectedGranularity},
                 onSelectionChanged: (selection) {
@@ -1500,9 +1652,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               ),
               SegmentedButton<WareinsatzScope>(
                 segments: const [
-                  ButtonSegment(value: WareinsatzScope.all, label: Text('Alle Positionen')),
-                    ButtonSegment(value: WareinsatzScope.bomOnly, label: Text('nur BOM-Komponenten')),
-                    ButtonSegment(value: WareinsatzScope.withoutBom, label: Text('nur ohne BOM')),
+                  ButtonSegment(
+                    value: WareinsatzScope.all,
+                    label: Text('Alle Positionen'),
+                  ),
+                  ButtonSegment(
+                    value: WareinsatzScope.bomOnly,
+                    label: Text('nur BOM-Komponenten'),
+                  ),
+                  ButtonSegment(
+                    value: WareinsatzScope.withoutBom,
+                    label: Text('nur ohne BOM'),
+                  ),
                 ],
                 selected: {_selectedScope},
                 onSelectionChanged: (selection) {
@@ -1514,8 +1675,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               if (showFinancialColumns)
                 SegmentedButton<_MarginDisplay>(
                   segments: const [
-                    ButtonSegment(value: _MarginDisplay.absolute, label: Text('Marge EUR')),
-                    ButtonSegment(value: _MarginDisplay.percent, label: Text('Marge % auf EK')),
+                    ButtonSegment(
+                      value: _MarginDisplay.absolute,
+                      label: Text('Marge EUR'),
+                    ),
+                    ButtonSegment(
+                      value: _MarginDisplay.percent,
+                      label: Text('Marge % auf EK'),
+                    ),
                   ],
                   selected: {_selectedMarginDisplay},
                   onSelectionChanged: (selection) {
@@ -1531,14 +1698,16 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   label: 'Quartal',
                   value: _selectedQuarterKey,
                   values: quarterKeys,
-                  onChanged: (value) => setState(() => _selectedQuarterKey = value),
+                  onChanged: (value) =>
+                      setState(() => _selectedQuarterKey = value),
                 ),
               if (_selectedGranularity == _PeriodGranularity.year)
                 _periodDropdown(
                   label: 'Jahr',
                   value: _selectedYearKey,
                   values: yearKeys,
-                  onChanged: (value) => setState(() => _selectedYearKey = value),
+                  onChanged: (value) =>
+                      setState(() => _selectedYearKey = value),
                 ),
               _tradeShowFilterButton(tradeShowOptions),
               SegmentedButton<WareinsatzPuttFilter>(
@@ -1564,12 +1733,16 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 },
               ),
               FilledButton.icon(
-                onPressed: rows.isEmpty ? null : () => _exportWareinsatzCsv(rows),
+                onPressed: rows.isEmpty
+                    ? null
+                    : () => _exportWareinsatzCsv(rows),
                 icon: const Icon(Icons.table_chart_outlined),
                 label: const Text('CSV exportieren'),
               ),
               FilledButton.tonalIcon(
-                onPressed: rows.isEmpty ? null : () => _exportWareinsatzPdf(rows),
+                onPressed: rows.isEmpty
+                    ? null
+                    : () => _exportWareinsatzPdf(rows),
                 icon: const Icon(Icons.picture_as_pdf_outlined),
                 label: const Text('PDF exportieren'),
               ),
@@ -1586,7 +1759,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 _summaryChip(
                   'Monate',
                   (() {
-                    final sorted = _selectedMonthKeys.toList(growable: false)..sort();
+                    final sorted = _selectedMonthKeys.toList(growable: false)
+                      ..sort();
                     if (sorted.length == 1) {
                       return sorted.first;
                     }
@@ -1603,7 +1777,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       : 'ohne PUTT',
                 ),
               if (showMengeOhneBomColumn)
-                _summaryChip('Menge ohne BOM', _formatQuantity(totalMengeOhneBom)),
+                _summaryChip(
+                  'Menge ohne BOM',
+                  _formatQuantity(totalMengeOhneBom),
+                ),
               if (showBomMengeColumn)
                 _summaryChip('BOM-Menge', _formatQuantity(totalBomQty)),
               if (showGesamtmengeColumn)
@@ -1627,7 +1804,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             Card(
               clipBehavior: Clip.antiAlias,
               child: ExpansionTile(
-                title: const Text('Diagnose: Auftragsbeitraege zu Σ Verkauf (netto, scope-konsistent)'),
+                title: const Text(
+                  'Diagnose: Auftragsbeitraege zu Σ Verkauf (netto, scope-konsistent)',
+                ),
                 subtitle: Text(
                   '${orderNetContributions.length} Auftraege • Summe ${_formatMoney(orderNetContributions.fold<double>(0, (sum, row) => sum + row.netSalesEur))} EUR',
                 ),
@@ -1639,7 +1818,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       child: FilledButton.tonalIcon(
                         onPressed: orderNetContributions.isEmpty
                             ? null
-                            : () => _exportOrderNetContributionsCsv(orderNetContributions),
+                            : () => _exportOrderNetContributionsCsv(
+                                orderNetContributions,
+                              ),
                         icon: const Icon(Icons.table_chart_outlined),
                         label: const Text('Diagnose-CSV exportieren'),
                       ),
@@ -1653,33 +1834,61 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       headingRowHeight: 68,
                       columnSpacing: 14,
                       horizontalMargin: 10,
-                      headingTextStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                        height: 1.2,
-                      ),
+                      headingTextStyle: Theme.of(context).textTheme.labelMedium
+                          ?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            height: 1.2,
+                          ),
                       headingRowColor: WidgetStateProperty.resolveWith(
-                        (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
+                        (_) => Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                       ),
                       columns: [
                         DataColumn2(
-                          label: const Text('Auftrag', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'Auftrag',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           fixedWidth: 130,
                         ),
                         DataColumn2(
-                          label: const Text('Versanddatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'Versanddatum',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           fixedWidth: 150,
                         ),
                         DataColumn2(
-                          label: const Text('Auftragsdatum', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'Auftragsdatum',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           fixedWidth: 150,
                         ),
                         DataColumn2(
-                          label: const Text('Waehrung', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'Waehrung',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           fixedWidth: 95,
                         ),
                         DataColumn2(
-                          label: const Text('USD→EUR', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'USD→EUR',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           numeric: true,
                           fixedWidth: 125,
                         ),
@@ -1694,22 +1903,42 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           fixedWidth: 200,
                         ),
                         DataColumn2(
-                          label: const Text('MwSt %', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'MwSt %',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           numeric: true,
                           fixedWidth: 95,
                         ),
                         DataColumn2(
-                          label: const Text('Pos.', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'Pos.',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           numeric: true,
                           fixedWidth: 70,
                         ),
                         DataColumn2(
-                          label: const Text('Netto (EUR)', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'Netto (EUR)',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           numeric: true,
                           fixedWidth: 145,
                         ),
                         DataColumn2(
-                          label: const Text('Hinweis', maxLines: 2, softWrap: true, overflow: TextOverflow.visible),
+                          label: const Text(
+                            'Hinweis',
+                            maxLines: 2,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
+                          ),
                           size: ColumnSize.L,
                         ),
                       ],
@@ -1721,11 +1950,21 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                               DataCell(Text(contribution.deliveryDate)),
                               DataCell(Text(contribution.orderDate)),
                               DataCell(Text(contribution.currency)),
-                              DataCell(Text(_formatMoney(contribution.fxToEur))),
-                              DataCell(Text(_formatMoney(contribution.priceBasisValue))),
-                              DataCell(Text(_formatMoney(contribution.vatRate))),
+                              DataCell(
+                                Text(_formatMoney(contribution.fxToEur)),
+                              ),
+                              DataCell(
+                                Text(
+                                  _formatMoney(contribution.priceBasisValue),
+                                ),
+                              ),
+                              DataCell(
+                                Text(_formatMoney(contribution.vatRate)),
+                              ),
                               DataCell(Text(contribution.itemCount.toString())),
-                              DataCell(Text(_formatMoney(contribution.netSalesEur))),
+                              DataCell(
+                                Text(_formatMoney(contribution.netSalesEur)),
+                              ),
                               DataCell(Text(contribution.hint)),
                             ],
                           ),
@@ -1741,7 +1980,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             controller: _searchController,
             decoration: InputDecoration(
               labelText: 'Suchen in Bezeichnung, Beschreibung und Kategorie',
-              hintText: 'Teiltext; kat:spitz; * fuer beliebig, ? fuer ein Zeichen',
+              hintText:
+                  'Teiltext; kat:spitz; * fuer beliebig, ? fuer ein Zeichen, ! zum Ausschliessen',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _searchQuery.isEmpty
                   ? null
@@ -1753,24 +1993,44 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               border: const OutlineInputBorder(),
             ),
           ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              _summaryChip('Trefferzeilen', '${rows.length}'),
+              _summaryChip(
+                'Σ Menge ohne BOM',
+                _formatQuantity(totalMengeOhneBom),
+              ),
+              _summaryChip(
+                'Σ EK netto (Treffer)',
+                _formatMoney(debugEkNettoFromRows),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           Expanded(
             child: rows.isEmpty
-                ? const Center(child: Text('Keine Daten fuer den ausgewaehlten Zeitraum.'))
+                ? const Center(
+                    child: Text('Keine Daten fuer den ausgewaehlten Zeitraum.'),
+                  )
                 : DataTable2(
                     minWidth: showFinancialColumns ? 1450 : 1050,
                     fixedTopRows: 1,
                     headingRowHeight: 68,
                     headingRowColor: WidgetStateProperty.resolveWith(
-                      (_) => Theme.of(context).colorScheme.surfaceContainerHighest,
+                      (_) =>
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
                     ),
                     columnSpacing: 14,
                     horizontalMargin: 10,
-                    headingTextStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                      height: 1.2,
-                    ),
+                    headingTextStyle: Theme.of(context).textTheme.labelMedium
+                        ?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          height: 1.2,
+                        ),
                     sortColumnIndex: effectiveSortColumnIndex,
                     sortAscending: _tableSortAscending,
                     columns: [
@@ -1807,7 +2067,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                           fixedWidth: 140,
                           onSort: (columnIndex, ascending) =>
-                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                              _onWareneinsatzSortChanged(
+                                columnIndex,
+                                ascending,
+                              ),
                         ),
                       if (showBomMengeColumn)
                         DataColumn2(
@@ -1820,7 +2083,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                           fixedWidth: 120,
                           onSort: (columnIndex, ascending) =>
-                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                              _onWareneinsatzSortChanged(
+                                columnIndex,
+                                ascending,
+                              ),
                         ),
                       if (showGesamtmengeColumn)
                         DataColumn2(
@@ -1833,7 +2099,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                           fixedWidth: 130,
                           onSort: (columnIndex, ascending) =>
-                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                              _onWareneinsatzSortChanged(
+                                columnIndex,
+                                ascending,
+                              ),
                         ),
                       if (showFinancialColumns) ...[
                         DataColumn2(
@@ -1846,7 +2115,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                           fixedWidth: 130,
                           onSort: (columnIndex, ascending) =>
-                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                              _onWareneinsatzSortChanged(
+                                columnIndex,
+                                ascending,
+                              ),
                         ),
                         DataColumn2(
                           numeric: true,
@@ -1858,7 +2130,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                           fixedWidth: 145,
                           onSort: (columnIndex, ascending) =>
-                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                              _onWareneinsatzSortChanged(
+                                columnIndex,
+                                ascending,
+                              ),
                         ),
                         DataColumn2(
                           numeric: true,
@@ -1870,7 +2145,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                           fixedWidth: 165,
                           onSort: (columnIndex, ascending) =>
-                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                              _onWareneinsatzSortChanged(
+                                columnIndex,
+                                ascending,
+                              ),
                         ),
                         DataColumn2(
                           numeric: true,
@@ -1884,7 +2162,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                           fixedWidth: 130,
                           onSort: (columnIndex, ascending) =>
-                              _onWareneinsatzSortChanged(columnIndex, ascending),
+                              _onWareneinsatzSortChanged(
+                                columnIndex,
+                                ascending,
+                              ),
                         ),
                       ],
                     ],
@@ -1904,20 +2185,31 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                               ),
                             ),
                             if (showMengeOhneBomColumn)
-                              DataCell(Text(_formatQuantity(_displayMengeOhneBom(row)))),
+                              DataCell(
+                                Text(
+                                  _formatQuantity(_displayMengeOhneBom(row)),
+                                ),
+                              ),
                             if (showBomMengeColumn)
-                              DataCell(Text(_formatQuantity(_displayBomMenge(row)))),
+                              DataCell(
+                                Text(_formatQuantity(_displayBomMenge(row))),
+                              ),
                             if (showGesamtmengeColumn)
-                              DataCell(Text(_formatQuantity(row.totalQuantity))),
+                              DataCell(
+                                Text(_formatQuantity(row.totalQuantity)),
+                              ),
                             if (showFinancialColumns) ...[
-                              DataCell(Text(_formatMoney(row.purchasePriceEur))),
-                              DataCell(Text(_formatMoney(row.totalValueEur))),
+                              DataCell(
+                                Text(_formatMoney(row.purchasePriceEur)),
+                              ),
+                              DataCell(Text(_formatMoney(row.soldValueEur))),
                               DataCell(Text(_formatMoney(row.soldNetValueEur))),
                               DataCell(
                                 Text(
-                                  _selectedMarginDisplay == _MarginDisplay.percent
-                                      ? _formatPercent(row.marginPercent)
-                                      : _formatMoney(row.marginEur),
+                                  _selectedMarginDisplay ==
+                                          _MarginDisplay.percent
+                                      ? _formatPercent(row.soldMarginPercent)
+                                      : _formatMoney(row.soldMarginEur),
                                 ),
                               ),
                             ],
@@ -1947,7 +2239,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           isDense: true,
         ),
         items: values
-            .map((entry) => DropdownMenuItem<String>(value: entry, child: Text(entry)))
+            .map(
+              (entry) =>
+                  DropdownMenuItem<String>(value: entry, child: Text(entry)),
+            )
             .toList(growable: false),
         onChanged: values.isEmpty ? null : onChanged,
       ),
@@ -1965,6 +2260,87 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       icon: const Icon(Icons.calendar_month_outlined),
       label: Text(label),
     );
+  }
+
+  Widget _chartQuarterFilterButton(List<String> values) {
+    final hasSelection = _selectedChartQuarterKeys.isNotEmpty;
+    final label = hasSelection
+        ? 'Quartale (${_selectedChartQuarterKeys.length})'
+        : 'Quartale (alle)';
+
+    return OutlinedButton.icon(
+      onPressed: values.isEmpty
+          ? null
+          : () => _showChartQuarterFilterDialog(values),
+      icon: const Icon(Icons.view_module_outlined),
+      label: Text(label),
+    );
+  }
+
+  Future<void> _showChartQuarterFilterDialog(List<String> values) async {
+    final workingSelection = Set<String>.from(_selectedChartQuarterKeys);
+
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Quartale filtern'),
+              content: SizedBox(
+                width: 420,
+                child: values.isEmpty
+                    ? const Text('Keine Quartale vorhanden.')
+                    : ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final quarter in values)
+                            CheckboxListTile(
+                              value: workingSelection.contains(quarter),
+                              title: Text(quarter),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              onChanged: (checked) {
+                                setDialogState(() {
+                                  if (checked == true) {
+                                    workingSelection.add(quarter);
+                                  } else {
+                                    workingSelection.remove(quarter);
+                                  }
+                                });
+                              },
+                            ),
+                        ],
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () =>
+                      Navigator.of(context).pop(_selectedChartQuarterKeys),
+                  child: const Text('Abbrechen'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(<String>{}),
+                  child: const Text('Alle'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(workingSelection),
+                  child: const Text('Uebernehmen'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedChartQuarterKeys = result;
+      _ensureChartPeriodDefaults();
+    });
   }
 
   Future<void> _showMonthFilterDialog(List<String> values) async {
@@ -2007,7 +2383,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(_selectedMonthKeys),
+                  onPressed: () =>
+                      Navigator.of(context).pop(_selectedMonthKeys),
                   child: const Text('Abbrechen'),
                 ),
                 TextButton(
@@ -2036,9 +2413,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   Widget _summaryChip(String label, String value) {
-    return Chip(
-      label: Text('$label: $value'),
-    );
+    return Chip(label: Text('$label: $value'));
   }
 
   List<OrderRow> _filterOrders(List<OrderRow> orders) {
@@ -2048,27 +2423,32 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       puttFilter: _selectedPuttFilter,
     );
 
-    return ordersByTradeShowAndPutt.where((order) {
+    return ordersByTradeShowAndPutt
+        .where((order) {
+          if (order.oCanceled != 0 && order.oReturned != 0) {
+            return false;
+          }
 
-      final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
-      if (delivery == null) {
-        return false;
-      }
+          final delivery = wareinsatzParseDeliveryDate(order.oDelivery);
+          if (delivery == null) {
+            return false;
+          }
 
-      switch (_selectedGranularity) {
-        case _PeriodGranularity.total:
-          return true;
-        case _PeriodGranularity.month:
-          return wareinsatzMatchesDeliveryMonths(order, _selectedMonthKeys);
-        case _PeriodGranularity.quarter:
-          final quarter = ((delivery.month - 1) ~/ 3) + 1;
-          final key = '${delivery.year}-Q$quarter';
-          return key == _selectedQuarterKey;
-        case _PeriodGranularity.year:
-          final key = delivery.year.toString();
-          return key == _selectedYearKey;
-      }
-    }).toList(growable: false);
+          switch (_selectedGranularity) {
+            case _PeriodGranularity.total:
+              return true;
+            case _PeriodGranularity.month:
+              return wareinsatzMatchesDeliveryMonths(order, _selectedMonthKeys);
+            case _PeriodGranularity.quarter:
+              final quarter = ((delivery.month - 1) ~/ 3) + 1;
+              final key = '${delivery.year}-Q$quarter';
+              return key == _selectedQuarterKey;
+            case _PeriodGranularity.year:
+              final key = delivery.year.toString();
+              return key == _selectedYearKey;
+          }
+        })
+        .toList(growable: false);
   }
 
   Widget _tradeShowFilterButton(List<String> options) {
@@ -2078,7 +2458,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         : 'Trade Show (alle)';
 
     return OutlinedButton.icon(
-      onPressed: options.isEmpty ? null : () => _showTradeShowFilterDialog(options),
+      onPressed: options.isEmpty
+          ? null
+          : () => _showTradeShowFilterDialog(options),
       icon: const Icon(Icons.event_available_outlined),
       label: Text(label),
     );
@@ -2121,7 +2503,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(_selectedTradeShows),
+                  onPressed: () =>
+                      Navigator.of(context).pop(_selectedTradeShows),
                   child: const Text('Abbrechen'),
                 ),
                 TextButton(
@@ -2195,11 +2578,12 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     required List<ItemBomRow> bomItems,
   }) {
     final filteredOrderIds = filteredOrders.map((order) => order.oId).toSet();
-    final orderById = {
-      for (final order in filteredOrders) order.oId: order,
-    };
+    final orderById = {for (final order in filteredOrders) order.oId: order};
     final filteredItems = orderedItems
-        .where((item) => filteredOrderIds.contains(item.ioOrderId) && item.ioItemId > 0)
+        .where(
+          (item) =>
+              filteredOrderIds.contains(item.ioOrderId) && item.ioItemId > 0,
+        )
         .toList(growable: false);
 
     final catalogueById = {for (final item in catalogueItems) item.icId: item};
@@ -2211,7 +2595,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       final id = bom.ibId;
       if (parentId == null) {
         if (id != null) {
-          rootByArticleId.putIfAbsent(bom.ibItemId, () => <ItemBomRow>[]).add(bom);
+          rootByArticleId
+              .putIfAbsent(bom.ibItemId, () => <ItemBomRow>[])
+              .add(bom);
         }
         continue;
       }
@@ -2220,7 +2606,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     final aggregateByItemId = <int, _WareinsatzMutable>{};
 
-    _WareinsatzMutable? addSold(int itemId, double quantity, {ItemOrderedRow? ordered}) {
+    _WareinsatzMutable? addSold(
+      int itemId,
+      double quantity, {
+      ItemOrderedRow? ordered,
+    }) {
       if (itemId <= 0 || quantity <= 0) {
         return null;
       }
@@ -2229,7 +2619,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         return _WareinsatzMutable(
           itemId: itemId,
           idi: catalogue?.icIdi ?? ordered?.ioIdi ?? 'Artikel #$itemId',
-          description: catalogue?.icDescriptionDeLong ?? ordered?.ioDescriptionDeLong ?? '-',
+          description:
+              catalogue?.icDescriptionDeLong ??
+              ordered?.ioDescriptionDeLong ??
+              '-',
           category: catalogue?.category ?? '',
           purchasePriceEur: catalogue?.icPurchasePriceNet ?? 0,
         );
@@ -2304,23 +2697,28 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         if (rootBomId == null) {
           continue;
         }
-        ownBomQuantity += accumulateBomChildren(rootBomId, soldQuantity, <int>{});
+        ownBomQuantity += accumulateBomChildren(
+          rootBomId,
+          soldQuantity,
+          <int>{},
+        );
       }
       if (soldAggregate != null && ownBomQuantity > 0) {
         soldAggregate.ownBomQuantity += ownBomQuantity;
       }
     }
 
-    final rows = aggregateByItemId.values
-        .map((entry) => entry.toRow())
-        .toList(growable: false)
-      ..sort((a, b) {
-        final valueCompare = b.totalValueEur.compareTo(a.totalValueEur);
-        if (valueCompare != 0) {
-          return valueCompare;
-        }
-        return a.itemId.compareTo(b.itemId);
-      });
+    final rows =
+        aggregateByItemId.values
+            .map((entry) => entry.toRow())
+            .toList(growable: false)
+          ..sort((a, b) {
+            final valueCompare = b.totalValueEur.compareTo(a.totalValueEur);
+            if (valueCompare != 0) {
+              return valueCompare;
+            }
+            return a.itemId.compareTo(b.itemId);
+          });
 
     return rows;
   }
@@ -2330,9 +2728,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     required List<ItemOrderedRow> orderedItems,
     required Set<int> allowedItemIds,
   }) {
-    final orderById = {
-      for (final order in filteredOrders) order.oId: order,
-    };
+    final orderById = {for (final order in filteredOrders) order.oId: order};
     final grouped = <String, _OrderNetContributionMutable>{};
 
     for (final item in orderedItems) {
@@ -2348,9 +2744,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         final hint = _orderDatePeriodHint(order);
         return _OrderNetContributionMutable(
           orderId: order.oId,
-          deliveryDate: order.oDelivery.trim().isEmpty ? '-' : order.oDelivery.trim(),
+          deliveryDate: order.oDelivery.trim().isEmpty
+              ? '-'
+              : order.oDelivery.trim(),
           orderDate: order.oDate.trim().isEmpty ? '-' : order.oDate.trim(),
-          currency: order.oCurrency.trim().isEmpty ? 'EUR' : order.oCurrency.trim().toUpperCase(),
+          currency: order.oCurrency.trim().isEmpty
+              ? 'EUR'
+              : order.oCurrency.trim().toUpperCase(),
           fxToEur: order.oFxToEur,
           priceBasisValue: 0,
           vatRate: order.oVatRate,
@@ -2366,10 +2766,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       );
     }
 
-    final rows = grouped.values
-        .map((entry) => entry.toRow())
-        .toList(growable: false)
-      ..sort((a, b) => a.orderId.compareTo(b.orderId));
+    final rows =
+        grouped.values.map((entry) => entry.toRow()).toList(growable: false)
+          ..sort((a, b) => a.orderId.compareTo(b.orderId));
 
     return rows;
   }
@@ -2411,7 +2810,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         buffer.writeln(cells.join(';'));
       }
 
-      final totalNet = rows.fold<double>(0, (sum, row) => sum + row.netSalesEur);
+      final totalNet = rows.fold<double>(
+        0,
+        (sum, row) => sum + row.netSalesEur,
+      );
       buffer.writeln(
         [
           _csvEscape('SUMME'),
@@ -2444,14 +2846,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Wareneinsatz-Diagnose-CSV exportiert nach: $targetPath')),
+        SnackBar(
+          content: Text(
+            'Wareneinsatz-Diagnose-CSV exportiert nach: $targetPath',
+          ),
+        ),
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Wareneinsatz-Diagnose-CSV-Export fehlgeschlagen: $error')),
+        SnackBar(
+          content: Text(
+            'Wareneinsatz-Diagnose-CSV-Export fehlgeschlagen: $error',
+          ),
+        ),
       );
     } finally {
       if (mounted) {
@@ -2475,24 +2885,28 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         final cells = <String>[
           _csvEscape(row.bezeichnung),
           _csvEscape(row.beschreibung),
-          if (showMengeOhneBomColumn) _csvEscape(_formatQuantity(_displayMengeOhneBom(row))),
-          if (showBomMengeColumn) _csvEscape(_formatQuantity(_displayBomMenge(row))),
-          if (showGesamtmengeColumn) _csvEscape(_formatQuantity(row.totalQuantity)),
+          if (showMengeOhneBomColumn)
+            _csvEscape(_formatQuantity(_displayMengeOhneBom(row))),
+          if (showBomMengeColumn)
+            _csvEscape(_formatQuantity(_displayBomMenge(row))),
+          if (showGesamtmengeColumn)
+            _csvEscape(_formatQuantity(row.totalQuantity)),
           if (showFinancialColumns) ...[
             _csvEscape(_formatMoney(row.purchasePriceEur)),
-            _csvEscape(_formatMoney(row.totalValueEur)),
+            _csvEscape(_formatMoney(row.soldValueEur)),
             _csvEscape(_formatMoney(row.soldNetValueEur)),
             _csvEscape(
               _selectedMarginDisplay == _MarginDisplay.percent
-                  ? _formatPercent(row.marginPercent)
-                  : _formatMoney(row.marginEur),
+                  ? _formatPercent(row.soldMarginPercent)
+                  : _formatMoney(row.soldMarginEur),
             ),
           ],
         ];
         buffer.writeln(cells.join(';'));
       }
 
-      final fileName = 'wareneinsatz_versanddatum_${_periodLabelForExport()}_${_buildFileTimestamp(DateTime.now())}.csv';
+      final fileName =
+          'wareneinsatz_versanddatum_${_periodLabelForExport()}_${_buildFileTimestamp(DateTime.now())}.csv';
       final targetPath = await _pickExportTargetPath(
         dialogTitle: 'Wareneinsatz als CSV exportieren',
         fileName: fileName,
@@ -2508,14 +2922,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Wareneinsatz-CSV exportiert nach: $targetPath')),
+        SnackBar(
+          content: Text('Wareneinsatz-CSV exportiert nach: $targetPath'),
+        ),
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Wareneinsatz-CSV-Export fehlgeschlagen: $error')),
+        SnackBar(
+          content: Text('Wareneinsatz-CSV-Export fehlgeschlagen: $error'),
+        ),
       );
     } finally {
       if (mounted) {
@@ -2541,7 +2959,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         showFinancialColumns: showFinancialColumns,
       );
       final columnWidths = <int, pw.TableColumnWidth>{
-        for (var i = 0; i < columnFlexes.length; i++) i: pw.FlexColumnWidth(columnFlexes[i]),
+        for (var i = 0; i < columnFlexes.length; i++)
+          i: pw.FlexColumnWidth(columnFlexes[i]),
       };
       final totalMengeOhneBom = rows.fold<double>(
         0,
@@ -2561,7 +2980,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       );
       final totalEkWert = rows.fold<double>(
         0,
-        (sum, row) => sum + row.totalValueEur,
+        (sum, row) => sum + row.soldValueEur,
       );
       final totalVerkaufNetto = rows.fold<double>(
         0,
@@ -2569,25 +2988,28 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       );
       final totalMargeEur = rows.fold<double>(
         0,
-        (sum, row) => sum + row.marginEur,
+        (sum, row) => sum + row.soldMarginEur,
       );
-      final totalMargePercent = totalEkWert > 0 ? (totalMargeEur / totalEkWert) * 100 : 0.0;
+      final totalMargePercent = totalEkWert > 0
+          ? (totalMargeEur / totalEkWert) * 100
+          : 0.0;
 
       final tableData = rows
           .map(
             (row) => <String>[
               row.bezeichnung,
               row.beschreibung,
-              if (showMengeOhneBomColumn) _formatQuantity(_displayMengeOhneBom(row)),
+              if (showMengeOhneBomColumn)
+                _formatQuantity(_displayMengeOhneBom(row)),
               if (showBomMengeColumn) _formatQuantity(_displayBomMenge(row)),
               if (showGesamtmengeColumn) _formatQuantity(row.totalQuantity),
               if (showFinancialColumns) ...[
                 _formatMoney(row.purchasePriceEur),
-                _formatMoney(row.totalValueEur),
+                _formatMoney(row.soldValueEur),
                 _formatMoney(row.soldNetValueEur),
                 _selectedMarginDisplay == _MarginDisplay.percent
-                    ? _formatPercent(row.marginPercent)
-                    : _formatMoney(row.marginEur),
+                    ? _formatPercent(row.soldMarginPercent)
+                    : _formatMoney(row.soldMarginEur),
               ],
             ],
           )
@@ -2627,8 +3049,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             pw.TableHelper.fromTextArray(
               headers: headers,
               data: tableData,
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
-              headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.grey300,
+              ),
+              headerStyle: pw.TextStyle(
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+              ),
               cellStyle: const pw.TextStyle(fontSize: 7),
               cellAlignment: pw.Alignment.centerLeft,
               cellPadding: const pw.EdgeInsets.all(3),
@@ -2638,10 +3065,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               columnWidths: columnWidths,
               border: pw.TableBorder(
                 left: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
-                right: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
-                bottom: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
-                horizontalInside: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
-                verticalInside: const pw.BorderSide(color: PdfColors.grey500, width: 0.5),
+                right: const pw.BorderSide(
+                  color: PdfColors.grey500,
+                  width: 0.5,
+                ),
+                bottom: const pw.BorderSide(
+                  color: PdfColors.grey500,
+                  width: 0.5,
+                ),
+                horizontalInside: const pw.BorderSide(
+                  color: PdfColors.grey500,
+                  width: 0.5,
+                ),
+                verticalInside: const pw.BorderSide(
+                  color: PdfColors.grey500,
+                  width: 0.5,
+                ),
               ),
               children: [
                 pw.TableRow(
@@ -2651,8 +3090,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(3),
                         child: pw.Align(
-                          alignment: index >= quantityColumnStart &&
-                                  (index < quantityColumnStart + quantityColumnCount ||
+                          alignment:
+                              index >= quantityColumnStart &&
+                                  (index <
+                                          quantityColumnStart +
+                                              quantityColumnCount ||
                                       index >= financialColumnStart)
                               ? pw.Alignment.centerRight
                               : pw.Alignment.centerLeft,
@@ -2673,7 +3115,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         ),
       );
 
-      final fileName = 'wareneinsatz_${_periodLabelForExport()}_${_buildFileTimestamp(DateTime.now())}.pdf';
+      final fileName =
+          'wareneinsatz_${_periodLabelForExport()}_${_buildFileTimestamp(DateTime.now())}.pdf';
       final targetPath = await _pickExportTargetPath(
         dialogTitle: 'Wareneinsatz als PDF exportieren',
         fileName: fileName,
@@ -2688,14 +3131,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Wareneinsatz-PDF exportiert nach: $targetPath')),
+        SnackBar(
+          content: Text('Wareneinsatz-PDF exportiert nach: $targetPath'),
+        ),
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Wareneinsatz-PDF-Export fehlgeschlagen: $error')),
+        SnackBar(
+          content: Text('Wareneinsatz-PDF-Export fehlgeschlagen: $error'),
+        ),
       );
     } finally {
       if (mounted) {
@@ -2728,10 +3175,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   Future<_PdfFonts> _loadPdfFonts() async {
     final baseData = await rootBundle.load('lib/fonts/Roboto-Regular.ttf');
     final boldData = await rootBundle.load('lib/fonts/Roboto-Bold.ttf');
-    return _PdfFonts(
-      base: pw.Font.ttf(baseData),
-      bold: pw.Font.ttf(boldData),
-    );
+    return _PdfFonts(base: pw.Font.ttf(baseData), bold: pw.Font.ttf(boldData));
   }
 
   String _csvEscape(String value) {
@@ -2819,19 +3263,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       return rows;
     }
 
-    return rows.where((row) {
-      return wareinsatzMatchesSearchQuery(
-        query: _searchQuery,
-        bezeichnung: row.bezeichnung,
-        beschreibung: row.beschreibung,
-        category: row.category,
-      );
-    }).toList(growable: false);
+    return rows
+        .where((row) {
+          return wareinsatzMatchesSearchQuery(
+            query: _searchQuery,
+            bezeichnung: row.bezeichnung,
+            beschreibung: row.beschreibung,
+            category: row.category,
+          );
+        })
+        .toList(growable: false);
   }
 
-  String _diagnosticsPriceBasisCurrencyLabel(
-    List<_OrderNetContribution> rows,
-  ) {
+  String _diagnosticsPriceBasisCurrencyLabel(List<_OrderNetContribution> rows) {
     if (rows.isNotEmpty && rows.every((row) => row.currency == 'USD')) {
       return 'USD';
     }
@@ -2848,15 +3292,24 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   List<_WareinsatzRow> _sortWareinsatzRows(List<_WareinsatzRow> rows) {
     final sorted = List<_WareinsatzRow>.from(rows);
     final isAllScope = _selectedScope == WareinsatzScope.all;
-    final visibleColumnCount = isAllScope ? 5 : 3;
-    final effectiveSortColumnIndex =
-        _tableSortColumnIndex < visibleColumnCount ? _tableSortColumnIndex : 0;
+    final visibleColumnCount = switch (_selectedScope) {
+      WareinsatzScope.all => 5,
+      WareinsatzScope.bomOnly => 3,
+      WareinsatzScope.withoutBom => 7,
+    };
+    final effectiveSortColumnIndex = _tableSortColumnIndex < visibleColumnCount
+        ? _tableSortColumnIndex
+        : 0;
     int compare(_WareinsatzRow a, _WareinsatzRow b) {
       switch (effectiveSortColumnIndex) {
         case 0:
-          return a.bezeichnung.toLowerCase().compareTo(b.bezeichnung.toLowerCase());
+          return a.bezeichnung.toLowerCase().compareTo(
+            b.bezeichnung.toLowerCase(),
+          );
         case 1:
-          return a.beschreibung.toLowerCase().compareTo(b.beschreibung.toLowerCase());
+          return a.beschreibung.toLowerCase().compareTo(
+            b.beschreibung.toLowerCase(),
+          );
         case 2:
           return _displayMengeOhneBom(a).compareTo(_displayMengeOhneBom(b));
         case 3:
@@ -2866,7 +3319,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         case 4:
           return isAllScope
               ? a.totalQuantity.compareTo(b.totalQuantity)
-              : a.totalValueEur.compareTo(b.totalValueEur);
+              : a.soldValueEur.compareTo(b.soldValueEur);
         case 5:
           return isAllScope
               ? a.totalValueEur.compareTo(b.totalValueEur)
@@ -2875,12 +3328,12 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           return isAllScope
               ? a.soldNetValueEur.compareTo(b.soldNetValueEur)
               : (_selectedMarginDisplay == _MarginDisplay.percent
-                  ? a.marginPercent.compareTo(b.marginPercent)
-                  : a.marginEur.compareTo(b.marginEur));
+                    ? a.soldMarginPercent.compareTo(b.soldMarginPercent)
+                    : a.soldMarginEur.compareTo(b.soldMarginEur));
         case 7:
           return _selectedMarginDisplay == _MarginDisplay.percent
-              ? a.marginPercent.compareTo(b.marginPercent)
-              : a.marginEur.compareTo(b.marginEur);
+              ? a.soldMarginPercent.compareTo(b.soldMarginPercent)
+              : a.soldMarginEur.compareTo(b.soldMarginEur);
         default:
           return a.itemId.compareTo(b.itemId);
       }
@@ -2904,13 +3357,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     final inPeriod = switch (_selectedGranularity) {
       _PeriodGranularity.total => true,
-      _PeriodGranularity.month =>
-        wareinsatzMatchesDeliveryMonths(order.copyWith(oDelivery: order.oDate), _selectedMonthKeys),
+      _PeriodGranularity.month => wareinsatzMatchesDeliveryMonths(
+        order.copyWith(oDelivery: order.oDate),
+        _selectedMonthKeys,
+      ),
       _PeriodGranularity.quarter =>
         _selectedQuarterKey != null &&
-        '${orderDate.year}-Q${((orderDate.month - 1) ~/ 3) + 1}' == _selectedQuarterKey,
+            '${orderDate.year}-Q${((orderDate.month - 1) ~/ 3) + 1}' ==
+                _selectedQuarterKey,
       _PeriodGranularity.year =>
-        _selectedYearKey != null && orderDate.year.toString() == _selectedYearKey,
+        _selectedYearKey != null &&
+            orderDate.year.toString() == _selectedYearKey,
     };
 
     return inPeriod ? '-' : 'Auftragsdatum ausserhalb Zeitraum';
@@ -2965,15 +3422,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   double _displayBomMenge(_WareinsatzRow row) {
-    return _selectedScope == WareinsatzScope.withoutBom ? 0 : row.totalBomQuantity;
+    return _selectedScope == WareinsatzScope.withoutBom
+        ? 0
+        : row.totalBomQuantity;
   }
 }
 
 class _NetValueBucket {
-  const _NetValueBucket({
-    required this.periodLabel,
-    required this.valueEur,
-  });
+  const _NetValueBucket({required this.periodLabel, required this.valueEur});
 
   final String periodLabel;
   final double valueEur;
@@ -3020,10 +3476,7 @@ class _ChartFilterContext {
 }
 
 class _CountrySharePiePainter extends CustomPainter {
-  _CountrySharePiePainter({
-    required this.buckets,
-    required this.colors,
-  });
+  _CountrySharePiePainter({required this.buckets, required this.colors});
 
   final List<_CountryShareBucket> buckets;
   final List<Color> colors;
@@ -3043,8 +3496,7 @@ class _CountrySharePiePainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final rect = Rect.fromCircle(center: center, radius: radius);
 
-    final basePaint = Paint()
-      ..style = PaintingStyle.fill;
+    final basePaint = Paint()..style = PaintingStyle.fill;
     final separatorPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = math.max(1.6, radius * 0.02)
@@ -3221,8 +3673,17 @@ class _WareinsatzRow {
   double get totalBomQuantity => bomQuantity + ownBomQuantity;
 
   double get totalValueEur => totalQuantity * purchasePriceEur;
-  double get marginEur => soldNetValueEur <= 0 ? 0 : soldNetValueEur - totalValueEur;
-  double get marginPercent => (soldNetValueEur <= 0 || totalValueEur <= 0) ? 0 : (marginEur / totalValueEur) * 100;
+  double get marginEur =>
+      soldNetValueEur <= 0 ? 0 : soldNetValueEur - totalValueEur;
+  double get marginPercent => (soldNetValueEur <= 0 || totalValueEur <= 0)
+      ? 0
+      : (marginEur / totalValueEur) * 100;
+  double get soldValueEur => soldQuantity * purchasePriceEur;
+  double get soldMarginEur =>
+      soldNetValueEur <= 0 ? 0 : soldNetValueEur - soldValueEur;
+  double get soldMarginPercent => (soldNetValueEur <= 0 || soldValueEur <= 0)
+      ? 0
+      : (soldMarginEur / soldValueEur) * 100;
 
   double get totalQuantity {
     if (ownBomQuantity > 0) {
@@ -3257,7 +3718,9 @@ String _stripBezeichnungFromBeschreibung({
   }
 
   if (beschreibungLower.startsWith(bezeichnungLower)) {
-    var remainder = normalizedBeschreibung.substring(normalizedBezeichnung.length).trimLeft();
+    var remainder = normalizedBeschreibung
+        .substring(normalizedBezeichnung.length)
+        .trimLeft();
     const separators = ['|', '-', ':', ';', ',', '/'];
     while (remainder.isNotEmpty && separators.contains(remainder[0])) {
       remainder = remainder.substring(1).trimLeft();

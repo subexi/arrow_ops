@@ -48,9 +48,12 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
   late final TextEditingController _itemWeightController;
   late final TextEditingController _totalWeightController;
   late final TextEditingController _photoController;
+  late final TextEditingController _backorderEtaController;
 
   int? _selectedItemId;
   bool _expandDescription = false;
+  bool _backorderPending = false;
+  bool _backorderCompleted = false;
   bool _isApplyingCalculatedUnitPrice = false;
   double? _baseUnitPriceBeforeDiscount;
 
@@ -67,6 +70,48 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
           (item) => item?.icId == itemId,
           orElse: () => null,
         );
+  }
+
+  String _itemDropdownLabel(ItemCatalogueRow item) {
+    final componentHint = item.icIc != 0 ? ' (ZB-Komponente)' : '';
+    final description = _itemDescriptionForOrderLanguage(item).trim();
+    if (description.isEmpty) {
+      return '${item.icIdi} • ${item.icId}$componentHint';
+    }
+
+    final compactDescription = description
+        .replaceAll('\n', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final snippet = compactDescription.length > 72
+        ? '${compactDescription.substring(0, 72)}...'
+        : compactDescription;
+    return '${item.icIdi} • ${item.icId}$componentHint - $snippet';
+  }
+
+  String _itemDescriptionForOrderLanguage(ItemCatalogueRow item) {
+    if (_isOrderLanguageDe) {
+      final de = item.icDescriptionDeLong.trim();
+      if (de.isNotEmpty) {
+        return de;
+      }
+      return item.icDescriptionEnLong.trim();
+    }
+
+    final en = item.icDescriptionEnLong.trim();
+    if (en.isNotEmpty) {
+      return en;
+    }
+    return item.icDescriptionDeLong.trim();
+  }
+
+  String _itemDropdownSearchText(ItemCatalogueRow item) {
+    return [
+      item.icIdi,
+      item.icId.toString(),
+      item.icDescriptionDeLong,
+      item.icDescriptionEnLong,
+    ].join(' ').toLowerCase();
   }
 
   @override
@@ -91,6 +136,12 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
     _itemWeightController = TextEditingController(text: _weightText(v?.ioItemWeight ?? 0));
     _totalWeightController = TextEditingController(text: _weightText(v?.ioTotalWeight ?? 0));
     _photoController = TextEditingController(text: v?.ioPhoto ?? '-');
+    _backorderPending = (v?.ioBackorderPending ?? 0) != 0;
+    _backorderEtaController = TextEditingController(text: v?.ioBackorderEta ?? '-');
+    _backorderCompleted = (v?.ioBackorderCompleted ?? 0) != 0;
+    if (_backorderPending && _backorderCompleted) {
+      _backorderCompleted = false;
+    }
 
     _selectedItemId = v?.ioItemId;
 
@@ -139,8 +190,38 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
     _itemWeightController.dispose();
     _totalWeightController.dispose();
     _photoController.dispose();
+    _backorderEtaController.dispose();
     _discountFocusNode.dispose();
     super.dispose();
+  }
+
+  bool get _hasBackorderEta {
+    final value = _backorderEtaController.text.trim();
+    return value.isNotEmpty && value != '-';
+  }
+
+  Future<void> _pickBackorderEta() async {
+    final now = DateTime.now();
+    final raw = _backorderEtaController.text.trim();
+    final parsed = DateTime.tryParse(raw);
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: parsed ?? now,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+      helpText: 'Voraussichtlicher Nachlieferungstermin',
+    );
+
+    if (selected == null) {
+      return;
+    }
+
+    final month = selected.month.toString().padLeft(2, '0');
+    final day = selected.day.toString().padLeft(2, '0');
+    final value = '${selected.year}-$month-$day';
+    setState(() {
+      _backorderEtaController.text = value;
+    });
   }
 
   String _decimalText(double value) => value.toStringAsFixed(2).replaceAll('.', ',');
@@ -498,11 +579,48 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
                   enableSearch: true,
                   requestFocusOnTap: true,
                   label: const Text('Bezeichnung'),
+                  searchCallback: (entries, query) {
+                    final normalizedQuery = query.trim().toLowerCase();
+                    if (normalizedQuery.isEmpty) {
+                      return null;
+                    }
+                    for (var index = 0; index < entries.length; index++) {
+                      final value = entries[index].value;
+                      final item = widget.availableItems.cast<ItemCatalogueRow?>().firstWhere(
+                            (row) => row?.icId == value,
+                            orElse: () => null,
+                          );
+                      if (item == null) {
+                        continue;
+                      }
+                      if (_itemDropdownSearchText(item).contains(normalizedQuery)) {
+                        return index;
+                      }
+                    }
+                    return null;
+                  },
+                  filterCallback: (entries, query) {
+                    final normalizedQuery = query.trim().toLowerCase();
+                    if (normalizedQuery.isEmpty) {
+                      return entries;
+                    }
+                    return entries.where((entry) {
+                      final value = entry.value;
+                      final item = widget.availableItems.cast<ItemCatalogueRow?>().firstWhere(
+                            (row) => row?.icId == value,
+                            orElse: () => null,
+                          );
+                      if (item == null) {
+                        return false;
+                      }
+                      return _itemDropdownSearchText(item).contains(normalizedQuery);
+                    }).toList();
+                  },
                   dropdownMenuEntries: [
                     for (final item in widget.availableItems)
                       DropdownMenuEntry<int>(
                         value: item.icId,
-                        label: '${item.icIdi} • ${item.icId}',
+                        label: _itemDropdownLabel(item),
                       ),
                   ],
                   onSelected: _onItemSelected,
@@ -582,6 +700,75 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
                     readOnly: true,
                   ),
                 ),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _backorderPending,
+                  title: Text(
+                    _isOrderLanguageDe
+                        ? 'Position nicht lieferbar (Nachlieferung ausstehend)'
+                        : 'Item not deliverable yet (backorder pending)',
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _backorderPending = value ?? false;
+                      if (_backorderPending) {
+                        _backorderCompleted = false;
+                      } else {
+                        _backorderEtaController.text = '-';
+                      }
+                    });
+                  },
+                ),
+                if (_backorderPending)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _backorderEtaController,
+                            readOnly: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Voraussichtlicher Termin',
+                              border: OutlineInputBorder(),
+                            ),
+                            onTap: _pickBackorderEta,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          tooltip: 'Termin wählen',
+                          onPressed: _pickBackorderEta,
+                          icon: const Icon(Icons.event_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Termin löschen',
+                          onPressed: _hasBackorderEta
+                              ? () {
+                                  setState(() {
+                                    _backorderEtaController.text = '-';
+                                  });
+                                }
+                              : null,
+                          icon: const Icon(Icons.clear_outlined),
+                        ),
+                      ],
+                    ),
+                  ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _backorderCompleted,
+                  title: const Text('Nachlieferung erfolgt'),
+                  onChanged: (value) {
+                    setState(() {
+                      _backorderCompleted = value ?? false;
+                      if (_backorderCompleted) {
+                        _backorderPending = false;
+                      }
+                    });
+                  },
+                ),
               ],
             ),
           ),
@@ -630,6 +817,9 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
               ioItemWeight: _parseDecimal(_itemWeightController),
               ioTotalWeight: _parseDecimal(_totalWeightController),
               ioPhoto: selected.icImagePath.trim().isEmpty ? '-' : selected.icImagePath.trim(),
+              ioBackorderPending: _backorderPending ? 1 : 0,
+              ioBackorderEta: _hasBackorderEta ? _backorderEtaController.text.trim() : '-',
+              ioBackorderCompleted: _backorderCompleted ? 1 : 0,
             );
             Navigator.of(context).pop(result);
           },

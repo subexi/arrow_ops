@@ -840,6 +840,11 @@ class InvoicePdfService {
 
     final rows = data.lines
         .map((line) {
+          final descriptionText = _lineDescriptionWithBackorderNotice(
+            line,
+            useGerman,
+            isPackingList,
+          );
           return <String>[
             line.position.toString(),
             _sanitizePdfText(line.articleLabel),
@@ -847,7 +852,7 @@ class InvoicePdfService {
               _valid(line.hts) ? _sanitizePdfText(line.hts) : '',
             if (showWeightColumn)
               _formatPositionWeightInGram(line.weightInGram, useGerman),
-            _sanitizePdfText(line.description, preserveLineBreaks: true),
+            _sanitizePdfText(descriptionText, preserveLineBreaks: true),
             line.quantity.toString(),
             if (!isPackingList)
               _formatMoney(line.unitPrice, data.currency, useGerman),
@@ -926,6 +931,23 @@ class InvoicePdfService {
       ),
       columnWidths: columnWidths,
     );
+  }
+
+  String _lineDescriptionWithBackorderNotice(
+    InvoiceLineData line,
+    bool useGerman,
+    bool isPackingList,
+  ) {
+    final description = line.description.trim();
+    if (!isPackingList || !line.backorderPending) {
+      return description.isEmpty ? '-' : description;
+    }
+
+    final base = description.isEmpty ? '-' : description;
+    final notice = useGerman
+        ? 'Hinweis: Position wird nachgeliefert.'
+        : 'Note: item will be delivered later.';
+    return '$base\n$notice';
   }
 
   @visibleForTesting

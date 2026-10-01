@@ -167,6 +167,110 @@ void main() {
 
       expect(data.note, 'Bitte Nachbarn informieren');
     });
+
+    test('prefers customer delivery address when no explicit order delivery is set', () async {
+      const order = OrderRow(
+        oId: '1005',
+        oCustomerId: 'C5',
+        oLanguage: 'DE',
+        oDate: '2026-06-26',
+        oDeliveryAddressDifferent: 0,
+        oDeliveryName: 'Alte Lieferadresse',
+        oDeliveryStreet: 'Altstrasse',
+        oDeliveryHouseNumber: '99',
+        oDeliveryPostalCode: '99999',
+        oDeliveryCity: 'Altstadt',
+        oDeliveryState: 'Old',
+        oDeliveryCountryId: 'us',
+      );
+      const customer = Customer(
+        cId: 'C5',
+        cFirstName: 'Mia',
+        cLastName: 'Muster',
+        cStreetB: 'Rechnungsweg',
+        cHouseNumberB: '1',
+        cPostalCodeB: '10115',
+        cCityB: 'Berlin',
+        cCountryBId: 'de',
+        cCareofD: 'Lager Nord',
+        cStreetD: 'Lieferweg',
+        cHouseNumberD: '7a',
+        cPostalCodeD: '20095',
+        cCityD: 'Hamburg',
+        cStateD: 'HH',
+        cCountryDId: 'de',
+      );
+
+      final service = InvoiceDocumentBuildService(
+        orderRepository: _FakeOrderRepository(order: order),
+        customerRepository: _FakeCustomerRepository(
+          customer: customer,
+          countries: const <CountryTld>[CountryTld(coTld: 'de', coName: 'Germany')],
+        ),
+      );
+
+      final data = await service.buildFromOrder(orderId: '1005');
+
+      expect(data.delivery.name, 'Lager Nord');
+      expect(data.delivery.street, 'Lieferweg');
+      expect(data.delivery.houseNumber, '7a');
+      expect(data.delivery.postalCode, '20095');
+      expect(data.delivery.city, 'Hamburg');
+      expect(data.delivery.state, 'HH');
+      expect(data.delivery.countryCode, 'DE');
+    });
+
+    test('prefers explicit order delivery address when order marks different delivery', () async {
+      const order = OrderRow(
+        oId: '1006',
+        oCustomerId: 'C6',
+        oLanguage: 'DE',
+        oDate: '2026-06-26',
+        oDeliveryAddressDifferent: 1,
+        oDeliveryName: 'Messe Stuttgart',
+        oDeliveryStreet: 'Messepiazza',
+        oDeliveryHouseNumber: '1',
+        oDeliveryPostalCode: '70629',
+        oDeliveryCity: 'Stuttgart',
+        oDeliveryState: 'BW',
+        oDeliveryCountryId: 'de',
+      );
+      const customer = Customer(
+        cId: 'C6',
+        cFirstName: 'Lena',
+        cLastName: 'Beispiel',
+        cStreetB: 'Rechnungsallee',
+        cHouseNumberB: '10',
+        cPostalCodeB: '50667',
+        cCityB: 'Koeln',
+        cCountryBId: 'de',
+        cCareofD: 'Kundenlager',
+        cStreetD: 'Lieferstrasse',
+        cHouseNumberD: '5',
+        cPostalCodeD: '80331',
+        cCityD: 'Muenchen',
+        cStateD: 'BY',
+        cCountryDId: 'de',
+      );
+
+      final service = InvoiceDocumentBuildService(
+        orderRepository: _FakeOrderRepository(order: order),
+        customerRepository: _FakeCustomerRepository(
+          customer: customer,
+          countries: const <CountryTld>[CountryTld(coTld: 'de', coName: 'Germany')],
+        ),
+      );
+
+      final data = await service.buildFromOrder(orderId: '1006');
+
+      expect(data.delivery.name, 'Messe Stuttgart');
+      expect(data.delivery.street, 'Messepiazza');
+      expect(data.delivery.houseNumber, '1');
+      expect(data.delivery.postalCode, '70629');
+      expect(data.delivery.city, 'Stuttgart');
+      expect(data.delivery.state, 'BW');
+      expect(data.delivery.countryCode, 'DE');
+    });
   });
 }
 
