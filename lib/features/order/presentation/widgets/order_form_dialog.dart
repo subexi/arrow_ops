@@ -14,6 +14,7 @@ class OrderFormDialog extends StatefulWidget {
     super.key,
     required this.allCustomers,
     required this.allCountries,
+    this.availableTradeShows = const [],
     this.initialValue,
     this.canEditOrderId = true,
     this.assignedItems = const [],
@@ -21,6 +22,7 @@ class OrderFormDialog extends StatefulWidget {
 
   final List<Customer> allCustomers;
   final List<CountryTld> allCountries;
+  final List<String> availableTradeShows;
   final OrderRow? initialValue;
   final bool canEditOrderId;
   final List<ItemOrderedRow> assignedItems;
@@ -1344,6 +1346,138 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
         ],
       );
 
+  List<String> _tradeShowOptions() {
+    final values = <String>{};
+    for (final value in widget.availableTradeShows) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) {
+        continue;
+      }
+      values.add(normalized);
+    }
+
+    final currentValue = _tradeShowController.text.trim();
+    if (currentValue.isNotEmpty) {
+      values.add(currentValue);
+    }
+
+    final options = values.toList(growable: false);
+    options.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return options;
+  }
+
+  String? _existingTradeShowName(String rawValue) {
+    final normalized = rawValue.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    for (final value in _tradeShowOptions()) {
+      if (value.toLowerCase() == normalized) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  Future<String?> _promptNewTradeShowName() {
+    var draftName = '';
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Trade Show anlegen'),
+        content: TextFormField(
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Trade Show',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (value) {
+            draftName = value;
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(draftName.trim()),
+            child: const Text('Übernehmen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tradeShowField() {
+    final options = _tradeShowOptions();
+    final selectedTradeShow = _tradeShowController.text.trim();
+
+    final dropdown = DropdownButtonFormField<String>(
+      initialValue: selectedTradeShow.isEmpty ? '' : selectedTradeShow,
+      decoration: const InputDecoration(
+        labelText: 'Trade Show',
+        border: OutlineInputBorder(),
+      ),
+      items: [
+        const DropdownMenuItem<String>(
+          value: '',
+          child: Text('-'),
+        ),
+        ...options.map(
+          (tradeShow) => DropdownMenuItem<String>(
+            value: tradeShow,
+            child: Text(tradeShow),
+          ),
+        ),
+      ],
+      onChanged: (value) {
+        setState(() {
+          _tradeShowController.text = (value ?? '').trim();
+        });
+      },
+    );
+
+    final addButton = OutlinedButton.icon(
+      onPressed: () async {
+        final newTradeShow = await _promptNewTradeShowName();
+        if (!mounted || newTradeShow == null || newTradeShow.isEmpty) {
+          return;
+        }
+
+        final existingTradeShow = _existingTradeShowName(newTradeShow);
+        setState(() {
+          _tradeShowController.text = existingTradeShow ?? newTradeShow.trim();
+        });
+
+        if (existingTradeShow != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Trade Show "$existingTradeShow" existiert bereits und wurde übernommen.',
+              ),
+            ),
+          );
+        }
+      },
+      icon: const Icon(Icons.add),
+      label: const Text('Neu'),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        dropdown,
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: addButton,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 700;
@@ -1871,7 +2005,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                 // ── Trackingcode, Trade Show & Putt
                 _row2(
                   _field(_trackingCodeController, 'Trackingcode'),
-                  _field(_tradeShowController, 'Trade Show'),
+                  _tradeShowField(),
                 ),
                 const SizedBox(height: 12),
                 SwitchListTile.adaptive(

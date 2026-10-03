@@ -53,6 +53,26 @@ void main() {
 
       expect(keyA, isNot(equals(keyB)));
     });
+
+    test('row deselection keeps current selection key', () {
+      final next = resolveNextItemSelectionKey(
+        currentSelectionKey: 'id:2',
+        rowSelectionKey: 'id:1',
+        isSelected: false,
+      );
+
+      expect(next, 'id:2');
+    });
+
+    test('row selection switches to tapped row key', () {
+      final next = resolveNextItemSelectionKey(
+        currentSelectionKey: 'id:2',
+        rowSelectionKey: 'id:3',
+        isSelected: true,
+      );
+
+      expect(next, 'id:3');
+    });
   });
 
   group('payment display helpers', () {

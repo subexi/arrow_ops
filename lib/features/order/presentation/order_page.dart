@@ -88,6 +88,18 @@ String buildItemSelectionKey(ItemOrderedRow item) {
 }
 
 @visibleForTesting
+String resolveNextItemSelectionKey({
+  required String currentSelectionKey,
+  required String rowSelectionKey,
+  required bool? isSelected,
+}) {
+  if (isSelected == true) {
+    return rowSelectionKey;
+  }
+  return currentSelectionKey;
+}
+
+@visibleForTesting
 int resolveEffectivePaymentCode({
   required int plannedPaymentCode,
   required int? actualPaymentCode,
@@ -1392,12 +1404,20 @@ class _OrderPageState extends State<OrderPage> {
       canEditOrderId = assignedItems.isEmpty;
     }
 
+    final availableTradeShows = _orders
+        .map((order) => order.oTradeShow.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false)
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
     final result = await showDialog<dynamic>(
       context: context,
       barrierDismissible: false,
       builder: (context) => OrderFormDialog(
         allCustomers: _allCustomers,
         allCountries: _allCountries,
+        availableTradeShows: availableTradeShows,
         initialValue: initialValue,
         canEditOrderId: canEditOrderId,
         assignedItems: assignedItems,
@@ -2399,10 +2419,16 @@ class _OrderPageState extends State<OrderPage> {
 
                             return DataRow(
                               selected: isSelected,
-                              onSelectChanged: (_) {
+                              onSelectChanged: (isSelected) {
                                 setState(
                                   () => _selectedItemOrderedKey =
-                                      itemSelectionKey,
+                                      resolveNextItemSelectionKey(
+                                        currentSelectionKey:
+                                            _selectedItemOrderedKey ??
+                                            itemSelectionKey,
+                                        rowSelectionKey: itemSelectionKey,
+                                        isSelected: isSelected,
+                                      ),
                                 );
                               },
                               cells: [
