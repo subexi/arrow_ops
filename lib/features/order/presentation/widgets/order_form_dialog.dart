@@ -91,6 +91,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   late final TextEditingController _tradeShowController;
   late final TextEditingController _trackingCodeController;
   late final TextEditingController _noteController;
+  late final TextEditingController _canceledDateController;
+  late final TextEditingController _returnedDateController;
   late final TextEditingController _deliveryNameController;
   late final TextEditingController _deliveryStreetController;
   late final TextEditingController _deliveryHouseNumberController;
@@ -132,6 +134,7 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     'Banküberweisung',
     'Kreditkarte',
     'Bar',
+    'Scheck',
   ];
 
   @override
@@ -161,6 +164,12 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _tradeShowController = TextEditingController(text: v?.oTradeShow ?? '');
     _trackingCodeController = TextEditingController(text: v?.oTrackingCode ?? '');
     _noteController = TextEditingController(text: v?.oNote ?? '-');
+    _canceledDateController = TextEditingController(
+      text: v?.oCanceledDate ?? '-',
+    );
+    _returnedDateController = TextEditingController(
+      text: v?.oReturnedDate ?? '-',
+    );
     _deliveryNameController = TextEditingController(
       text: v?.oDeliveryName ?? '-',
     );
@@ -197,6 +206,12 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _deliveryAddressDifferent = (v?.oDeliveryAddressDifferent ?? 0) != 0;
     _canceled = (v?.oCanceled ?? 0) != 0;
     _returned = (v?.oReturned ?? 0) != 0;
+    if (_canceled && _normalizedOrDash(_canceledDateController.text) == '-') {
+      _canceledDateController.text = _todayString();
+    }
+    if (_returned && _normalizedOrDash(_returnedDateController.text) == '-') {
+      _returnedDateController.text = _todayString();
+    }
 
     _syncFxRateWithCurrency(forceUsdReset: false);
     _syncPriceBasisWithCurrency();
@@ -283,6 +298,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     _tradeShowController.dispose();
     _trackingCodeController.dispose();
     _noteController.dispose();
+    _canceledDateController.dispose();
+    _returnedDateController.dispose();
     _deliveryNameController.dispose();
     _deliveryStreetController.dispose();
     _deliveryHouseNumberController.dispose();
@@ -381,6 +398,11 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
 
   String _formatIsoDate(DateTime date) {
     return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  String _normalizedOrDash(String raw) {
+    final normalized = _normalizeDateForStorage(raw);
+    return normalized.isEmpty ? '-' : normalized;
   }
 
   String _normalizeDateForStorage(String raw) {
@@ -717,15 +739,31 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     return '';
   }
 
+  Iterable<ItemOrderedRow> _effectiveAssignedItems() {
+    return widget.assignedItems.where((item) => item.ioReturned == 0);
+  }
+
+  int _returnedAssignedItemsCount() {
+    return widget.assignedItems.where((item) => item.ioReturned != 0).length;
+  }
+
+  String _returnedItemsHintText(int returnedCount) {
+    final isEnglish = _language.trim().toUpperCase() == 'EN';
+    if (isEnglish) {
+      return '$returnedCount returned item(s) are excluded from goods value, weight and total price.';
+    }
+    return '$returnedCount retourierte Position(en) sind in Warenwert, Gewicht und Gesamtpreis nicht enthalten.';
+  }
+
   double _assignedItemsGrossTotal() {
-    return widget.assignedItems.fold<double>(
+    return _effectiveAssignedItems().fold<double>(
       0,
       (sum, item) => sum + item.ioTotalPrice,
     );
   }
 
   double _assignedItemsTotalWeight() {
-    return widget.assignedItems.fold<double>(
+    return _effectiveAssignedItems().fold<double>(
       0,
       (sum, item) => sum + item.ioTotalWeight,
     );
@@ -768,6 +806,8 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
   }
 
   void _refreshGoodsValuesForCurrentBasis() {
+    final hasAssignedItems = widget.assignedItems.isNotEmpty;
+
     if (_isPuttCashOrder) {
       final grossValue = _assignedItemsGrossTotal();
       final grossText = _decimalText(grossValue);
@@ -788,6 +828,13 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
     }
 
     if (_priceBasis != 'gross') {
+      if (hasAssignedItems) {
+        final netValue = _assignedItemsGrossTotal();
+        final netText = _decimalText(netValue);
+        if (_valueGoodsController.text != netText) {
+          _valueGoodsController.text = netText;
+        }
+      }
       _refreshGrossGoodsValueFromInputs();
       _refreshTotalPriceForCurrentBasis();
       return;
@@ -1874,6 +1921,29 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                 ),
+                if (_returnedAssignedItemsCount() > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, bottom: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _returnedItemsHintText(
+                              _returnedAssignedItemsCount(),
+                            ),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 12),
 
                 _row2(
@@ -2026,13 +2096,30 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                   onChanged: (value) {
                     setState(() {
                       _canceled = value;
+                      if (_canceled) {
+                        if (_normalizedOrDash(_canceledDateController.text) == '-') {
+                          _canceledDateController.text = _todayString();
+                        }
+                      } else {
+                        _canceledDateController.text = '-';
+                      }
                       if (!_canceled) {
                         _returned = false;
+                        _returnedDateController.text = '-';
                       }
                     });
                   },
                   contentPadding: EdgeInsets.zero,
                 ),
+                if (_canceled)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _field(
+                      _canceledDateController,
+                      'Storniert-Datum (JJJJ-MM-TT)',
+                      keyboardType: TextInputType.datetime,
+                    ),
+                  ),
                 SwitchListTile.adaptive(
                   title: const Text('Retoure (Ware zurückgenommen)'),
                   subtitle: const Text(
@@ -2044,11 +2131,28 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                       _returned = value;
                       if (_returned) {
                         _canceled = true;
+                        if (_normalizedOrDash(_canceledDateController.text) == '-') {
+                          _canceledDateController.text = _todayString();
+                        }
+                        if (_normalizedOrDash(_returnedDateController.text) == '-') {
+                          _returnedDateController.text = _todayString();
+                        }
+                      } else {
+                        _returnedDateController.text = '-';
                       }
                     });
                   },
                   contentPadding: EdgeInsets.zero,
                 ),
+                if (_returned)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _field(
+                      _returnedDateController,
+                      'Retoure-Datum (JJJJ-MM-TT)',
+                      keyboardType: TextInputType.datetime,
+                    ),
+                  ),
                 const SizedBox(height: 12),
 
                 // ── Notiz
@@ -2143,7 +2247,13 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
               oTrackingCode: _trackingCodeController.text.trim(),
               oNote: _noteController.text.trim().isEmpty ? '-' : _noteController.text.trim(),
                 oCanceled: _canceled ? 1 : 0,
+                oCanceledDate: _canceled
+                  ? _normalizedOrDash(_canceledDateController.text)
+                  : '-',
                 oReturned: _returned ? 1 : 0,
+                oReturnedDate: _returned
+                  ? _normalizedOrDash(_returnedDateController.text)
+                  : '-',
                 oDeliveryAddressDifferent: _deliveryAddressDifferent ? 1 : 0,
                 oDeliveryName: _normalizeDeliveryField(_deliveryNameController.text),
                 oDeliveryStreet: _normalizeDeliveryField(_deliveryStreetController.text),

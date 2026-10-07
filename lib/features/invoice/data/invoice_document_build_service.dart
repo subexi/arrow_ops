@@ -151,7 +151,10 @@ class InvoiceDocumentBuildService {
       lines: lines,
       totals: totals,
       note: _normalizedOrFallback(noteOverride, '-'),
-      paymentLabel: _paymentLabel(order.oPayment),
+      paymentLabel: _paymentLabel(
+        paymentCode: order.oPayment,
+        documentLanguage: documentLanguage,
+      ),
       payDate: _normalizedOrFallback(order.oPayDate, ''),
       deliveryDate: _normalizedOrFallback(order.oDelivery, ''),
       trackingCode: _normalizedOrFallback(order.oTrackingCode, '-'),
@@ -360,14 +363,24 @@ class InvoiceDocumentBuildService {
     return '${now.year}-$month-$day';
   }
 
-  String _paymentLabel(int paymentCode) {
+  String _paymentLabel({
+    required int paymentCode,
+    required String documentLanguage,
+  }) {
+    final isGerman = documentLanguage.trim().toUpperCase() == 'DE';
     switch (paymentCode) {
+      case 0:
+        return isGerman ? 'Sonstige' : 'Other';
       case 1:
         return 'PayPal';
       case 2:
-        return 'Bank transfer';
+        return isGerman ? 'Überweisung' : 'Bank transfer';
       case 3:
-        return 'Cash';
+        return isGerman ? 'Kreditkarte' : 'Credit card';
+      case 4:
+        return isGerman ? 'Bar' : 'Cash';
+      case 5:
+        return isGerman ? 'Scheck' : 'Check';
       default:
         return '-';
     }

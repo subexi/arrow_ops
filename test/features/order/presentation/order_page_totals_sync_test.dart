@@ -137,4 +137,58 @@ void main() {
     expect(updated.oVat, closeTo(0.0, 0.0001));
     expect(updated.oTotalPrice, closeTo(85.92, 0.0001));
   });
+
+  test('recalculateOrderHeaderTotals ignores returned positions', () {
+    const order = OrderRow(
+      oId: 'RET-ITEM-1',
+      oCustomerId: 'C1',
+      oPriceBasis: 'net',
+      oVatRate: 19,
+      oShipping: 0,
+      oPaypalFee: 0,
+      oPayment: 0,
+      oPutt: 0,
+    );
+
+    const customer = Customer(
+      cId: 'C1',
+      cLastName: 'Mustermann',
+      cFirstName: 'Max',
+      cStreetB: 'Musterweg',
+      cHouseNumberB: '1',
+      cPostalCodeB: '12345',
+      cCityB: 'Berlin',
+      cStreetD: 'Musterweg',
+      cHouseNumberD: '1',
+      cPostalCodeD: '12345',
+      cCityD: 'Berlin',
+      cVat: false,
+    );
+
+    const items = [
+      ItemOrderedRow(
+        ioOrderId: 'RET-ITEM-1',
+        ioTotalPrice: 100,
+        ioTotalWeight: 200,
+      ),
+      ItemOrderedRow(
+        ioOrderId: 'RET-ITEM-1',
+        ioTotalPrice: 50,
+        ioTotalWeight: 100,
+        ioReturned: 1,
+      ),
+    ];
+
+    final updated = recalculateOrderHeaderTotals(
+      order: order,
+      items: items,
+      customer: customer,
+      cashPaymentCode: 4,
+    );
+
+    expect(updated.oValueGoods, closeTo(100.0, 0.0001));
+    expect(updated.oVat, closeTo(19.0, 0.0001));
+    expect(updated.oTotalWeight, closeTo(200.0, 0.0001));
+    expect(updated.oTotalPrice, closeTo(119.0, 0.0001));
+  });
 }

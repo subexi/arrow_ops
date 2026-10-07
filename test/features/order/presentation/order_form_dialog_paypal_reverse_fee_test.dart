@@ -67,6 +67,7 @@ void main() {
     bool isDealer = false,
     bool isNoVatCustomer = false,
     String vatId = '-',
+    List<ItemOrderedRow> assignedItems = const [],
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -88,6 +89,7 @@ void main() {
                 language: language,
                 fxToEur: fxToEur,
               ),
+              assignedItems: assignedItems,
             ),
           ),
         ),
@@ -255,5 +257,69 @@ void main() {
 
     expect(fieldIsReadOnly(tester, 'MwSt-Satz %'), isTrue);
     expect(vatRateField.controller?.text, decimalText(0));
+  });
+
+  testWidgets('zieht bei Auftragsbearbeitung retourierte Positionen vom Warenwert ab', (
+    tester,
+  ) async {
+    await pumpDialog(
+      tester,
+      assignedItems: const [
+        ItemOrderedRow(
+          ioOrderId: '2601011000',
+          ioTotalPrice: 100,
+          ioTotalWeight: 100,
+          ioReturned: 0,
+        ),
+        ItemOrderedRow(
+          ioOrderId: '2601011000',
+          ioTotalPrice: 50,
+          ioTotalWeight: 50,
+          ioReturned: 1,
+        ),
+      ],
+    );
+
+    final netValueField = fieldByLabel(tester, 'Warenwert netto');
+    final totalWeightField = fieldByLabel(tester, 'Gesamtgewicht in g');
+
+    expect(netValueField.controller?.text, decimalText(100));
+    expect(totalWeightField.controller?.text, '100,0');
+    expect(
+      find.text(
+        '1 retourierte Position(en) sind in Warenwert, Gewicht und Gesamtpreis nicht enthalten.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('zeigt Hinweis zu retourierten Positionen auf Englisch bei EN-Sprache', (
+    tester,
+  ) async {
+    await pumpDialog(
+      tester,
+      language: 'EN',
+      assignedItems: const [
+        ItemOrderedRow(
+          ioOrderId: '2601011000',
+          ioTotalPrice: 80,
+          ioTotalWeight: 80,
+          ioReturned: 0,
+        ),
+        ItemOrderedRow(
+          ioOrderId: '2601011000',
+          ioTotalPrice: 20,
+          ioTotalWeight: 20,
+          ioReturned: 1,
+        ),
+      ],
+    );
+
+    expect(
+      find.text(
+        '1 returned item(s) are excluded from goods value, weight and total price.',
+      ),
+      findsOneWidget,
+    );
   });
 }

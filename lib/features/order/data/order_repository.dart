@@ -52,6 +52,8 @@ class OrderRepository {
         io.io_unit_price,
         io.io_discount,
         io.io_total_price,
+        COALESCE(io.io_returned, 0) AS io_returned,
+        COALESCE(NULLIF(TRIM(io.io_returned_date), ''), '-') AS io_returned_date,
         COALESCE(io.io_backorder_pending, 0) AS io_backorder_pending,
         COALESCE(NULLIF(TRIM(io.io_backorder_eta), ''), '-') AS io_backorder_eta,
         COALESCE(io.io_backorder_completed, 0) AS io_backorder_completed,
@@ -161,6 +163,50 @@ class OrderRepository {
       }
       final count =
           int.tryParse(row['pending_backorder_count']?.toString() ?? '') ?? 0;
+      countsByOrderId[orderId] = count;
+    }
+
+    return countsByOrderId;
+  }
+
+  Future<Map<String, int>> getReturnedItemCountsByOrderIds(
+    Iterable<String> orderIds,
+  ) async {
+    final normalizedOrderIds = orderIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (normalizedOrderIds.isEmpty) {
+      return const {};
+    }
+
+    final db = await AppDatabase.instance.database;
+    final placeholders = List.filled(normalizedOrderIds.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        io_order_id,
+        SUM(CASE WHEN COALESCE(io_returned, 0) != 0 THEN 1 ELSE 0 END)
+          AS returned_item_count
+      FROM item_ordered
+      WHERE io_order_id IN ($placeholders)
+      GROUP BY io_order_id
+      ''',
+      normalizedOrderIds,
+    );
+
+    final countsByOrderId = <String, int>{
+      for (final orderId in normalizedOrderIds) orderId: 0,
+    };
+
+    for (final row in rows) {
+      final orderId = row['io_order_id']?.toString().trim() ?? '';
+      if (orderId.isEmpty) {
+        continue;
+      }
+      final count = int.tryParse(row['returned_item_count']?.toString() ?? '') ?? 0;
       countsByOrderId[orderId] = count;
     }
 
@@ -376,7 +422,7 @@ class OrderRepository {
       if (existing != null) {
         final previousRows = await txn.query(
           'item_ordered',
-          columns: ['io_item_id', 'io_quantity'],
+          columns: ['io_item_id', 'io_quantity', 'io_returned'],
           where: 'io_id = ?',
           whereArgs: [existing],
           limit: 1,
@@ -403,6 +449,8 @@ class OrderRepository {
         ioItemWeight: item.ioItemWeight,
         ioTotalWeight: item.ioTotalWeight,
         ioPhoto: item.ioPhoto,
+        ioReturned: item.ioReturned,
+        ioReturnedDate: item.ioReturnedDate,
         ioBackorderPending: item.ioBackorderPending,
         ioBackorderEta: item.ioBackorderEta,
         ioBackorderCompleted: item.ioBackorderCompleted,
@@ -418,45 +466,55 @@ class OrderRepository {
         await txn.insert('item_ordered', normalized.toMap());
       }
 
-      if (stockReturnApplies) {
-        final newItemId = normalized.ioItemId;
-        final newQuantity = normalized.ioQuantity;
+      final newItemId = normalized.ioItemId;
+      final newReturnedQuantity = _effectiveReturnedQuantity(
+        quantity: normalized.ioQuantity,
+        itemReturnedFlag: normalized.ioReturned,
+        orderReturnedCancelled: stockReturnApplies,
+      );
 
-        if (previousItemRow == null) {
-          await _adjustItemStockInTransaction(
-            txn,
-            itemId: newItemId,
-            quantityDelta: newQuantity,
-          );
+      if (previousItemRow == null) {
+        await _adjustItemStockInTransaction(
+          txn,
+          itemId: newItemId,
+          quantityDelta: newReturnedQuantity,
+        );
+      } else {
+        final oldItemId =
+            int.tryParse(previousItemRow['io_item_id']?.toString() ?? '') ?? 0;
+        final oldQuantity =
+            int.tryParse(previousItemRow['io_quantity']?.toString() ?? '') ?? 0;
+        final oldReturnedFlag =
+            int.tryParse(previousItemRow['io_returned']?.toString() ?? '') ?? 0;
+        final oldReturnedQuantity = _effectiveReturnedQuantity(
+          quantity: oldQuantity,
+          itemReturnedFlag: oldReturnedFlag,
+          orderReturnedCancelled: stockReturnApplies,
+        );
+
+        if (oldItemId == newItemId) {
+          final delta = newReturnedQuantity - oldReturnedQuantity;
+          if (delta != 0) {
+            await _adjustItemStockInTransaction(
+              txn,
+              itemId: newItemId,
+              quantityDelta: delta,
+            );
+          }
         } else {
-          final oldItemId =
-              int.tryParse(previousItemRow['io_item_id']?.toString() ?? '') ?? 0;
-          final oldQuantity =
-              int.tryParse(previousItemRow['io_quantity']?.toString() ?? '') ?? 0;
-          if (oldItemId == newItemId) {
-            final delta = newQuantity - oldQuantity;
-            if (delta != 0) {
-              await _adjustItemStockInTransaction(
-                txn,
-                itemId: newItemId,
-                quantityDelta: delta,
-              );
-            }
-          } else {
-            if (oldItemId > 0 && oldQuantity != 0) {
-              await _adjustItemStockInTransaction(
-                txn,
-                itemId: oldItemId,
-                quantityDelta: -oldQuantity,
-              );
-            }
-            if (newItemId > 0 && newQuantity != 0) {
-              await _adjustItemStockInTransaction(
-                txn,
-                itemId: newItemId,
-                quantityDelta: newQuantity,
-              );
-            }
+          if (oldItemId > 0 && oldReturnedQuantity != 0) {
+            await _adjustItemStockInTransaction(
+              txn,
+              itemId: oldItemId,
+              quantityDelta: -oldReturnedQuantity,
+            );
+          }
+          if (newItemId > 0 && newReturnedQuantity != 0) {
+            await _adjustItemStockInTransaction(
+              txn,
+              itemId: newItemId,
+              quantityDelta: newReturnedQuantity,
+            );
           }
         }
       }
@@ -469,7 +527,7 @@ class OrderRepository {
     await db.transaction((txn) async {
       final rows = await txn.query(
         'item_ordered',
-        columns: ['io_order_id', 'io_item_id', 'io_quantity'],
+        columns: ['io_order_id', 'io_item_id', 'io_quantity', 'io_returned'],
         where: 'io_id = ?',
         whereArgs: [ioId],
         limit: 1,
@@ -480,6 +538,10 @@ class OrderRepository {
         final orderId = row['io_order_id']?.toString().trim() ?? '';
         final itemId = int.tryParse(row['io_item_id']?.toString() ?? '') ?? 0;
         final quantity = int.tryParse(row['io_quantity']?.toString() ?? '') ?? 0;
+        final itemReturnedFlag = int.tryParse(
+              row['io_returned']?.toString() ?? '',
+            ) ??
+            0;
 
         if (orderId.isNotEmpty && itemId > 0 && quantity > 0) {
           final orderRows = await txn.query(
@@ -493,11 +555,17 @@ class OrderRepository {
               (int.tryParse(orderRows.first['o_canceled']?.toString() ?? '') ?? 0) != 0 &&
               (int.tryParse(orderRows.first['o_returned']?.toString() ?? '') ?? 0) != 0;
 
-          if (stockReturnApplies) {
+          final returnedQuantity = _effectiveReturnedQuantity(
+            quantity: quantity,
+            itemReturnedFlag: itemReturnedFlag,
+            orderReturnedCancelled: stockReturnApplies,
+          );
+
+          if (returnedQuantity > 0) {
             await _adjustItemStockInTransaction(
               txn,
               itemId: itemId,
-              quantityDelta: -quantity,
+              quantityDelta: -returnedQuantity,
             );
           }
         }
@@ -526,6 +594,7 @@ class OrderRepository {
       SELECT io_item_id, SUM(COALESCE(io_quantity, 0)) AS qty
       FROM item_ordered
       WHERE io_order_id = ?
+        AND COALESCE(io_returned, 0) = 0
       GROUP BY io_item_id
       ''',
       [orderId],
@@ -561,6 +630,20 @@ class OrderRepository {
       ''',
       [quantityDelta, itemId],
     );
+  }
+
+  int _effectiveReturnedQuantity({
+    required int quantity,
+    required int itemReturnedFlag,
+    required bool orderReturnedCancelled,
+  }) {
+    if (quantity <= 0) {
+      return 0;
+    }
+    if (orderReturnedCancelled || itemReturnedFlag != 0) {
+      return quantity;
+    }
+    return 0;
   }
 
   Future<int> _nextItemOrderedIdInTransaction(Transaction txn) async {

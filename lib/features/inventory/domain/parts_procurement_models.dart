@@ -3,6 +3,7 @@ class PartsProcurementRow {
     required this.ppId,
     this.ppIdi = '',
     this.ppPurchaseDate = '',
+    this.ppPaidDate = '',
     this.ppQuantity = 0,
     this.ppPriceNet = 0,
     this.ppTotalPriceNet = 0,
@@ -16,6 +17,7 @@ class PartsProcurementRow {
   final int ppId;
   final String ppIdi;
   final String ppPurchaseDate;
+  final String ppPaidDate;
   final int ppQuantity;
   final double ppPriceNet;
   final double ppTotalPriceNet;
@@ -30,6 +32,7 @@ class PartsProcurementRow {
       ppId: _int(map['pp_id']),
       ppIdi: _string(map['pp_idi']),
       ppPurchaseDate: _string(map['pp_purchase_date']),
+      ppPaidDate: _string(map['pp_paid_date']),
       ppQuantity: _int(map['pp_quantity']),
       ppPriceNet: _double(map['pp_price_net']),
       ppTotalPriceNet: _double(map['pp_total_price_net']),
@@ -46,6 +49,7 @@ class PartsProcurementRow {
       'pp_id': ppId,
       'pp_idi': ppIdi,
       'pp_purchase_date': ppPurchaseDate,
+      'pp_paid_date': ppPaidDate,
       'pp_quantity': ppQuantity,
       'pp_price_net': ppPriceNet,
       'pp_total_price_net': ppTotalPriceNet,
@@ -61,6 +65,7 @@ class PartsProcurementRow {
     int? ppId,
     String? ppIdi,
     String? ppPurchaseDate,
+    String? ppPaidDate,
     int? ppQuantity,
     double? ppPriceNet,
     double? ppTotalPriceNet,
@@ -74,6 +79,7 @@ class PartsProcurementRow {
       ppId: ppId ?? this.ppId,
       ppIdi: ppIdi ?? this.ppIdi,
       ppPurchaseDate: ppPurchaseDate ?? this.ppPurchaseDate,
+      ppPaidDate: ppPaidDate ?? this.ppPaidDate,
       ppQuantity: ppQuantity ?? this.ppQuantity,
       ppPriceNet: ppPriceNet ?? this.ppPriceNet,
       ppTotalPriceNet: ppTotalPriceNet ?? this.ppTotalPriceNet,

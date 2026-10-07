@@ -25,7 +25,9 @@ class OrderRow {
     this.oTrackingCode = '',
     this.oNote = '-',
     this.oCanceled = 0,
+    this.oCanceledDate = '-',
     this.oReturned = 0,
+    this.oReturnedDate = '-',
     this.oDeliveryAddressDifferent = 0,
     this.oDeliveryName = '-',
     this.oDeliveryStreet = '-',
@@ -63,7 +65,9 @@ class OrderRow {
   final String oTrackingCode;
   final String oNote;
   final int oCanceled;
+  final String oCanceledDate;
   final int oReturned;
+  final String oReturnedDate;
   final int oDeliveryAddressDifferent;
   final String oDeliveryName;
   final String oDeliveryStreet;
@@ -102,7 +106,9 @@ class OrderRow {
       oTrackingCode: _str(map['o_tracking_code']),
       oNote: _str(map['o_note'], fallback: '-'),
       oCanceled: _int(map['o_canceled']),
+      oCanceledDate: _str(map['o_canceled_date'], fallback: '-'),
       oReturned: _int(map['o_returned']),
+      oReturnedDate: _str(map['o_returned_date'], fallback: '-'),
       oDeliveryAddressDifferent: _int(map['o_delivery_address_different']),
       oDeliveryName: _str(map['o_delivery_name'], fallback: '-'),
       oDeliveryStreet: _str(map['o_delivery_street'], fallback: '-'),
@@ -142,7 +148,9 @@ class OrderRow {
         'o_tracking_code': oTrackingCode,
         'o_note': oNote,
         'o_canceled': oCanceled,
+        'o_canceled_date': oCanceledDate,
         'o_returned': oReturned,
+        'o_returned_date': oReturnedDate,
         'o_delivery_address_different': oDeliveryAddressDifferent,
         'o_delivery_name': oDeliveryName,
         'o_delivery_street': oDeliveryStreet,
@@ -181,7 +189,9 @@ class OrderRow {
     String? oTrackingCode,
     String? oNote,
     int? oCanceled,
+    String? oCanceledDate,
     int? oReturned,
+    String? oReturnedDate,
     int? oDeliveryAddressDifferent,
     String? oDeliveryName,
     String? oDeliveryStreet,
@@ -219,7 +229,9 @@ class OrderRow {
         oTrackingCode: oTrackingCode ?? this.oTrackingCode,
         oNote: oNote ?? this.oNote,
         oCanceled: oCanceled ?? this.oCanceled,
+        oCanceledDate: oCanceledDate ?? this.oCanceledDate,
         oReturned: oReturned ?? this.oReturned,
+        oReturnedDate: oReturnedDate ?? this.oReturnedDate,
         oDeliveryAddressDifferent:
           oDeliveryAddressDifferent ?? this.oDeliveryAddressDifferent,
         oDeliveryName: oDeliveryName ?? this.oDeliveryName,
@@ -304,6 +316,8 @@ class ItemOrderedRow {
     this.ioItemWeight = 0,
     this.ioTotalWeight = 0,
     this.ioPhoto = '-',
+    this.ioReturned = 0,
+    this.ioReturnedDate = '-',
     this.ioBackorderPending = 0,
     this.ioBackorderEta = '-',
     this.ioBackorderCompleted = 0,
@@ -326,6 +340,8 @@ class ItemOrderedRow {
   final double ioItemWeight;
   final double ioTotalWeight;
   final String ioPhoto;
+  final int ioReturned;
+  final String ioReturnedDate;
   final int ioBackorderPending;
   final String ioBackorderEta;
   final int ioBackorderCompleted;
@@ -349,6 +365,8 @@ class ItemOrderedRow {
       ioItemWeight: _double(map['io_item_weight']),
       ioTotalWeight: _double(map['io_total_weight']),
       ioPhoto: _str(map['io_photo'], fallback: '-'),
+      ioReturned: _int(map['io_returned']),
+      ioReturnedDate: _str(map['io_returned_date'], fallback: '-'),
       ioBackorderPending: _int(map['io_backorder_pending']),
       ioBackorderEta: _str(map['io_backorder_eta'], fallback: '-'),
       ioBackorderCompleted: _int(map['io_backorder_completed']),
@@ -372,6 +390,8 @@ class ItemOrderedRow {
         'io_item_weight': ioItemWeight,
         'io_total_weight': ioTotalWeight,
         'io_photo': ioPhoto,
+        'io_returned': ioReturned,
+        'io_returned_date': ioReturnedDate,
         'io_backorder_pending': ioBackorderPending,
         'io_backorder_eta': ioBackorderEta,
         'io_backorder_completed': ioBackorderCompleted,

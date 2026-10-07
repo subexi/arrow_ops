@@ -35,24 +35,32 @@ void main() {
           'o_id': 'O-RET-1',
           'o_customer_id': 'C-1',
           'o_canceled': '1.0',
+          'o_canceled_date': '2026-10-07',
           'o_returned': '1.0',
+          'o_returned_date': '2026-10-08',
         },
       );
 
       expect(row.oCanceled, 1);
+      expect(row.oCanceledDate, '2026-10-07');
       expect(row.oReturned, 1);
+      expect(row.oReturnedDate, '2026-10-08');
     });
 
     test('parses io_backorder_pending for item rows', () {
       final row = ItemOrderedRow.fromMap(
         const {
           'io_order_id': 'O-1',
+          'io_returned': '1.0',
+          'io_returned_date': '2026-10-07',
           'io_backorder_pending': '1.0',
           'io_backorder_eta': '2026-10-15',
           'io_backorder_completed': '0.0',
         },
       );
 
+      expect(row.ioReturned, 1);
+      expect(row.ioReturnedDate, '2026-10-07');
       expect(row.ioBackorderPending, 1);
       expect(row.ioBackorderEta, '2026-10-15');
       expect(row.ioBackorderCompleted, 0);

@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 25;
+  static const int _currentVersion = 29;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -44,6 +44,10 @@ class AppDatabase {
     DatabaseMigration(version: 23, run: _migrationV23),
     DatabaseMigration(version: 24, run: _migrationV24),
     DatabaseMigration(version: 25, run: _migrationV25),
+    DatabaseMigration(version: 26, run: _migrationV26),
+    DatabaseMigration(version: 27, run: _migrationV27),
+    DatabaseMigration(version: 28, run: _migrationV28),
+    DatabaseMigration(version: 29, run: _migrationV29),
   ];
 
   Future<Database> get database async {
@@ -1166,6 +1170,109 @@ class AppDatabase {
       UPDATE item_ordered
       SET io_backorder_completed = 0
       WHERE io_backorder_completed IS NULL
+    ''');
+  }
+
+  static Future<void> _migrationV26(Database db) async {
+    final partsColumns = await db.rawQuery('PRAGMA table_info(parts_procurement)');
+    if (partsColumns.isEmpty) {
+      return;
+    }
+
+    final hasPaidDateColumn = partsColumns.any(
+      (column) => column['name'] == 'pp_paid_date',
+    );
+    if (!hasPaidDateColumn) {
+      await db.execute(
+        "ALTER TABLE parts_procurement ADD COLUMN pp_paid_date TEXT NOT NULL DEFAULT ''",
+      );
+    }
+
+    await db.execute('''
+      UPDATE parts_procurement
+      SET pp_paid_date = COALESCE(NULLIF(TRIM(pp_purchase_date), ''), '')
+      WHERE TRIM(COALESCE(pp_paid_date, '')) = ''
+    ''');
+  }
+
+  static Future<void> _migrationV27(Database db) async {
+    final orderedColumns = await db.rawQuery('PRAGMA table_info(item_ordered)');
+    if (orderedColumns.isEmpty) {
+      return;
+    }
+
+    final hasReturnedColumn = orderedColumns.any(
+      (column) => column['name'] == 'io_returned',
+    );
+    if (!hasReturnedColumn) {
+      await db.execute(
+        'ALTER TABLE item_ordered ADD COLUMN io_returned INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+
+    await db.execute('''
+      UPDATE item_ordered
+      SET io_returned = 0
+      WHERE io_returned IS NULL
+    ''');
+  }
+
+  static Future<void> _migrationV28(Database db) async {
+    final orderedColumns = await db.rawQuery('PRAGMA table_info(item_ordered)');
+    if (orderedColumns.isEmpty) {
+      return;
+    }
+
+    final hasReturnedDateColumn = orderedColumns.any(
+      (column) => column['name'] == 'io_returned_date',
+    );
+    if (!hasReturnedDateColumn) {
+      await db.execute(
+        "ALTER TABLE item_ordered ADD COLUMN io_returned_date TEXT NOT NULL DEFAULT '-'",
+      );
+    }
+
+    await db.execute('''
+      UPDATE item_ordered
+      SET io_returned_date = '-'
+      WHERE io_returned_date IS NULL OR TRIM(io_returned_date) = ''
+    ''');
+  }
+
+  static Future<void> _migrationV29(Database db) async {
+    final orderColumns = await db.rawQuery('PRAGMA table_info("order")');
+    if (orderColumns.isEmpty) {
+      return;
+    }
+
+    final hasCanceledDateColumn = orderColumns.any(
+      (column) => column['name'] == 'o_canceled_date',
+    );
+    final hasReturnedDateColumn = orderColumns.any(
+      (column) => column['name'] == 'o_returned_date',
+    );
+
+    if (!hasCanceledDateColumn) {
+      await db.execute(
+        "ALTER TABLE \"order\" ADD COLUMN o_canceled_date TEXT NOT NULL DEFAULT '-'",
+      );
+    }
+    if (!hasReturnedDateColumn) {
+      await db.execute(
+        "ALTER TABLE \"order\" ADD COLUMN o_returned_date TEXT NOT NULL DEFAULT '-'",
+      );
+    }
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_canceled_date = '-'
+      WHERE o_canceled_date IS NULL OR TRIM(o_canceled_date) = ''
+    ''');
+
+    await db.execute('''
+      UPDATE "order"
+      SET o_returned_date = '-'
+      WHERE o_returned_date IS NULL OR TRIM(o_returned_date) = ''
     ''');
   }
 }

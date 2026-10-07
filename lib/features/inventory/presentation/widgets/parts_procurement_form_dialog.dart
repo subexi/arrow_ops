@@ -23,6 +23,7 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _purchaseDateController;
+  late final TextEditingController _paidDateController;
   late final TextEditingController _quantityController;
   late final TextEditingController _priceNetController;
   late final TextEditingController _totalPriceNetController;
@@ -32,6 +33,8 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
   late final TextEditingController _materialController;
   late final TextEditingController _noteController;
   late final FocusNode _purchaseDateFocusNode;
+  late final FocusNode _paidDateFocusNode;
+  late String _lastPurchaseDateValue;
 
   late final Map<String, _CatalogueSelectionOption> _optionById;
   late final List<_CatalogueSelectionOption> _options;
@@ -102,6 +105,15 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
         (_options.isEmpty ? '' : _options.first.optionId);
 
     _purchaseDateController = TextEditingController(text: initial?.ppPurchaseDate ?? '');
+    _paidDateController = TextEditingController(
+      text: initial?.ppPaidDate.isNotEmpty == true
+          ? initial!.ppPaidDate
+          : (initial?.ppPurchaseDate ?? ''),
+    );
+    _lastPurchaseDateValue = _purchaseDateController.text.trim();
+    if (_paidDateController.text.trim().isEmpty && _lastPurchaseDateValue.isNotEmpty) {
+      _paidDateController.text = _lastPurchaseDateValue;
+    }
     _quantityController = TextEditingController(text: (initial?.ppQuantity ?? 0).toString());
     _priceNetController = TextEditingController(text: _decimalText(initial?.ppPriceNet));
     _totalPriceNetController = TextEditingController(text: _decimalText(initial?.ppTotalPriceNet));
@@ -127,6 +139,27 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
 
       _purchaseDateController.text = normalized;
     });
+    _purchaseDateController.addListener(() {
+      final purchaseValue = _purchaseDateController.text.trim();
+      final paidValue = _paidDateController.text.trim();
+      if (paidValue == _lastPurchaseDateValue) {
+        _paidDateController.text = purchaseValue;
+      }
+      _lastPurchaseDateValue = purchaseValue;
+    });
+    _paidDateFocusNode = FocusNode();
+    _paidDateFocusNode.addListener(() {
+      if (_paidDateFocusNode.hasFocus) {
+        return;
+      }
+
+      final normalized = _normalizeDateInput(_paidDateController.text);
+      if (normalized == null || normalized == _paidDateController.text) {
+        return;
+      }
+
+      _paidDateController.text = normalized;
+    });
 
     _quantityController.addListener(_recalculateTotalPrice);
     _priceNetController.addListener(_recalculateTotalPrice);
@@ -136,6 +169,7 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
   @override
   void dispose() {
     _purchaseDateController.dispose();
+    _paidDateController.dispose();
     _quantityController.dispose();
     _priceNetController.dispose();
     _totalPriceNetController.dispose();
@@ -145,6 +179,7 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     _materialController.dispose();
     _noteController.dispose();
     _purchaseDateFocusNode.dispose();
+    _paidDateFocusNode.dispose();
     super.dispose();
   }
 
@@ -249,6 +284,12 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
             return 'Bitte gültiges Datum eingeben (JJJJ-MM-TT)';
           }
         }
+        if (label == 'Bezahlt') {
+          final raw = (value ?? '').trim();
+          if (raw.isNotEmpty && _normalizeDateInput(raw) == null) {
+            return 'Bitte gültiges Datum eingeben (JJJJ-MM-TT)';
+          }
+        }
         return null;
       },
     );
@@ -284,11 +325,15 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
     final normalizedPurchaseDate =
         _normalizeDateInput(_purchaseDateController.text) ?? _text(_purchaseDateController);
     _purchaseDateController.text = normalizedPurchaseDate;
+    final normalizedPaidDate =
+      _normalizeDateInput(_paidDateController.text) ?? _text(_paidDateController);
+    _paidDateController.text = normalizedPaidDate;
 
     final row = PartsProcurementRow(
       ppId: widget.initialValue?.ppId ?? widget.nextId,
       ppIdi: _optionById[_selectedOptionId]?.storedToken ?? '',
       ppPurchaseDate: normalizedPurchaseDate,
+      ppPaidDate: normalizedPaidDate,
       ppQuantity: _parseInt(_quantityController),
       ppPriceNet: _parseDouble(_priceNetController),
       ppTotalPriceNet: _parseDouble(_totalPriceNetController),
@@ -447,6 +492,15 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
                     keyboardType: TextInputType.datetime,
                     focusNode: _purchaseDateFocusNode,
                   ),
+                  _field(
+                    _paidDateController,
+                    'Bezahlt',
+                    keyboardType: TextInputType.datetime,
+                    focusNode: _paidDateFocusNode,
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                _row([
                   _field(
                     _quantityController,
                     'Menge in Stk',

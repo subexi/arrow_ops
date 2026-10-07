@@ -106,6 +106,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
   Future<void> _createRow() async {
     final nextId = await _repository.nextId();
+    final latestCatalogueItems = await _loadLatestCatalogueItems();
     if (!mounted) {
       return;
     }
@@ -113,7 +114,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       context: context,
       builder: (_) => PartsProcurementFormDialog(
         nextId: nextId,
-        catalogueItems: _catalogueItems,
+        catalogueItems: latestCatalogueItems,
       ),
     );
     if (created == null) {
@@ -150,12 +151,16 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   }
 
   Future<void> _editRow(PartsProcurementRow selected) async {
+    final latestCatalogueItems = await _loadLatestCatalogueItems();
+    if (!mounted) {
+      return;
+    }
     final edited = await showDialog<PartsProcurementRow>(
       context: context,
       builder: (_) => PartsProcurementFormDialog(
         nextId: selected.ppId,
         initialValue: selected,
-        catalogueItems: _catalogueItems,
+        catalogueItems: latestCatalogueItems,
       ),
     );
     if (edited == null) {
@@ -180,6 +185,29 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         'Speichern fehlgeschlagen',
         'Eintrag konnte nicht gespeichert werden:\n\n$error',
       );
+    }
+  }
+
+  Future<List<ItemCatalogueRow>> _loadLatestCatalogueItems() async {
+    try {
+      final latest = await _itemRepository.getCatalogueItems();
+      if (mounted) {
+        setState(() {
+          _catalogueItems = latest;
+        });
+      }
+      return latest;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Artikelkatalog konnte nicht aktualisiert werden: $error',
+            ),
+          ),
+        );
+      }
+      return _catalogueItems;
     }
   }
 
@@ -301,6 +329,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
     final haystack = <String>[
       row.ppIdi,
       row.ppPurchaseDate,
+      row.ppPaidDate,
       row.ppQuantity.toString(),
       row.ppPriceNet.toStringAsFixed(2),
       row.ppTotalPriceNet.toStringAsFixed(2),
@@ -334,20 +363,22 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         case 1:
           result = compareString(a.ppPurchaseDate, b.ppPurchaseDate);
         case 2:
-          result = a.ppQuantity.compareTo(b.ppQuantity);
+          result = compareString(a.ppPaidDate, b.ppPaidDate);
         case 3:
-          result = a.ppPriceNet.compareTo(b.ppPriceNet);
+          result = a.ppQuantity.compareTo(b.ppQuantity);
         case 4:
-          result = a.ppTotalPriceNet.compareTo(b.ppTotalPriceNet);
+          result = a.ppPriceNet.compareTo(b.ppPriceNet);
         case 5:
-          result = compareString(a.ppDescriptionDeLong, b.ppDescriptionDeLong);
+          result = a.ppTotalPriceNet.compareTo(b.ppTotalPriceNet);
         case 6:
-          result = compareString(a.ppPointOfUse, b.ppPointOfUse);
+          result = compareString(a.ppDescriptionDeLong, b.ppDescriptionDeLong);
         case 7:
-          result = compareString(a.ppPartSource, b.ppPartSource);
+          result = compareString(a.ppPointOfUse, b.ppPointOfUse);
         case 8:
-          result = compareString(a.ppMaterial, b.ppMaterial);
+          result = compareString(a.ppPartSource, b.ppPartSource);
         case 9:
+          result = compareString(a.ppMaterial, b.ppMaterial);
+        case 10:
           result = compareString(a.ppNote, b.ppNote);
         default:
           result = 0;
@@ -413,6 +444,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       final headers = [
         'Artikel-ID',
         'Kaufdatum',
+        'Bezahlt',
         'Menge',
         'Preis netto',
         'Gesamtpreis netto',
@@ -428,6 +460,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         csvLines.add(_escapeAndJoinCsv([
           row.ppIdi,
           row.ppPurchaseDate,
+          row.ppPaidDate,
           row.ppQuantity.toString(),
           row.ppPriceNet.toStringAsFixed(2),
           row.ppTotalPriceNet.toStringAsFixed(2),
@@ -523,26 +556,94 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
       int importedCount = 0;
       int errorCount = 0;
+      final headerFields = _parseCsvLine(lines.first)
+          .map((value) => value.trim().toLowerCase())
+          .toList(growable: false);
+
+      int? headerIndex(List<String> aliases) {
+        for (final alias in aliases) {
+          final index = headerFields.indexOf(alias);
+          if (index >= 0) {
+            return index;
+          }
+        }
+        return null;
+      }
+
+      String fieldAt(List<String> fields, int? index) {
+        if (index == null || index < 0 || index >= fields.length) {
+          return '';
+        }
+        return fields[index].trim();
+      }
+
+      final articleIdIndex = headerIndex(['artikel-id']);
+      final purchaseDateIndex = headerIndex(['kaufdatum', 'beschaffungsdatum']);
+      final paidDateIndex = headerIndex(['bezahlt', 'bezahlt-datum']);
+      final quantityIndex = headerIndex(['menge']);
+      final priceNetIndex = headerIndex(['preis netto', 'ek netto / stk']);
+      final totalPriceNetIndex =
+          headerIndex(['gesamtpreis netto', 'gesamt ek netto']);
+      final descriptionIndex = headerIndex(['beschreibung']);
+      final pointOfUseIndex = headerIndex(['verwendung']);
+      final supplierIndex = headerIndex(['lieferant']);
+      final materialIndex = headerIndex(['material', 'materialbeschreibung']);
+      final noteIndex = headerIndex(['notiz']);
 
       for (int i = 1; i < lines.length; i++) {
         try {
           final fields = _parseCsvLine(lines[i]);
           if (fields.length < 10) continue;
-          final hasLegacyDrawingColumn = fields.length >= 11;
+
+          final fallbackPaidDate = fields.length >= 11 ? fields[10].trim() : fields[1].trim();
 
           final nextId = await _repository.nextId();
           final newRow = PartsProcurementRow(
             ppId: nextId,
-            ppIdi: fields[0].trim(),
-            ppPurchaseDate: fields[1].trim(),
-            ppQuantity: int.tryParse(fields[2].trim()) ?? 0,
-            ppPriceNet: double.tryParse(fields[3].trim().replaceAll(',', '.')) ?? 0.0,
-            ppTotalPriceNet: double.tryParse(fields[4].trim().replaceAll(',', '.')) ?? 0.0,
-            ppDescriptionDeLong: fields[5].trim(),
-            ppPointOfUse: fields[6].trim(),
-            ppPartSource: fields[7].trim(),
-            ppMaterial: fields[8].trim(),
-            ppNote: (hasLegacyDrawingColumn ? fields[10] : fields[9]).trim(),
+            ppIdi: fieldAt(fields, articleIdIndex).isEmpty
+                ? fields[0].trim()
+                : fieldAt(fields, articleIdIndex),
+            ppPurchaseDate: fieldAt(fields, purchaseDateIndex).isEmpty
+                ? fields[1].trim()
+                : fieldAt(fields, purchaseDateIndex),
+            ppPaidDate: fieldAt(fields, paidDateIndex).isEmpty
+                ? fallbackPaidDate
+                : fieldAt(fields, paidDateIndex),
+            ppQuantity: int.tryParse(
+                  fieldAt(fields, quantityIndex).isEmpty
+                      ? fields[2].trim()
+                      : fieldAt(fields, quantityIndex),
+                ) ??
+                0,
+            ppPriceNet: double.tryParse(
+                  (fieldAt(fields, priceNetIndex).isEmpty
+                          ? fields[3].trim()
+                          : fieldAt(fields, priceNetIndex))
+                      .replaceAll(',', '.'),
+                ) ??
+                0.0,
+            ppTotalPriceNet: double.tryParse(
+                  (fieldAt(fields, totalPriceNetIndex).isEmpty
+                          ? fields[4].trim()
+                          : fieldAt(fields, totalPriceNetIndex))
+                      .replaceAll(',', '.'),
+                ) ??
+                0.0,
+            ppDescriptionDeLong: fieldAt(fields, descriptionIndex).isEmpty
+                ? fields[5].trim()
+                : fieldAt(fields, descriptionIndex),
+            ppPointOfUse: fieldAt(fields, pointOfUseIndex).isEmpty
+                ? fields[6].trim()
+                : fieldAt(fields, pointOfUseIndex),
+            ppPartSource: fieldAt(fields, supplierIndex).isEmpty
+                ? fields[7].trim()
+                : fieldAt(fields, supplierIndex),
+            ppMaterial: fieldAt(fields, materialIndex).isEmpty
+                ? fields[8].trim()
+                : fieldAt(fields, materialIndex),
+            ppNote: fieldAt(fields, noteIndex).isEmpty
+                ? fields[9].trim()
+                : fieldAt(fields, noteIndex),
           );
 
           await _repository.save(newRow);
@@ -610,6 +711,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
               headers: [
                 'Artikel-ID',
                 'Kaufdatum',
+                'Bezahlt',
                 'Menge',
                 'Preis netto',
                 'Gesamtpreis',
@@ -623,6 +725,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                   .map((r) => [
                         r.ppIdi,
                         r.ppPurchaseDate,
+                    r.ppPaidDate,
                         r.ppQuantity.toString(),
                         '${r.ppPriceNet.toStringAsFixed(2).replaceAll('.', ',')} €',
                         '${r.ppTotalPriceNet.toStringAsFixed(2).replaceAll('.', ',')} €',
@@ -639,14 +742,15 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
               columnWidths: {
                 0: const pw.FlexColumnWidth(0.8),
                 1: const pw.FlexColumnWidth(0.7),
-                2: const pw.FlexColumnWidth(0.5),
-                3: const pw.FlexColumnWidth(0.7),
+                2: const pw.FlexColumnWidth(0.7),
+                3: const pw.FlexColumnWidth(0.5),
                 4: const pw.FlexColumnWidth(0.7),
-                5: const pw.FlexColumnWidth(1.2),
-                6: const pw.FlexColumnWidth(0.8),
+                5: const pw.FlexColumnWidth(0.7),
+                6: const pw.FlexColumnWidth(1.2),
                 7: const pw.FlexColumnWidth(0.8),
                 8: const pw.FlexColumnWidth(0.8),
-                9: const pw.FlexColumnWidth(1.0),
+                9: const pw.FlexColumnWidth(0.8),
+                10: const pw.FlexColumnWidth(1.0),
               },
             ),
           ],
@@ -817,14 +921,15 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                           columns: [
                             _column('Bezeichnung', 0),
                             _column('Beschaffungsdatum', 1),
-                            _column('Menge in Stk', 2),
-                            _column('EK netto / Stk', 3),
-                            _column('Gesamt EK netto', 4),
-                            _column('Beschreibung', 5),
-                            _column('Verwendung', 6),
-                            _column('Lieferant', 7),
-                            _column('Materialbeschreibung', 8),
-                            _column('Notiz', 9),
+                            _column('Menge in Stk', 3),
+                            _column('EK netto / Stk', 4),
+                            _column('Gesamt EK netto', 5),
+                            _column('Beschreibung', 6),
+                            _column('Verwendung', 7),
+                            _column('Lieferant', 8),
+                            _column('Materialbeschreibung', 9),
+                            _column('Notiz', 10),
+                            _column('Bezahlt', 2),
                           ],
                           rows: visibleRows
                               .map(
@@ -842,6 +947,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                                     _textCell(row, row.ppPartSource),
                                     _textCell(row, row.ppMaterial),
                                     _textCell(row, row.ppNote),
+                                    _textCell(row, row.ppPaidDate),
                                   ],
                                 ),
                               )

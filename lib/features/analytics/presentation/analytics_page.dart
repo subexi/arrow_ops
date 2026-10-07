@@ -596,7 +596,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               children: [
                 _buildNavigationEntry(
                   icon: Icons.bar_chart,
-                  label: 'Umsatz Netto-Warenwert / Zeit',
+                  label: 'Rohertrag / Zeit',
                   subPage: _AnalyticsSubPage.chartNetValueOverTime,
                 ),
               ],
@@ -652,6 +652,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final chartFilterContext = _buildChartFilterContext(
       orders: _orders,
       orderedItems: _orderedItems,
+      catalogueItems: _catalogueItems,
       puttFilter: _selectedChartPuttFilter,
       granularity: _selectedChartGranularity,
       selectedQuarterKeys: _selectedChartQuarterKeys,
@@ -669,167 +670,223 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final countryShareBuckets = _buildCountryShareBuckets(
       context: chartFilterContext,
     );
-    final totalNetValue = buckets.fold<double>(
+    final totalNetRevenue = buckets.fold<double>(
       0,
-      (sum, bucket) => sum + bucket.valueEur,
+      (sum, bucket) => sum + bucket.netRevenueEur,
+    );
+    final totalNetCogs = buckets.fold<double>(
+      0,
+      (sum, bucket) => sum + bucket.netCogsEur,
+    );
+    final totalGrossProfit = buckets.fold<double>(
+      0,
+      (sum, bucket) => sum + bucket.grossProfitEur,
     );
     final netValueFxHint = _buildNetValueFxHint(context: chartFilterContext);
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Umsatz Netto-Warenwert / Zeit',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Netto-Warenwert als Saeulendiagramm in EUR auf Basis der Positionswerte je Zeitraum.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 4),
-          Text(netValueFxHint, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SegmentedButton<_PeriodGranularity>(
-                segments: const [
-                  ButtonSegment(
-                    value: _PeriodGranularity.month,
-                    label: Text('Monat'),
-                  ),
-                  ButtonSegment(
-                    value: _PeriodGranularity.quarter,
-                    label: Text('Quartal'),
-                  ),
-                  ButtonSegment(
-                    value: _PeriodGranularity.year,
-                    label: Text('Jahr'),
-                  ),
-                  ButtonSegment(
-                    value: _PeriodGranularity.total,
-                    label: Text('Gesamt'),
-                  ),
-                ],
-                selected: {_selectedChartGranularity},
-                onSelectionChanged: (selection) {
-                  setState(() {
-                    _selectedChartGranularity = selection.first;
-                    _ensureChartPeriodDefaults();
-                  });
-                },
-              ),
-              SegmentedButton<WareinsatzPuttFilter>(
-                segments: const [
-                  ButtonSegment(
-                    value: WareinsatzPuttFilter.all,
-                    label: Text('incl. PUTT'),
-                  ),
-                  ButtonSegment(
-                    value: WareinsatzPuttFilter.withoutPutt,
-                    label: Text('excl. PUTT'),
-                  ),
-                  ButtonSegment(
-                    value: WareinsatzPuttFilter.onlyPutt,
-                    label: Text('nur PUTT'),
-                  ),
-                ],
-                selected: {_selectedChartPuttFilter},
-                onSelectionChanged: (selection) {
-                  setState(() {
-                    _selectedChartPuttFilter = selection.first;
-                  });
-                },
-              ),
-              if (_selectedChartGranularity == _PeriodGranularity.quarter)
-                _chartQuarterFilterButton(_availableQuarterKeys(_orders)),
-              if (_selectedChartGranularity == _PeriodGranularity.year)
-                _periodDropdown(
-                  label: 'Jahr',
-                  value: _selectedChartYearKey,
-                  values: _availableYearKeys(_orders),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedChartYearKey = value;
-                    });
-                  },
-                ),
-              _summaryChip(
-                'Gefilterte Auftraege',
-                '${chartFilterContext.orderById.length}',
-              ),
-              _summaryChip(
-                'Gefilterte Positionen',
-                '${chartFilterContext.filteredItems.length}',
-              ),
-              _summaryChip('Zeitraeume', '${buckets.length}'),
-              _summaryChip('Σ Netto-Warenwert', _formatMoneyEur(totalNetValue)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final tableHeight = math.max(
-                  240.0,
-                  constraints.maxHeight * 0.30,
-                );
-                final pieHeight = math.max(250.0, constraints.maxHeight * 0.34);
-                final chartHeight = math.max(
-                  180.0,
-                  constraints.maxHeight - tableHeight - pieHeight - 24,
-                );
+    return LayoutBuilder(
+      builder: (context, viewportConstraints) {
+        final chartSectionMinHeight = math.max(
+          620.0,
+          viewportConstraints.maxHeight * 0.72,
+        );
 
-                return SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: chartHeight,
-                          child: buckets.isEmpty
-                              ? const Card(
-                                  child: Center(
-                                    child: Text(
-                                      'Keine Daten mit gueltigem Versanddatum vorhanden.',
-                                    ),
-                                  ),
-                                )
-                              : _buildNetValueBarChart(buckets),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: pieHeight,
-                          child: _buildCountrySharePieSection(
-                            countryShareBuckets,
-                            granularity: _selectedChartGranularity,
+        return SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Rohertrag / Zeit',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Vergleich je Zeitraum: Umsatz netto, EK-netto Wareneinsatz und Rohertrag (Umsatz netto - EK-netto).',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  netValueFxHint,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 16),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      SegmentedButton<_PeriodGranularity>(
+                        segments: const [
+                          ButtonSegment(
+                            value: _PeriodGranularity.month,
+                            label: Text('Monat'),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: tableHeight,
-                          child: _buildNetValueYearMonthTable(
-                            yearMonthTableData,
-                            granularity: _selectedChartGranularity,
+                          ButtonSegment(
+                            value: _PeriodGranularity.quarter,
+                            label: Text('Quartal'),
                           ),
+                          ButtonSegment(
+                            value: _PeriodGranularity.year,
+                            label: Text('Jahr'),
+                          ),
+                          ButtonSegment(
+                            value: _PeriodGranularity.total,
+                            label: Text('Gesamt'),
+                          ),
+                        ],
+                        selected: {_selectedChartGranularity},
+                        onSelectionChanged: (selection) {
+                          setState(() {
+                            _selectedChartGranularity = selection.first;
+                            _ensureChartPeriodDefaults();
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 12),
+                      SegmentedButton<WareinsatzPuttFilter>(
+                        segments: const [
+                          ButtonSegment(
+                            value: WareinsatzPuttFilter.all,
+                            label: Text('incl. PUTT'),
+                          ),
+                          ButtonSegment(
+                            value: WareinsatzPuttFilter.withoutPutt,
+                            label: Text('excl. PUTT'),
+                          ),
+                          ButtonSegment(
+                            value: WareinsatzPuttFilter.onlyPutt,
+                            label: Text('nur PUTT'),
+                          ),
+                        ],
+                        selected: {_selectedChartPuttFilter},
+                        onSelectionChanged: (selection) {
+                          setState(() {
+                            _selectedChartPuttFilter = selection.first;
+                          });
+                        },
+                      ),
+                      if (_selectedChartGranularity ==
+                          _PeriodGranularity.quarter) ...[
+                        const SizedBox(width: 12),
+                        _chartQuarterFilterButton(_availableQuarterKeys(_orders)),
+                      ],
+                      if (_selectedChartGranularity ==
+                          _PeriodGranularity.year) ...[
+                        const SizedBox(width: 12),
+                        _periodDropdown(
+                          label: 'Jahr',
+                          value: _selectedChartYearKey,
+                          values: _availableYearKeys(_orders),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedChartYearKey = value;
+                            });
+                          },
                         ),
                       ],
-                    ),
+                    ],
                   ),
-                );
-              },
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    _summaryChip(
+                      'Gefilterte Auftraege',
+                      '${chartFilterContext.orderById.length}',
+                    ),
+                    _summaryChip(
+                      'Gefilterte Positionen',
+                      '${chartFilterContext.filteredItems.length}',
+                    ),
+                    _summaryChip('Zeitraeume', '${buckets.length}'),
+                    _summaryChip(
+                      'Σ Umsatz netto',
+                      _formatMoneyEur(totalNetRevenue),
+                    ),
+                    _summaryChip('Σ EK-netto', _formatMoneyEur(totalNetCogs)),
+                    _summaryChip(
+                      'Σ Rohertrag',
+                      _formatMoneyEur(totalGrossProfit),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: chartSectionMinHeight,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final tableHeight = math.max(
+                        200.0,
+                        constraints.maxHeight * 0.24,
+                      );
+                      final pieHeight = math.max(
+                        210.0,
+                        constraints.maxHeight * 0.28,
+                      );
+                      final chartHeight = math.max(
+                        280.0,
+                        constraints.maxHeight - tableHeight - pieHeight - 16,
+                      );
+
+                      return SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: constraints.maxHeight,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SizedBox(
+                                height: chartHeight,
+                                child: buckets.isEmpty
+                                    ? const Card(
+                                        child: Center(
+                                          child: Text(
+                                            'Keine Daten mit gueltigem Versanddatum vorhanden.',
+                                          ),
+                                        ),
+                                      )
+                                    : _buildNetValueBarChart(
+                                        buckets,
+                                        granularity: _selectedChartGranularity,
+                                      ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: pieHeight,
+                                child: _buildCountrySharePieSection(
+                                  countryShareBuckets,
+                                  granularity: _selectedChartGranularity,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Netto-Umsatz Tabelle',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                height: tableHeight,
+                                child: _buildNetValueYearMonthTable(
+                                  yearMonthTableData,
+                                  granularity: _selectedChartGranularity,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -838,7 +895,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     required _PeriodGranularity granularity,
   }) {
     final orderById = context.orderById;
-    final valueByPeriod = <String, double>{};
+    final revenueByPeriod = <String, double>{};
+    final cogsByPeriod = <String, double>{};
     final labelByPeriod = <String, String>{};
 
     for (final item in context.filteredItems) {
@@ -871,22 +929,32 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           periodLabel = 'Gesamt';
       }
 
-      valueByPeriod.update(
+      final netRevenueEur = wareinsatzOrderedItemNetSalesForOrder(
+        item: item,
+        order: order,
+      );
+      final purchasePriceNet =
+          context.catalogueById[item.ioItemId]?.icPurchasePriceNet ?? 0;
+      final netCogsEur = item.ioQuantity * purchasePriceNet;
+
+      revenueByPeriod.update(
         periodKey,
-        (value) =>
-            value +
-            wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
-        ifAbsent: () =>
-            wareinsatzOrderedItemNetSalesForOrder(item: item, order: order),
+        (value) => value + netRevenueEur,
+        ifAbsent: () => netRevenueEur,
+      );
+      cogsByPeriod.update(
+        periodKey,
+        (value) => value + netCogsEur,
+        ifAbsent: () => netCogsEur,
       );
       labelByPeriod.putIfAbsent(periodKey, () => periodLabel);
     }
 
-    if (valueByPeriod.isEmpty) {
+    if (revenueByPeriod.isEmpty) {
       return const [];
     }
 
-    final keys = valueByPeriod.keys.toList(growable: false)
+    final keys = revenueByPeriod.keys.toList(growable: false)
       ..sort((a, b) {
         if (granularity == _PeriodGranularity.total) {
           return 0;
@@ -898,7 +966,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         .map(
           (key) => _NetValueBucket(
             periodLabel: labelByPeriod[key] ?? key,
-            valueEur: valueByPeriod[key] ?? 0,
+            netRevenueEur: revenueByPeriod[key] ?? 0,
+            netCogsEur: cogsByPeriod[key] ?? 0,
           ),
         )
         .toList(growable: false);
@@ -915,149 +984,272 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         .length;
 
     if (usdOrderCount == 0) {
-      return 'Hinweis: Netto-Warenwert wird in EUR ausgewiesen.';
+      return 'Hinweis: Umsatz netto wird in EUR ausgewiesen.';
     }
 
     if (usdOrdersWithoutFxCount == 0) {
-      return 'Hinweis: $usdOrderCount USD-Auftraege wurden mit dem jeweiligen USD→EUR-Kurs in den Netto-Warenwert eingerechnet.';
+      return 'Hinweis: $usdOrderCount USD-Auftraege wurden mit dem jeweiligen USD→EUR-Kurs in den Umsatz netto eingerechnet.';
     }
 
-    return 'Hinweis: $usdOrderCount USD-Auftraege werden per USD→EUR-Kurs umgerechnet; $usdOrdersWithoutFxCount ohne gueltigen Kurs sind nicht beruecksichtigt.';
+    return 'Hinweis: $usdOrderCount USD-Auftraege werden per USD→EUR-Kurs umgerechnet; $usdOrdersWithoutFxCount ohne gueltigen Kurs sind im Umsatz netto nicht beruecksichtigt.';
   }
 
-  Widget _buildNetValueBarChart(List<_NetValueBucket> buckets) {
-    final maxValue = buckets.fold<double>(
+  Widget _buildNetValueBarChart(
+    List<_NetValueBucket> buckets, {
+    required _PeriodGranularity granularity,
+  }) {
+    final maxPositiveValue = buckets.fold<double>(
       0,
-      (currentMax, bucket) => math.max(currentMax, bucket.valueEur),
+      (currentMax, bucket) => math.max(
+        currentMax,
+        math.max(
+          bucket.netRevenueEur,
+          math.max(bucket.netCogsEur, bucket.grossProfitEur),
+        ),
+      ),
     );
-    final safeMax = maxValue <= 0 ? 1.0 : maxValue;
-    final minColumnWidth = 180.0;
+    final minNegativeValue = buckets.fold<double>(
+      0,
+      (currentMin, bucket) => math.min(
+        currentMin,
+        math.min(
+          bucket.netRevenueEur,
+          math.min(bucket.netCogsEur, bucket.grossProfitEur),
+        ),
+      ),
+    );
+    final safePositiveMax = maxPositiveValue <= 0 ? 1.0 : maxPositiveValue;
+    final safeNegativeAbs = minNegativeValue >= 0 ? 0.0 : minNegativeValue.abs();
+    final hasNegativeValues = safeNegativeAbs > 0;
+    final totalRange = safePositiveMax + safeNegativeAbs;
+    final positiveAreaFactor = hasNegativeValues
+        ? (safePositiveMax / totalRange)
+        : 1.0;
+    final minColumnWidth = 200.0;
+    const revenueColor = Color(0xFF42A5F5);
+    const cogsColor = Color(0xFFFFB74D);
+    const grossProfitPositiveColor = Color(0xFF66BB6A);
+    const grossProfitNegativeColor = Color(0xFFEF5350);
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final chartWidth = math.max(
-              constraints.maxWidth,
-              buckets.length * minColumnWidth,
-            );
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: const [
+                _ChartLegendChip(label: 'Umsatz netto', color: revenueColor),
+                _ChartLegendChip(label: 'EK-netto', color: cogsColor),
+                _ChartLegendChip(
+                  label: 'Rohertrag (+)',
+                  color: grossProfitPositiveColor,
+                ),
+                _ChartLegendChip(
+                  label: 'Rohertrag (-)',
+                  color: grossProfitNegativeColor,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isCompactViewport = constraints.maxWidth < 1100;
+                  final labelWidth = isCompactViewport ? 48.0 : 56.0;
+                  final barWidth = isCompactViewport ? 30.0 : 34.0;
+                  final innerBarSpacing = isCompactViewport ? 6.0 : 8.0;
+                  final monthSeparatorColor = Color.alphaBlend(
+                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.18),
+                    Theme.of(context).dividerColor,
+                  );
+                  final showMonthSeparators =
+                      granularity == _PeriodGranularity.month;
+                  const monthSeparatorWidth = 10.0;
+                  final zeroLineColor = Color.alphaBlend(
+                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.22),
+                    Theme.of(context).dividerColor,
+                  );
+                  final separatorsTotalWidth = showMonthSeparators
+                      ? math.max(0, buckets.length - 1) * monthSeparatorWidth
+                      : 0.0;
+                  final chartWidth = math.max(
+                    constraints.maxWidth,
+                    buckets.length * minColumnWidth + separatorsTotalWidth,
+                  );
 
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: chartWidth,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final bucket in buckets)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                  Widget bar({
+                    required double value,
+                    required Color color,
+                    required double maxHeight,
+                  }) {
+                    const zeroLineThickness = 1.0;
+                    final drawableHeight = math.max(
+                      0.0,
+                      maxHeight - zeroLineThickness,
+                    );
+                    final positiveAreaHeight = drawableHeight * positiveAreaFactor;
+                    final negativeAreaHeight = drawableHeight - positiveAreaHeight;
+                    final positiveBarHeight = value <= 0
+                        ? 0.0
+                        : ((value / safePositiveMax) * positiveAreaHeight).clamp(
+                            0.0,
+                            positiveAreaHeight,
+                          );
+                    final negativeBarHeight = value >= 0 || !hasNegativeValues
+                        ? 0.0
+                        : ((value.abs() / safeNegativeAbs) * negativeAreaHeight)
+                              .clamp(0.0, negativeAreaHeight);
+
+                    final barRadius = value >= 0
+                        ? const BorderRadius.vertical(top: Radius.circular(6))
+                        : const BorderRadius.vertical(bottom: Radius.circular(6));
+
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        SizedBox(
+                          width: labelWidth,
+                          height: 16,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(_formatMoneyEur(value)),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          width: barWidth,
+                          height: maxHeight,
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Expanded(
+                              SizedBox(
+                                height: positiveAreaHeight,
                                 child: Align(
                                   alignment: Alignment.bottomCenter,
-                                  child: LayoutBuilder(
-                                    builder: (context, barConstraints) {
-                                      final rawHeight =
-                                          (bucket.valueEur / safeMax) *
-                                          (barConstraints.maxHeight - 24);
-                                      final barHeight = rawHeight.clamp(
-                                        0.0,
-                                        barConstraints.maxHeight - 8,
-                                      );
-                                      final showValueInBar = barHeight >= 64;
-                                      final valueText = _formatMoneyEur(
-                                        bucket.valueEur,
-                                      );
-
-                                      return Stack(
-                                        alignment: Alignment.bottomCenter,
-                                        clipBehavior: Clip.none,
-                                        children: [
-                                          Container(
-                                            width: 88,
-                                            height: barHeight,
-                                            decoration: BoxDecoration(
-                                              color: Colors.lightBlue.shade300,
-                                              borderRadius:
-                                                  const BorderRadius.vertical(
-                                                    top: Radius.circular(8),
-                                                  ),
-                                            ),
-                                          ),
-                                          if (showValueInBar)
-                                            Positioned(
-                                              left: 6,
-                                              right: 6,
-                                              bottom: 8,
-                                              child: SizedBox(
-                                                height: 18,
-                                                child: FittedBox(
-                                                  fit: BoxFit.scaleDown,
-                                                  child: Text(
-                                                    valueText,
-                                                    maxLines: 1,
-                                                    softWrap: false,
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .labelSmall
-                                                        ?.copyWith(
-                                                          color:
-                                                              Theme.of(context)
-                                                                  .colorScheme
-                                                                  .onPrimary,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                        ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          if (!showValueInBar)
-                                            Positioned(
-                                              left: 0,
-                                              right: 0,
-                                              bottom: barHeight + 6,
-                                              child: SizedBox(
-                                                height: 18,
-                                                child: FittedBox(
-                                                  fit: BoxFit.scaleDown,
-                                                  child: Text(
-                                                    valueText,
-                                                    maxLines: 1,
-                                                    softWrap: false,
-                                                    style: Theme.of(
-                                                      context,
-                                                    ).textTheme.labelSmall,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      );
-                                    },
+                                  child: Container(
+                                    width: barWidth,
+                                    height: positiveBarHeight,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      borderRadius: barRadius,
+                                    ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                bucket.periodLabel,
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.labelMedium,
+                              Container(
+                                height: zeroLineThickness,
+                                color: zeroLineColor,
+                              ),
+                              SizedBox(
+                                height: negativeAreaHeight,
+                                child: Align(
+                                  alignment: Alignment.topCenter,
+                                  child: Container(
+                                    width: barWidth,
+                                    height: negativeBarHeight,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      borderRadius: barRadius,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
                         ),
+                      ],
+                    );
+                  }
+
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: chartWidth,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var index = 0; index < buckets.length; index++) ...[
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Expanded(
+                                      child: LayoutBuilder(
+                                        builder: (context, barConstraints) {
+                                          final maxBarHeight =
+                                              (barConstraints.maxHeight - 24)
+                                                  .clamp(24.0, 220.0);
+                                          final bucket = buckets[index];
+                                          return Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.end,
+                                            children: [
+                                              bar(
+                                                value: bucket.netRevenueEur,
+                                                color: revenueColor,
+                                                maxHeight: maxBarHeight,
+                                              ),
+                                              SizedBox(width: innerBarSpacing),
+                                              bar(
+                                                value: bucket.netCogsEur,
+                                                color: cogsColor,
+                                                maxHeight: maxBarHeight,
+                                              ),
+                                              SizedBox(width: innerBarSpacing),
+                                              bar(
+                                                value: bucket.grossProfitEur,
+                                                color: bucket.grossProfitEur >=
+                                                        0
+                                                    ? grossProfitPositiveColor
+                                                    : grossProfitNegativeColor,
+                                                maxHeight: maxBarHeight,
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      buckets[index].periodLabel,
+                                      textAlign: TextAlign.center,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (showMonthSeparators && index < buckets.length - 1)
+                              SizedBox(
+                                width: monthSeparatorWidth,
+                                child: Center(
+                                  child: Container(
+                                    width: 1,
+                                    height: 42,
+                                    color: monthSeparatorColor,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ],
                       ),
-                  ],
-                ),
+                    ),
+                  );
+                },
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );
@@ -1079,10 +1271,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         continue;
       }
 
-      final countryRaw = order.oDeliveryCountryId.trim().toUpperCase();
-      final countryKey = countryRaw.isEmpty || countryRaw == '-'
-          ? 'UNBEKANNT'
-          : countryRaw;
+        final countryRaw = order.oDeliveryCountryId.trim().toUpperCase();
+        final countryKey = _normalizeCountryBucketKey(countryRaw);
       final valueEur = wareinsatzOrderedItemNetSalesForOrder(
         item: item,
         order: order,
@@ -1114,6 +1304,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           ),
         )
         .toList(growable: false);
+  }
+
+  String _normalizeCountryBucketKey(String rawCountry) {
+    if (rawCountry.isEmpty || rawCountry == '-') {
+      return 'UNBEKANNT';
+    }
+
+    // Schreibweisen fuer die USA werden bewusst in einem Bucket zusammengefasst.
+    if (rawCountry == 'US' ||
+        rawCountry == 'USA' ||
+        rawCountry == 'UNITED STATES' ||
+        rawCountry == 'UNITED STATES OF AMERICA') {
+      return 'USA';
+    }
+
+    return rawCountry;
   }
 
   Widget _buildCountrySharePieSection(
@@ -1156,7 +1362,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Verteilung nach Land (${_chartGranularityLabel(granularity)})',
+                  'Verteilung Netto-Umsatz nach Land (${_chartGranularityLabel(granularity)})',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
@@ -1322,6 +1528,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   _ChartFilterContext _buildChartFilterContext({
     required List<OrderRow> orders,
     required List<ItemOrderedRow> orderedItems,
+    required List<ItemCatalogueRow> catalogueItems,
     required WareinsatzPuttFilter puttFilter,
     required _PeriodGranularity granularity,
     required Set<String> selectedQuarterKeys,
@@ -1357,9 +1564,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         .where((item) => orderById.containsKey(item.ioOrderId))
         .toList(growable: false);
 
+    final catalogueById = {
+      for (final item in catalogueItems) item.icId: item,
+    };
+
     return _ChartFilterContext(
       orderById: orderById,
       filteredItems: filteredItems,
+      catalogueById: catalogueById,
     );
   }
 
@@ -3429,10 +3641,32 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 }
 
 class _NetValueBucket {
-  const _NetValueBucket({required this.periodLabel, required this.valueEur});
+  const _NetValueBucket({
+    required this.periodLabel,
+    required this.netRevenueEur,
+    required this.netCogsEur,
+  });
 
   final String periodLabel;
-  final double valueEur;
+  final double netRevenueEur;
+  final double netCogsEur;
+  double get grossProfitEur => netRevenueEur - netCogsEur;
+}
+
+class _ChartLegendChip extends StatelessWidget {
+  const _ChartLegendChip({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: CircleAvatar(backgroundColor: color, radius: 6),
+      label: Text(label),
+    );
+  }
 }
 
 class _NetValueYearMonthTableData {
@@ -3469,10 +3703,12 @@ class _ChartFilterContext {
   const _ChartFilterContext({
     required this.orderById,
     required this.filteredItems,
+    required this.catalogueById,
   });
 
   final Map<String, OrderRow> orderById;
   final List<ItemOrderedRow> filteredItems;
+  final Map<int, ItemCatalogueRow> catalogueById;
 }
 
 class _CountrySharePiePainter extends CustomPainter {

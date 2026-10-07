@@ -404,4 +404,153 @@ void main() {
     );
     expect(counts['O-BO-1'], 0);
   });
+
+  test('liefert retourenanzahl je auftrag fuer positionsretouren', () async {
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(icId: 350, icIdi: 'R-350'),
+    );
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(icId: 351, icIdi: 'R-351'),
+    );
+
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-RET-CNT-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-07-16',
+      ),
+    );
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-RET-CNT-2',
+        oCustomerId: '1000000001',
+        oDate: '2026-07-17',
+      ),
+    );
+
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-RET-CNT-1',
+        ioPos: 1,
+        ioQuantity: 1,
+        ioItemId: 350,
+        ioIdi: 'R-350',
+        ioReturned: 1,
+      ),
+    );
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-RET-CNT-1',
+        ioPos: 2,
+        ioQuantity: 1,
+        ioItemId: 351,
+        ioIdi: 'R-351',
+        ioReturned: 0,
+      ),
+    );
+
+    final returnedCounts = await orderRepository.getReturnedItemCountsByOrderIds(
+      const ['O-RET-CNT-1', 'O-RET-CNT-2'],
+    );
+
+    expect(returnedCounts['O-RET-CNT-1'], 1);
+    expect(returnedCounts['O-RET-CNT-2'], 0);
+  });
+
+  test('unterstuetzt retouren pro position inkl. bestandssync ohne doppelte buchung', () async {
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(
+        icId: 400,
+        icIdi: 'RET-400',
+        icStock: 10,
+      ),
+    );
+    await itemRepository.saveCatalogueItem(
+      const ItemCatalogueRow(
+        icId: 401,
+        icIdi: 'RET-401',
+        icStock: 5,
+      ),
+    );
+
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-RET-PART-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-08-01',
+      ),
+    );
+
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-RET-PART-1',
+        ioPos: 1,
+        ioQuantity: 2,
+        ioItemId: 400,
+        ioIdi: 'RET-400',
+        ioReturned: 1,
+      ),
+    );
+    await orderRepository.saveItemOrdered(
+      const ItemOrderedRow(
+        ioOrderId: 'O-RET-PART-1',
+        ioPos: 2,
+        ioQuantity: 1,
+        ioItemId: 401,
+        ioIdi: 'RET-401',
+        ioReturned: 0,
+      ),
+    );
+
+    var item400 = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 400);
+    var item401 = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 401);
+    expect(item400.icStock, 12);
+    expect(item401.icStock, 5);
+
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-RET-PART-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-08-01',
+        oCanceled: 1,
+        oReturned: 1,
+      ),
+      originalOrderId: 'O-RET-PART-1',
+    );
+
+    item400 = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 400);
+    item401 = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 401);
+    expect(item400.icStock, 12);
+    expect(item401.icStock, 6);
+
+    await orderRepository.saveOrder(
+      const OrderRow(
+        oId: 'O-RET-PART-1',
+        oCustomerId: '1000000001',
+        oDate: '2026-08-01',
+        oCanceled: 0,
+        oReturned: 0,
+      ),
+      originalOrderId: 'O-RET-PART-1',
+    );
+
+    item400 = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 400);
+    item401 = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 401);
+    expect(item400.icStock, 12);
+    expect(item401.icStock, 5);
+
+    final savedItems = await orderRepository.getItemsForOrder('O-RET-PART-1');
+    final returnedItem = savedItems.firstWhere((entry) => entry.ioItemId == 400);
+    await orderRepository.deleteItemOrdered(returnedItem.ioId!);
+
+    item400 = (await itemRepository.getCatalogueItems())
+        .firstWhere((item) => item.icId == 400);
+    expect(item400.icStock, 10);
+  });
 }

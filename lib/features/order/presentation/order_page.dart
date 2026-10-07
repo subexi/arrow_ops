@@ -136,9 +136,14 @@ String _paymentLabelFromCode(int code) {
     'Banküberweisung',
     'Kreditkarte',
     'Bar',
+    'Scheck',
   ];
   if (code < 0 || code >= labels.length) return code.toString();
   return labels[code];
+}
+
+bool _isItemReturned(ItemOrderedRow item) {
+  return item.ioReturned != 0;
 }
 
 @visibleForTesting
@@ -150,11 +155,15 @@ OrderRow recalculateOrderHeaderTotals({
   InvoiceCalculationService calculationService =
       const InvoiceCalculationService(),
 }) {
-  final summedItemsValue = items.fold<double>(
+  final effectiveItems = items
+      .where((item) => !_isItemReturned(item))
+      .toList(growable: false);
+
+  final summedItemsValue = effectiveItems.fold<double>(
     0,
     (sum, item) => sum + item.ioTotalPrice,
   );
-  final summedItemsWeight = items.fold<double>(
+  final summedItemsWeight = effectiveItems.fold<double>(
     0,
     (sum, item) => sum + item.ioTotalWeight,
   );
@@ -172,7 +181,7 @@ OrderRow recalculateOrderHeaderTotals({
   if (customer != null) {
     final totals = calculationService.calculateTotals(
       order: order,
-      items: items,
+      items: effectiveItems,
       customer: customer,
     );
     return order.copyWith(
@@ -207,6 +216,7 @@ enum _OrderStatusQuickFilter {
   paidNotShipped,
   shippedNotPaid,
   withPendingBackorder,
+  partialReturned,
   returnedOrCanceled,
 }
 
@@ -222,6 +232,7 @@ class _OrderPageState extends State<OrderPage> {
   List<CountryTld> _allCountries = [];
   Map<String, Customer> _customerById = {};
   Map<String, int> _pendingBackorderCountsByOrderId = {};
+  Map<String, int> _returnedItemCountsByOrderId = {};
 
   bool _loading = true;
   String? _loadError;
@@ -273,6 +284,10 @@ class _OrderPageState extends State<OrderPage> {
       final customerMap = {for (final c in customers) c.cId: c};
       final pendingBackorderCountsByOrderId = await _orderRepo
           .getPendingBackorderCountsByOrderIds(
+            orders.map((order) => order.oId),
+          );
+      final returnedItemCountsByOrderId = await _orderRepo
+          .getReturnedItemCountsByOrderIds(
             orders.map((order) => order.oId),
           );
 
@@ -341,6 +356,7 @@ class _OrderPageState extends State<OrderPage> {
         _allCountries = countries;
         _customerById = customerMap;
         _pendingBackorderCountsByOrderId = pendingBackorderCountsByOrderId;
+        _returnedItemCountsByOrderId = returnedItemCountsByOrderId;
         _selectedOrderId = nextSelectedId;
         _items = items;
         _selectedItemOrderedKey = nextSelectedItemKey;
@@ -354,6 +370,7 @@ class _OrderPageState extends State<OrderPage> {
         _selectedOrderId = null;
         _selectedItemOrderedKey = null;
         _pendingBackorderCountsByOrderId = {};
+        _returnedItemCountsByOrderId = {};
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -445,12 +462,17 @@ class _OrderPageState extends State<OrderPage> {
           .getPendingBackorderCountsByOrderIds(
             nextOrders.map((entry) => entry.oId),
           );
+      final returnedItemCountsByOrderId = await _orderRepo
+          .getReturnedItemCountsByOrderIds(
+            nextOrders.map((entry) => entry.oId),
+          );
 
       if (!mounted) return;
       setState(() {
         _orders = nextOrders;
         _items = items;
         _pendingBackorderCountsByOrderId = pendingBackorderCountsByOrderId;
+        _returnedItemCountsByOrderId = returnedItemCountsByOrderId;
 
         if (_selectedItemOrderedKey == null ||
             !items.any(
@@ -1054,10 +1076,14 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-  DataCell _htsLinkCell(String htsCode, {VoidCallback? onDoubleTap}) {
+  DataCell _htsLinkCell(
+    String htsCode, {
+    VoidCallback? onTap,
+    VoidCallback? onDoubleTap,
+  }) {
     final normalized = htsCode.trim();
     if (normalized.isEmpty || normalized == '-') {
-      return _singleLineCell('-', onDoubleTap: onDoubleTap);
+      return _singleLineCell('-', onTap: onTap, onDoubleTap: onDoubleTap);
     }
 
     return DataCell(
@@ -1066,6 +1092,7 @@ class _OrderPageState extends State<OrderPage> {
         onOpen: () => _openHtsUrl(normalized),
         onDoubleTap: onDoubleTap,
       ),
+      onTap: onTap,
     );
   }
 
@@ -1282,6 +1309,7 @@ class _OrderPageState extends State<OrderPage> {
     final hasPayDate = _hasPayDate(order);
     final hasDeliveryDate = _hasDeliveryDate(order);
     final hasPendingBackorder = _hasPendingBackorder(order);
+    final hasPartialReturn = _hasReturnedItems(order) && !_isReturnedCancelled(order);
     final isReturnedOrCanceled = order.oCanceled != 0 || order.oReturned != 0;
     switch (_orderStatusQuickFilter) {
       case _OrderStatusQuickFilter.all:
@@ -1292,6 +1320,8 @@ class _OrderPageState extends State<OrderPage> {
         return hasDeliveryDate && !hasPayDate;
       case _OrderStatusQuickFilter.withPendingBackorder:
         return hasPendingBackorder;
+      case _OrderStatusQuickFilter.partialReturned:
+        return hasPartialReturn;
       case _OrderStatusQuickFilter.returnedOrCanceled:
         return isReturnedOrCanceled;
     }
@@ -1299,6 +1329,10 @@ class _OrderPageState extends State<OrderPage> {
 
   bool _hasPendingBackorder(OrderRow order) {
     return (_pendingBackorderCountsByOrderId[order.oId] ?? 0) > 0;
+  }
+
+  bool _hasReturnedItems(OrderRow order) {
+    return (_returnedItemCountsByOrderId[order.oId] ?? 0) > 0;
   }
 
   int _pendingBackorderCountForOrder(OrderRow? order) {
@@ -1315,6 +1349,9 @@ class _OrderPageState extends State<OrderPage> {
   String _orderLifecycleStatusLabel(OrderRow order) {
     if (_isReturnedCancelled(order)) {
       return 'Retoure';
+    }
+    if (_hasReturnedItems(order)) {
+      return 'Teilretoure';
     }
     if (order.oCanceled != 0) {
       return 'Storniert';
@@ -1690,7 +1727,15 @@ class _OrderPageState extends State<OrderPage> {
         .where(
           (order) =>
               _matchesOrderSearch(order, normalizedQuery) &&
-              (order.oCanceled != 0 || order.oReturned != 0),
+          (order.oCanceled != 0 || order.oReturned != 0),
+      )
+      .length;
+    final partialReturnedCount = _orders
+      .where(
+        (order) =>
+          _matchesOrderSearch(order, normalizedQuery) &&
+          _hasReturnedItems(order) &&
+          !_isReturnedCancelled(order),
         )
         .length;
     final showNetEurColumn =
@@ -1832,6 +1877,18 @@ class _OrderPageState extends State<OrderPage> {
                     setState(() {
                       _orderStatusQuickFilter =
                           _OrderStatusQuickFilter.withPendingBackorder;
+                    });
+                  },
+                ),
+                ChoiceChip(
+                  label: Text('Teilretoure ($partialReturnedCount)'),
+                  selected:
+                      _orderStatusQuickFilter ==
+                      _OrderStatusQuickFilter.partialReturned,
+                  onSelected: (_) {
+                    setState(() {
+                      _orderStatusQuickFilter =
+                          _OrderStatusQuickFilter.partialReturned;
                     });
                   },
                 ),
@@ -2347,10 +2404,17 @@ class _OrderPageState extends State<OrderPage> {
                           width: 0.6,
                         ),
                       ),
-                      minWidth: 1890,
-                      columns: const [
-                        DataColumn2(label: Text('Pos.'), fixedWidth: 58),
-                        DataColumn2(label: Text('Artikel-ID'), fixedWidth: 132),
+                      minWidth: 2000,
+                      columns: [
+                        const DataColumn2(
+                          label: Tooltip(
+                            message: 'Position auswählen',
+                            child: Icon(Icons.check_box_outlined, size: 18),
+                          ),
+                          fixedWidth: 56,
+                        ),
+                        DataColumn2(label: Text('Pos.'), fixedWidth: 50),
+                        DataColumn2(label: Text('Artikel-ID'), fixedWidth: 84),
                         DataColumn2(
                           label: Text('Bezeichnung'),
                           size: ColumnSize.S,
@@ -2395,6 +2459,7 @@ class _OrderPageState extends State<OrderPage> {
                           fixedWidth: 122,
                         ),
                         DataColumn2(label: Text('Farbe'), fixedWidth: 100),
+                        DataColumn2(label: Text('Retoure'), fixedWidth: 96),
                         DataColumn2(
                           label: Text('Nachlieferung'),
                           fixedWidth: 138,
@@ -2417,6 +2482,12 @@ class _OrderPageState extends State<OrderPage> {
                               _showItemOrderedForm(initialValue: item);
                             }
 
+                            void handleSelectItem() {
+                              setState(() {
+                                _selectedItemOrderedKey = itemSelectionKey;
+                              });
+                            }
+
                             return DataRow(
                               selected: isSelected,
                               onSelectChanged: (isSelected) {
@@ -2432,17 +2503,30 @@ class _OrderPageState extends State<OrderPage> {
                                 );
                               },
                               cells: [
+                                DataCell(
+                                  Checkbox(
+                                    value: isSelected,
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    onChanged: (_) => handleSelectItem(),
+                                  ),
+                                  onTap: handleSelectItem,
+                                ),
                                 _numericCell(
                                   item.ioPos.toString().padLeft(2, '0'),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 _numericCell(
                                   item.ioItemId.toString(),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 _singleLineCell(
                                   item.ioIdi,
                                   tooltip: item.ioIdi,
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 DataCell(
@@ -2454,21 +2538,25 @@ class _OrderPageState extends State<OrderPage> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  onTap: () => _showPositionDescriptionDialog(
-                                    description,
-                                  ),
+                                  onTap: () {
+                                    handleSelectItem();
+                                    _showPositionDescriptionDialog(description);
+                                  },
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 DataCell(
                                   _buildOrderedItemImageCell(item.ioPhoto),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 _htsLinkCell(
                                   item.ioHts,
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 _numericCell(
                                   item.ioQuantity.toString(),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 _selectableNumericCell(
@@ -2476,6 +2564,7 @@ class _OrderPageState extends State<OrderPage> {
                                 ),
                                 _numericCell(
                                   _formatDecimal(item.ioTotalWeight, 1),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 _selectableNumericCell(
@@ -2483,20 +2572,58 @@ class _OrderPageState extends State<OrderPage> {
                                 ),
                                 _numericCell(
                                   _formatDecimal(item.ioDiscount, 2),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 _numericCell(
                                   _formatDecimal(item.ioTotalPrice, 2),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 DataCell(
                                   Text(item.ioColor),
+                                  onTap: handleSelectItem,
+                                  onDoubleTap: handleOpenEdit,
+                                ),
+                                DataCell(
+                                  Center(
+                                    child: _isItemReturned(item)
+                                        ? Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.assignment_returned,
+                                                size: 18,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary,
+                                              ),
+                                              Text(
+                                                item.ioReturnedDate.trim().isEmpty
+                                                    ? '-'
+                                                    : item.ioReturnedDate,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .labelSmall,
+                                              ),
+                                            ],
+                                          )
+                                        : Icon(
+                                            Icons.remove,
+                                            size: 18,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                  ),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                                 DataCell(
                                   Center(
                                     child: _buildBackorderStatusCell(item),
                                   ),
+                                  onTap: handleSelectItem,
                                   onDoubleTap: handleOpenEdit,
                                 ),
                               ],

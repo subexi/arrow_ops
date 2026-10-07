@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -191,16 +192,149 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
     );
   }
 
-  Future<void> _pickImagePath() async {
-    final result = await FilePicker.pickFile(
-      type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'],
+  bool _hasAllowedExtension(String path, Set<String> allowedExtensions) {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      return false;
+    }
+    final dotIndex = trimmed.lastIndexOf('.');
+    if (dotIndex < 0 || dotIndex == trimmed.length - 1) {
+      return false;
+    }
+    final extension = trimmed.substring(dotIndex + 1).toLowerCase();
+    return allowedExtensions.contains(extension);
+  }
+
+  Future<String?> _resolvePickedPath(
+    dynamic result, {
+    required Set<String> allowedExtensions,
+    required String tempPrefix,
+  }) async {
+    if (result == null || result.isEmpty) {
+      return null;
+    }
+
+    final platformFile = result.first;
+
+    final candidatePaths = <String>[];
+    final platformPath = platformFile.path?.trim();
+    if (platformPath != null && platformPath.isNotEmpty) {
+      candidatePaths.add(platformPath);
+    }
+
+    for (final candidate in candidatePaths) {
+      if (_hasAllowedExtension(candidate, allowedExtensions)) {
+        return candidate;
+      }
+    }
+
+    final fileName = (platformFile.name ?? '').toString().trim();
+    final fileBytes = platformFile.bytes;
+    if (fileBytes != null &&
+        fileName.isNotEmpty &&
+        _hasAllowedExtension(fileName, allowedExtensions)) {
+      final dotIndex = fileName.lastIndexOf('.');
+      final extension = dotIndex >= 0 ? fileName.substring(dotIndex) : '';
+      final timestamp = DateTime.now().microsecondsSinceEpoch;
+      final tempPath =
+          '${Directory.systemTemp.path}${Platform.pathSeparator}${tempPrefix}_$timestamp$extension';
+      final tempFile = File(tempPath);
+      await tempFile.writeAsBytes(fileBytes, flush: true);
+      return tempFile.path;
+    }
+
+    return null;
+  }
+
+  Future<String?> _pickPathWithFileSelector({
+    required Set<String> allowedExtensions,
+    required String label,
+  }) async {
+    if (!Platform.isMacOS) {
+      return null;
+    }
+
+    XFile? xFile;
+    try {
+      xFile = await openFile(
+        acceptedTypeGroups: [
+          XTypeGroup(
+            label: label,
+            extensions: allowedExtensions.toList(growable: false),
+          ),
+        ],
+        confirmButtonText: 'Auswaehlen',
+      );
+    } on MissingPluginException {
+      // Fallback to file_picker when file_selector plugin is not registered.
+      return null;
+    }
+
+    final path = xFile?.path.trim();
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+    if (!_hasAllowedExtension(path, allowedExtensions)) {
+      return null;
+    }
+    return path;
+  }
+
+  Future<String?> _pickPathWithFilePicker({
+    required Set<String> allowedExtensions,
+    required String tempPrefix,
+    required String dialogTitle,
+  }) async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.any,
+      dialogTitle: dialogTitle,
     );
+    if (result.isEmpty) {
+      return null;
+    }
+    return _resolvePickedPath(
+      result,
+      allowedExtensions: allowedExtensions,
+      tempPrefix: tempPrefix,
+    );
+  }
+
+  Future<void> _pickImagePath() async {
+    const allowedExtensions = <String>{
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+      'heic',
+      'heif',
+    };
+
+    String? pickedPath;
+    try {
+      pickedPath = await _pickPathWithFileSelector(
+        allowedExtensions: allowedExtensions,
+        label: 'Bilddatei',
+      );
+      pickedPath ??= await _pickPathWithFilePicker(
+        allowedExtensions: allowedExtensions,
+        tempPrefix: 'arrow_ops_item_image',
+        dialogTitle: 'Bilddatei auswählen',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      TransientFeedback.show(
+        context,
+        message: 'Dateiauswahl konnte nicht geoeffnet werden: $error',
+      );
+      return;
+    }
     if (!mounted) {
       return;
     }
 
-    final pickedPath = result?.path;
     if (pickedPath == null || pickedPath.trim().isEmpty) {
       TransientFeedback.show(
         context,
@@ -209,21 +343,58 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
       return;
     }
 
+    final resolvedImagePath = pickedPath;
+
+    if (!_hasAllowedExtension(resolvedImagePath, allowedExtensions)) {
+      TransientFeedback.show(
+        context,
+        message: 'Dateityp nicht unterstuetzt. Erlaubt: jpg, jpeg, png, webp, gif, heic, heif.',
+      );
+      return;
+    }
+
     setState(() {
-      _imagePathController.text = pickedPath;
+      _imagePathController.text = resolvedImagePath;
     });
   }
 
   Future<void> _pickDrawingPath() async {
-    final result = await FilePicker.pickFile(
-      type: FileType.custom,
-      allowedExtensions: const ['pdf', 'dwg', 'dxf', 'svg', 'png', 'jpg', 'jpeg', 'webp'],
-    );
+    const allowedExtensions = <String>{
+      'pdf',
+      'dwg',
+      'dxf',
+      'svg',
+      'png',
+      'jpg',
+      'jpeg',
+      'webp',
+    };
+
+    String? pickedPath;
+    try {
+      pickedPath = await _pickPathWithFileSelector(
+        allowedExtensions: allowedExtensions,
+        label: 'Zeichnungsdatei',
+      );
+      pickedPath ??= await _pickPathWithFilePicker(
+        allowedExtensions: allowedExtensions,
+        tempPrefix: 'arrow_ops_item_drawing',
+        dialogTitle: 'Zeichnungsdatei auswählen',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      TransientFeedback.show(
+        context,
+        message: 'Dateiauswahl konnte nicht geoeffnet werden: $error',
+      );
+      return;
+    }
     if (!mounted) {
       return;
     }
 
-    final pickedPath = result?.path;
     if (pickedPath == null || pickedPath.trim().isEmpty) {
       TransientFeedback.show(
         context,
@@ -232,8 +403,18 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
       return;
     }
 
+    final resolvedDrawingPath = pickedPath;
+
+    if (!_hasAllowedExtension(resolvedDrawingPath, allowedExtensions)) {
+      TransientFeedback.show(
+        context,
+        message: 'Dateityp nicht unterstuetzt. Erlaubt: pdf, dwg, dxf, svg, png, jpg, jpeg, webp.',
+      );
+      return;
+    }
+
     setState(() {
-      _drawingPathController.text = pickedPath;
+      _drawingPathController.text = resolvedDrawingPath;
     });
   }
 
@@ -244,6 +425,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
       controller: _drawingPathController,
       enabled: true,
       readOnly: readOnly,
+      onTap: readOnly ? null : _pickDrawingPath,
       enableInteractiveSelection: true,
       decoration: InputDecoration(
         labelText: 'Zeichnung',
@@ -314,6 +496,7 @@ class _ItemCatalogueFormDialogState extends State<ItemCatalogueFormDialog> {
           controller: _imagePathController,
           enabled: true,
           readOnly: readOnly,
+          onTap: readOnly ? null : _pickImagePath,
           enableInteractiveSelection: true,
           decoration: InputDecoration(
             labelText: 'Bild',

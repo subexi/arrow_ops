@@ -34,6 +34,7 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _imageStorage = const ItemImageStorageService();
   final _discountFocusNode = FocusNode();
+  final _itemLabelFocusNode = FocusNode();
 
   late final TextEditingController _orderIdController;
   late final TextEditingController _posController;
@@ -48,10 +49,12 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
   late final TextEditingController _itemWeightController;
   late final TextEditingController _totalWeightController;
   late final TextEditingController _photoController;
+  late final TextEditingController _returnedDateController;
   late final TextEditingController _backorderEtaController;
 
   int? _selectedItemId;
   bool _expandDescription = false;
+  bool _returned = false;
   bool _backorderPending = false;
   bool _backorderCompleted = false;
   bool _isApplyingCalculatedUnitPrice = false;
@@ -136,9 +139,16 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
     _itemWeightController = TextEditingController(text: _weightText(v?.ioItemWeight ?? 0));
     _totalWeightController = TextEditingController(text: _weightText(v?.ioTotalWeight ?? 0));
     _photoController = TextEditingController(text: v?.ioPhoto ?? '-');
+    _returnedDateController = TextEditingController(
+      text: v?.ioReturnedDate ?? '-',
+    );
     _backorderPending = (v?.ioBackorderPending ?? 0) != 0;
     _backorderEtaController = TextEditingController(text: v?.ioBackorderEta ?? '-');
     _backorderCompleted = (v?.ioBackorderCompleted ?? 0) != 0;
+    _returned = (v?.ioReturned ?? 0) != 0;
+    if (_returned && (_returnedDateController.text.trim().isEmpty || _returnedDateController.text.trim() == '-')) {
+      _returnedDateController.text = _todayDateString();
+    }
     if (_backorderPending && _backorderCompleted) {
       _backorderCompleted = false;
     }
@@ -173,6 +183,15 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
     _discountFocusNode.addListener(_normalizeDiscountOnBlur);
 
     _recalculateTotals();
+
+    if (!_isEditing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _itemLabelFocusNode.requestFocus();
+      });
+    }
   }
 
   @override
@@ -190,14 +209,52 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
     _itemWeightController.dispose();
     _totalWeightController.dispose();
     _photoController.dispose();
+    _returnedDateController.dispose();
     _backorderEtaController.dispose();
     _discountFocusNode.dispose();
+    _itemLabelFocusNode.dispose();
     super.dispose();
   }
 
   bool get _hasBackorderEta {
     final value = _backorderEtaController.text.trim();
     return value.isNotEmpty && value != '-';
+  }
+
+  bool get _hasReturnedDate {
+    final value = _returnedDateController.text.trim();
+    return value.isNotEmpty && value != '-';
+  }
+
+  String _todayDateString() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
+  Future<void> _pickReturnedDate() async {
+    final now = DateTime.now();
+    final raw = _returnedDateController.text.trim();
+    final parsed = DateTime.tryParse(raw);
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: parsed ?? now,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 1),
+      helpText: 'Retoure-Datum',
+    );
+
+    if (selected == null) {
+      return;
+    }
+
+    final month = selected.month.toString().padLeft(2, '0');
+    final day = selected.day.toString().padLeft(2, '0');
+    final value = '${selected.year}-$month-$day';
+    setState(() {
+      _returnedDateController.text = value;
+    });
   }
 
   Future<void> _pickBackorderEta() async {
@@ -572,6 +629,7 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownMenu<int>(
+                  focusNode: _itemLabelFocusNode,
                   controller: _idiSearchController,
                   initialSelection: _selectedItemId,
                   width: 720,
@@ -703,6 +761,66 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
                 const SizedBox(height: 12),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
+                  value: _returned,
+                  title: Text(
+                    _isOrderLanguageDe
+                        ? 'Retoure (Position zurueckgenommen)'
+                        : 'Return (item has been taken back)',
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _returned = value ?? false;
+                      if (_returned) {
+                        if (!_hasReturnedDate) {
+                          _returnedDateController.text = _todayDateString();
+                        }
+                        _backorderPending = false;
+                        _backorderCompleted = false;
+                        _backorderEtaController.text = '-';
+                      } else {
+                        _returnedDateController.text = '-';
+                      }
+                    });
+                  },
+                ),
+                if (_returned)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _returnedDateController,
+                            readOnly: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Retoure-Datum',
+                              border: OutlineInputBorder(),
+                            ),
+                            onTap: _pickReturnedDate,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          tooltip: 'Datum wählen',
+                          onPressed: _pickReturnedDate,
+                          icon: const Icon(Icons.event_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Datum löschen',
+                          onPressed: _hasReturnedDate
+                              ? () {
+                                  setState(() {
+                                    _returnedDateController.text = '-';
+                                  });
+                                }
+                              : null,
+                          icon: const Icon(Icons.clear_outlined),
+                        ),
+                      ],
+                    ),
+                  ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
                   value: _backorderPending,
                   title: Text(
                     _isOrderLanguageDe
@@ -713,6 +831,7 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
                     setState(() {
                       _backorderPending = value ?? false;
                       if (_backorderPending) {
+                        _returned = false;
                         _backorderCompleted = false;
                       } else {
                         _backorderEtaController.text = '-';
@@ -764,6 +883,7 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
                     setState(() {
                       _backorderCompleted = value ?? false;
                       if (_backorderCompleted) {
+                        _returned = false;
                         _backorderPending = false;
                       }
                     });
@@ -817,6 +937,12 @@ class _ItemOrderedFormDialogState extends State<ItemOrderedFormDialog> {
               ioItemWeight: _parseDecimal(_itemWeightController),
               ioTotalWeight: _parseDecimal(_totalWeightController),
               ioPhoto: selected.icImagePath.trim().isEmpty ? '-' : selected.icImagePath.trim(),
+              ioReturned: _returned ? 1 : 0,
+                ioReturnedDate: _returned
+                  ? (_hasReturnedDate
+                    ? _returnedDateController.text.trim()
+                    : _todayDateString())
+                  : '-',
               ioBackorderPending: _backorderPending ? 1 : 0,
               ioBackorderEta: _hasBackorderEta ? _backorderEtaController.text.trim() : '-',
               ioBackorderCompleted: _backorderCompleted ? 1 : 0,
