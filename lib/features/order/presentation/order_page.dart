@@ -590,27 +590,34 @@ class _OrderPageState extends State<OrderPage> {
         'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon';
     final location = LatLng(lat, lon);
     final mapController = MapController();
-    final screenSize = MediaQuery.of(context).size;
-    final dialogWidth = (screenSize.width * 0.85).clamp(300.0, 760.0);
-    final mapHeight = (screenSize.height * 0.40).clamp(180.0, 320.0);
     final label = _endCustomerLabel(order) == 'Dito'
         ? _customerName(order.oCustomerId)
         : _endCustomerLabel(order);
 
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Location: $label'),
-        content: SizedBox(
-          width: dialogWidth,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  height: mapHeight,
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (routeContext) => Scaffold(
+          appBar: AppBar(
+            title: Text('Location: $label'),
+            actions: [
+              IconButton(
+                tooltip: 'Im Browser öffnen',
+                onPressed: () async {
+                  final opened = await _openMapInBrowser(mapUrl);
+                  if (opened && routeContext.mounted) {
+                    Navigator.of(routeContext).pop();
+                  }
+                },
+                icon: const Icon(Icons.open_in_new),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
                   child: Stack(
                     children: [
                       FlutterMap(
@@ -686,26 +693,14 @@ class _OrderPageState extends State<OrderPage> {
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              SelectableText('Lat: $lat, Lon: $lon'),
-            ],
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText('Lat: $lat, Lon: $lon'),
+                ),
+              ],
+            ),
           ),
         ),
-        actions: [
-          TextButton.icon(
-            onPressed: () async {
-              await _openMapInBrowser(mapUrl);
-              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-            },
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('Im Browser öffnen'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Schliessen'),
-          ),
-        ],
       ),
     );
   }

@@ -502,6 +502,38 @@ void main() {
 
       expect(line, equals('42 Main Street'));
     });
+
+    test('places house number before street for France in German layout', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        street: 'Rue de Rivoli',
+        houseNumber: '10',
+        countryCode: 'Frankreich',
+      );
+
+      final line = service.debugStreetAddressLine(
+        party,
+        useGerman: true,
+      );
+
+      expect(line, equals('10 Rue de Rivoli'));
+    });
+
+    test('places house number before street for France in English layout', () {
+      const party = InvoicePartyData(
+        name: 'Recipient',
+        street: 'Rue de Rivoli',
+        houseNumber: '10',
+        countryCode: 'France',
+      );
+
+      final line = service.debugStreetAddressLine(
+        party,
+        useGerman: false,
+      );
+
+      expect(line, equals('10 Rue de Rivoli'));
+    });
   });
 
   group('InvoicePdfService Italy address formatting', () {
@@ -958,6 +990,18 @@ void main() {
       final text = service.debugDisplayCountryForAddress('IT');
 
       expect(text, equals('Italy'));
+    });
+
+    test('shows full country name for ISO-3 abbreviations', () {
+      final text = service.debugDisplayCountryForAddress('FRA');
+
+      expect(text, equals('France'));
+    });
+
+    test('shows mapped country name for Slovakia token', () {
+      final text = service.debugDisplayCountryForAddress('SK');
+
+      expect(text, equals('Slovakia'));
     });
 
     test('shows Germany only when explicitly requested', () {

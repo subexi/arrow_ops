@@ -1403,118 +1403,101 @@ class _CustomerPageState extends State<CustomerPage> {
         'https://geojson.io/#data=data:application/json,${Uri.encodeComponent(geojson)}';
 
     final mapController = MapController();
-    final screenSize = MediaQuery.of(context).size;
-    final dialogWidth = (screenSize.width * 0.90).clamp(320.0, 1000.0);
-    final mapHeight = (screenSize.height * 0.50).clamp(250.0, 400.0);
-
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Alle Locations (${validCustomers.length})'),
-        content: SizedBox(
-          width: dialogWidth,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  height: mapHeight,
-                  child: Stack(
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (routeContext) => Scaffold(
+          appBar: AppBar(
+            title: Text('Alle Locations (${validCustomers.length})'),
+            actions: [
+              IconButton(
+                tooltip: 'Link kopieren',
+                onPressed: () async {
+                  await _copyMapLink(mapUrl);
+                },
+                icon: const Icon(Icons.copy),
+              ),
+              IconButton(
+                tooltip: 'Im Browser öffnen',
+                onPressed: () async {
+                  final opened = await _openMapInBrowser(mapUrl);
+                  if (opened && routeContext.mounted) {
+                    Navigator.of(routeContext).pop();
+                  }
+                },
+                icon: const Icon(Icons.open_in_new),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            child: Stack(
+              children: [
+                FlutterMap(
+                  mapController: mapController,
+                  options: MapOptions(
+                    initialCenter: center,
+                    initialZoom: validCustomers.length == 1 ? 14 : 4,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.arrow_ops',
+                      errorTileCallback: (tile, error, stackTrace) {
+                        debugPrint(
+                          'Tile konnte nicht geladen werden (${tile.coordinates}): $error',
+                        );
+                      },
+                    ),
+                    MarkerLayer(markers: markers),
+                  ],
+                ),
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      FlutterMap(
-                        mapController: mapController,
-                        options: MapOptions(
-                          initialCenter: center,
-                          initialZoom: validCustomers.length == 1 ? 14 : 4,
-                        ),
-                        children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.example.arrow_ops',
-                            errorTileCallback: (tile, error, stackTrace) {
-                              debugPrint(
-                                'Tile konnte nicht geladen werden (${tile.coordinates}): $error',
-                              );
-                            },
+                      Material(
+                        color: Colors.white,
+                        elevation: 2,
+                        borderRadius: BorderRadius.circular(4),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(4),
+                          onTap: () => mapController.move(
+                            mapController.camera.center,
+                            mapController.camera.zoom + 1,
                           ),
-                          MarkerLayer(markers: markers),
-                        ],
+                          child: const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.add, size: 20),
+                          ),
+                        ),
                       ),
-                      Positioned(
-                        right: 8,
-                        bottom: 8,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Material(
-                              color: Colors.white,
-                              elevation: 2,
-                              borderRadius: BorderRadius.circular(4),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(4),
-                                onTap: () => mapController.move(
-                                  mapController.camera.center,
-                                  mapController.camera.zoom + 1,
-                                ),
-                                child: const Padding(
-                                  padding: EdgeInsets.all(6),
-                                  child: Icon(Icons.add, size: 20),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Material(
-                              color: Colors.white,
-                              elevation: 2,
-                              borderRadius: BorderRadius.circular(4),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(4),
-                                onTap: () => mapController.move(
-                                  mapController.camera.center,
-                                  mapController.camera.zoom - 1,
-                                ),
-                                child: const Padding(
-                                  padding: EdgeInsets.all(6),
-                                  child: Icon(Icons.remove, size: 20),
-                                ),
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 4),
+                      Material(
+                        color: Colors.white,
+                        elevation: 2,
+                        borderRadius: BorderRadius.circular(4),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(4),
+                          onTap: () => mapController.move(
+                            mapController.camera.center,
+                            mapController.camera.zoom - 1,
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.remove, size: 20),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-        actions: [
-          TextButton.icon(
-            onPressed: () async {
-              await _copyMapLink(mapUrl);
-            },
-            icon: const Icon(Icons.copy),
-            label: const Text('Link kopieren'),
-          ),
-          TextButton.icon(
-            onPressed: () async {
-              final opened = await _openMapInBrowser(mapUrl);
-              if (opened && dialogContext.mounted) {
-                Navigator.of(dialogContext).pop();
-              }
-            },
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('Im Browser öffnen'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Schließen'),
-          ),
-        ],
       ),
     );
   }
@@ -1532,24 +1515,37 @@ class _CustomerPageState extends State<CustomerPage> {
         'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon';
     final location = LatLng(lat, lon);
     final mapController = MapController();
-    final screenSize = MediaQuery.of(context).size;
-    final dialogWidth = (screenSize.width * 0.85).clamp(300.0, 760.0);
-    final mapHeight = (screenSize.height * 0.40).clamp(180.0, 320.0);
-
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Location: ${customer.cLastName}, ${customer.cFirstName}'),
-        content: SizedBox(
-          width: dialogWidth,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  height: mapHeight,
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (routeContext) => Scaffold(
+          appBar: AppBar(
+            title: Text('Location: ${customer.cLastName}, ${customer.cFirstName}'),
+            actions: [
+              IconButton(
+                tooltip: 'Link kopieren',
+                onPressed: () async {
+                  await _copyMapLink(mapUrl);
+                },
+                icon: const Icon(Icons.copy),
+              ),
+              IconButton(
+                tooltip: 'Im Browser öffnen',
+                onPressed: () async {
+                  final opened = await _openMapInBrowser(mapUrl);
+                  if (opened && routeContext.mounted) {
+                    Navigator.of(routeContext).pop();
+                  }
+                },
+                icon: const Icon(Icons.open_in_new),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
                   child: Stack(
                     children: [
                       FlutterMap(
@@ -1630,43 +1626,24 @@ class _CustomerPageState extends State<CustomerPage> {
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              SelectableText('Lat: $lat, Lon: $lon'),
-              const SizedBox(height: 4),
-              SizedBox(
-                width: double.infinity,
-                child: SelectableText(
-                  mapUrl,
-                  style: const TextStyle(fontSize: 12),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: SelectableText('Lat: $lat, Lon: $lon'),
                 ),
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: SelectableText(
+                      mapUrl,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        actions: [
-          TextButton.icon(
-            onPressed: () async {
-              await _copyMapLink(mapUrl);
-            },
-            icon: const Icon(Icons.copy),
-            label: const Text('Link kopieren'),
-          ),
-          TextButton.icon(
-            onPressed: () async {
-              final opened = await _openMapInBrowser(mapUrl);
-              if (opened && dialogContext.mounted) {
-                Navigator.of(dialogContext).pop();
-              }
-            },
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('Im Browser oeffnen'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Schliessen'),
-          ),
-        ],
       ),
     );
   }

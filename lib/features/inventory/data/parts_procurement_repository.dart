@@ -21,11 +21,14 @@ class PartsProcurementRepository {
     return int.tryParse(rows.first['next_id']?.toString() ?? '') ?? 1;
   }
 
-  Future<void> save(PartsProcurementRow row) async {
+  Future<void> save(
+    PartsProcurementRow row, {
+    bool validateCatalogueReference = true,
+  }) async {
     final db = await AppDatabase.instance.database;
     
     // Validate pp_idi exists in item_catalogue (if not empty)
-    if (row.ppIdi.isNotEmpty) {
+    if (validateCatalogueReference && row.ppIdi.isNotEmpty) {
       final itemCatalogueRows = await db.query(
         'item_catalogue',
         where: 'ic_idi = ? OR ic_ide = ? OR CAST(ic_id AS TEXT) = ?',

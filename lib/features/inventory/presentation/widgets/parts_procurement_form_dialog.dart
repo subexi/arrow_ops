@@ -3,6 +3,36 @@ import 'package:flutter/material.dart';
 import '../../../item/domain/item_models.dart';
 import '../../domain/parts_procurement_models.dart';
 
+String? _partsWildcardRegexPattern(String query) {
+  if (!query.contains('*') && !query.contains('?')) {
+    return null;
+  }
+
+  final pattern = StringBuffer();
+  for (final rune in query.runes) {
+    final char = String.fromCharCode(rune);
+    if (char == '*') {
+      pattern.write('.*');
+    } else if (char == '?') {
+      pattern.write('.');
+    } else {
+      pattern.write(RegExp.escape(char));
+    }
+  }
+  return pattern.toString();
+}
+
+bool _partsTextMatchesQuery({required String text, required String query}) {
+  if (query.isEmpty) {
+    return true;
+  }
+  final wildcardPattern = _partsWildcardRegexPattern(query);
+  if (wildcardPattern == null) {
+    return text.contains(query);
+  }
+  return RegExp(wildcardPattern, caseSensitive: false).hasMatch(text);
+}
+
 class PartsProcurementFormDialog extends StatefulWidget {
   const PartsProcurementFormDialog({
     super.key,
@@ -369,9 +399,18 @@ class _PartsProcurementFormDialogState extends State<PartsProcurementFormDialog>
             final filteredOptions = normalizedQuery.isEmpty
                 ? _options
                 : _options.where((option) {
-                    return option.label.toLowerCase().contains(normalizedQuery) ||
-                        option.description.toLowerCase().contains(normalizedQuery) ||
-                        option.storedToken.toLowerCase().contains(normalizedQuery);
+                    return _partsTextMatchesQuery(
+                          text: option.label.toLowerCase(),
+                          query: normalizedQuery,
+                        ) ||
+                        _partsTextMatchesQuery(
+                          text: option.description.toLowerCase(),
+                          query: normalizedQuery,
+                        ) ||
+                        _partsTextMatchesQuery(
+                          text: option.storedToken.toLowerCase(),
+                          query: normalizedQuery,
+                        );
                   }).toList(growable: false);
 
             return AlertDialog(

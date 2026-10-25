@@ -1734,16 +1734,16 @@ class _OrderFormDialogState extends State<OrderFormDialog> {
                   const SizedBox(height: 12),
                   _row2(
                     _field(_deliveryNameController, 'Endkunde Name'),
-                    _field(_deliveryCityController, 'Lieferadresse Stadt'),
-                  ),
-                  const SizedBox(height: 12),
-                  _row2(
                     _field(_deliveryStreetController, 'Lieferadresse Straße'),
-                    _field(_deliveryHouseNumberController, 'Lieferadresse Hausnummer'),
                   ),
                   const SizedBox(height: 12),
                   _row2(
+                    _field(_deliveryHouseNumberController, 'Lieferadresse Hausnummer'),
                     _field(_deliveryPostalCodeController, 'Lieferadresse PLZ'),
+                  ),
+                  const SizedBox(height: 12),
+                  _row2(
+                    _field(_deliveryCityController, 'Lieferadresse Stadt'),
                     _field(
                       _deliveryLatController,
                       'Breitengrad (Lat)',

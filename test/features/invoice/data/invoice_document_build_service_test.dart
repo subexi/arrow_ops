@@ -269,7 +269,7 @@ void main() {
       expect(data.delivery.postalCode, '70629');
       expect(data.delivery.city, 'Stuttgart');
       expect(data.delivery.state, 'BW');
-      expect(data.delivery.countryCode, 'DE');
+      expect(data.delivery.countryCode, 'Germany');
     });
   });
 }

@@ -261,6 +261,7 @@ class InvoiceDocumentBuildService {
         token: deliveryCountryCode,
         useEnglishCountryNames: useEnglishCountryNames,
         countryNamesByCode: countryNamesByCode,
+        forceFullCountryName: preferOrderValues,
       ),
       vatId: _normalizedOrFallback(customer.cVatId, '-'),
       email: _normalizedOrFallback(customer.cMail, '-'),
@@ -423,6 +424,7 @@ class InvoiceDocumentBuildService {
     required String token,
     required bool useEnglishCountryNames,
     required Map<String, String> countryNamesByCode,
+    bool forceFullCountryName = false,
   }) {
     final normalizedToken = token.trim();
     if (normalizedToken.isEmpty || normalizedToken == '-') {
@@ -430,11 +432,16 @@ class InvoiceDocumentBuildService {
     }
 
     final upperToken = normalizedToken.toUpperCase();
+    final mappedCountryName = countryNamesByCode[upperToken];
+    if (forceFullCountryName && mappedCountryName != null) {
+      return mappedCountryName;
+    }
+
     if (!useEnglishCountryNames) {
       return upperToken;
     }
 
-    return countryNamesByCode[upperToken] ?? upperToken;
+    return mappedCountryName ?? upperToken;
   }
 
   List<String> _normalizeLines(List<String> lines) {

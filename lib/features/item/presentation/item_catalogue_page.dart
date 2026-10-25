@@ -91,6 +91,36 @@ double cataloguePdfColumnFlexForFieldKey(String fieldKey) {
   }
 }
 
+String? _catalogueWildcardRegexPattern(String query) {
+  if (!query.contains('*') && !query.contains('?')) {
+    return null;
+  }
+
+  final pattern = StringBuffer();
+  for (final rune in query.runes) {
+    final char = String.fromCharCode(rune);
+    if (char == '*') {
+      pattern.write('.*');
+    } else if (char == '?') {
+      pattern.write('.');
+    } else {
+      pattern.write(RegExp.escape(char));
+    }
+  }
+  return pattern.toString();
+}
+
+bool _catalogueTextMatchesQuery({required String text, required String query}) {
+  if (query.isEmpty) {
+    return true;
+  }
+  final wildcardPattern = _catalogueWildcardRegexPattern(query);
+  if (wildcardPattern == null) {
+    return text.contains(query);
+  }
+  return RegExp(wildcardPattern, caseSensitive: false).hasMatch(text);
+}
+
 class ItemCataloguePage extends StatefulWidget {
   const ItemCataloguePage({
     super.key,
@@ -2013,7 +2043,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
     if (categoryTerms.isNotEmpty) {
       final categoryText = item.category.toLowerCase();
       final matchesCategoryTerms = categoryTerms.every(
-        (term) => categoryText.contains(term),
+        (term) => _catalogueTextMatchesQuery(text: categoryText, query: term),
       );
       if (!matchesCategoryTerms) {
         return false;
@@ -2033,7 +2063,7 @@ class _ItemCataloguePageState extends State<ItemCataloguePage> {
       item.icDescriptionEnLong,
       item.icNote,
     ].join(' | ').toLowerCase();
-    return text.contains(freeTextQuery);
+    return _catalogueTextMatchesQuery(text: text, query: freeTextQuery);
   }
 
   List<String> _extractCategorySearchTerms(String query) {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
@@ -30,6 +31,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   bool _loading = true;
   String? _loadError;
   int? _selectedId;
+  Set<int> _selectedIds = <int>{};
   int? _sortColumnIndex = 1;
   bool _sortAscending = false;
   String _searchQuery = '';
@@ -80,8 +82,12 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       _rows = rows;
       _catalogueItems = catalogueItems;
       _loadError = errorMessage;
+      _selectedIds = _selectedIds.where((id) => _rows.any((row) => row.ppId == id)).toSet();
       if (_selectedId == null || !_rows.any((row) => row.ppId == _selectedId)) {
         _selectedId = _rows.isEmpty ? null : _rows.first.ppId;
+      }
+      if (_selectedId != null) {
+        _selectedIds = {..._selectedIds, _selectedId!};
       }
       _loading = false;
     });
@@ -127,7 +133,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (!mounted) {
         return;
       }
-      setState(() => _selectedId = created.ppId);
+      setState(() {
+        _selectedId = created.ppId;
+        _selectedIds = {created.ppId};
+      });
     } catch (error) {
       if (!mounted) {
         return;
@@ -173,7 +182,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (!mounted) {
         return;
       }
-      setState(() => _selectedId = edited.ppId);
+      setState(() {
+        _selectedId = edited.ppId;
+        _selectedIds = {edited.ppId};
+      });
     } catch (error) {
       if (!mounted) {
         return;
@@ -303,7 +315,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (!mounted) {
         return;
       }
-      setState(() => _selectedId = duplicated.ppId);
+      setState(() {
+        _selectedId = duplicated.ppId;
+        _selectedIds = {duplicated.ppId};
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Eintrag dupliziert')),
       );
@@ -404,10 +419,55 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   DataCell _cell(PartsProcurementRow row, Widget child) => DataCell(
     child,
     onDoubleTap: () {
-      setState(() => _selectedId = row.ppId);
+      setState(() {
+        _selectedId = row.ppId;
+        _selectedIds = {row.ppId};
+      });
       _editRow(row);
     },
   );
+
+  Future<List<PartsProcurementRow>?> _resolveRowsForExport() async {
+    final selectedRows = _sortedRows
+        .where((row) => _selectedIds.contains(row.ppId))
+        .toList(growable: false);
+
+    if (selectedRows.isEmpty) {
+      return _sortedRows;
+    }
+
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export-Auswahl'),
+        content: Text(
+          '${selectedRows.length} Zeile(n) sind ausgewählt. Welche Daten sollen exportiert werden?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('all'),
+            child: const Text('Alle Zeilen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop('selected'),
+            child: const Text('Ausgewählte Zeilen'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == 'all') {
+      return _sortedRows;
+    }
+    if (choice == 'selected') {
+      return selectedRows;
+    }
+    return null;
+  }
 
   DataCell _textCell(PartsProcurementRow row, String value, {double? width}) {
     final child = width == null
@@ -426,6 +486,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
   Future<void> _exportToCsv() async {
     try {
+      final rowsToExport = await _resolveRowsForExport();
+      if (rowsToExport == null) {
+        return;
+      }
       final fileName = 'bestandsfuehrung_${_buildFileTimestamp(DateTime.now())}.csv';
       final targetPath = await _pickExportTargetPath(
         dialogTitle: 'Bestandsführung als CSV exportieren',
@@ -456,7 +520,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       ];
 
       final csvLines = <String>[_escapeAndJoinCsv(headers)];
-      for (final row in _sortedRows) {
+      for (final row in rowsToExport) {
         csvLines.add(_escapeAndJoinCsv([
           row.ppIdi,
           row.ppPurchaseDate,
@@ -478,7 +542,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('CSV erfolgreich exportiert')),
+          SnackBar(
+            content: Text('CSV erfolgreich exportiert (${rowsToExport.length} Zeile(n))'),
+          ),
         );
       }
     } catch (error) {
@@ -527,20 +593,88 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
     return fields;
   }
 
+  bool _hasCsvExtension(String path) {
+    return path.trim().toLowerCase().endsWith('.csv');
+  }
+
+  Future<String?> _pickCsvPathWithFileSelector() async {
+    if (!Platform.isMacOS) {
+      return null;
+    }
+
+    XFile? xFile;
+    try {
+      xFile = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'CSV-Datei', extensions: ['csv']),
+        ],
+        confirmButtonText: 'Auswaehlen',
+      );
+    } on MissingPluginException {
+      return null;
+    }
+
+    final path = xFile?.path.trim();
+    if (path == null || path.isEmpty || !_hasCsvExtension(path)) {
+      return null;
+    }
+    return path;
+  }
+
+  Future<String?> _pickCsvPathWithFilePicker() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+      dialogTitle: 'CSV-Datei zum Importieren wählen',
+    );
+
+    if (result.isEmpty) {
+      return null;
+    }
+
+    final dynamic file = result.first;
+    final directPath = file.path?.trim();
+    if (directPath != null && directPath.isNotEmpty && _hasCsvExtension(directPath)) {
+      return directPath;
+    }
+
+    List<int>? bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      bytes = null;
+    }
+    final name = file.name.trim();
+    if (name.isEmpty || !_hasCsvExtension(name)) {
+      return null;
+    }
+    if (bytes == null || bytes.isEmpty) {
+      throw StateError(
+        'Die ausgewählte CSV-Datei konnte nicht gelesen werden (kein Dateiinhalte verfügbar).',
+      );
+    }
+
+    final tempFile = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}arrow_ops_inventory_import_${DateTime.now().microsecondsSinceEpoch}.csv',
+    );
+    await tempFile.writeAsBytes(bytes, flush: true);
+    return tempFile.path;
+  }
+
+  Future<String?> _pickCsvImportPath() async {
+    final selectorPath = await _pickCsvPathWithFileSelector();
+    if (selectorPath != null) {
+      return selectorPath;
+    }
+    return _pickCsvPathWithFilePicker();
+  }
+
   Future<void> _importFromCsv() async {
     try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['csv'],
-        dialogTitle: 'CSV-Datei zum Importieren wählen',
-      );
-
-      if (result.isEmpty) {
+      final filePath = await _pickCsvImportPath();
+      if (filePath == null || filePath.trim().isEmpty) {
         return;
       }
-
-      final filePath = result.first.path;
-      if (filePath == null) return;
 
       final fileContent = await File(filePath).readAsString(encoding: utf8);
       final lines = fileContent.split('\n').where((line) => line.trim().isNotEmpty).toList();
@@ -594,8 +728,19 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         try {
           final fields = _parseCsvLine(lines[i]);
           if (fields.length < 10) continue;
+          final hasPaidDateColumnInRow = fields.length >= 11;
 
-          final fallbackPaidDate = fields.length >= 11 ? fields[10].trim() : fields[1].trim();
+          String fallbackField(int legacyIndex, int shiftedIndex) {
+            final targetIndex = hasPaidDateColumnInRow ? shiftedIndex : legacyIndex;
+            if (targetIndex < 0 || targetIndex >= fields.length) {
+              return '';
+            }
+            return fields[targetIndex].trim();
+          }
+
+          final fallbackPaidDate = hasPaidDateColumnInRow
+              ? fallbackField(1, 2)
+              : fallbackField(1, 1);
 
           final nextId = await _repository.nextId();
           final newRow = PartsProcurementRow(
@@ -611,42 +756,45 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                 : fieldAt(fields, paidDateIndex),
             ppQuantity: int.tryParse(
                   fieldAt(fields, quantityIndex).isEmpty
-                      ? fields[2].trim()
+                  ? fallbackField(2, 3)
                       : fieldAt(fields, quantityIndex),
                 ) ??
                 0,
             ppPriceNet: double.tryParse(
                   (fieldAt(fields, priceNetIndex).isEmpty
-                          ? fields[3].trim()
+                    ? fallbackField(3, 4)
                           : fieldAt(fields, priceNetIndex))
                       .replaceAll(',', '.'),
                 ) ??
                 0.0,
             ppTotalPriceNet: double.tryParse(
                   (fieldAt(fields, totalPriceNetIndex).isEmpty
-                          ? fields[4].trim()
+                    ? fallbackField(4, 5)
                           : fieldAt(fields, totalPriceNetIndex))
                       .replaceAll(',', '.'),
                 ) ??
                 0.0,
             ppDescriptionDeLong: fieldAt(fields, descriptionIndex).isEmpty
-                ? fields[5].trim()
+              ? fallbackField(5, 6)
                 : fieldAt(fields, descriptionIndex),
             ppPointOfUse: fieldAt(fields, pointOfUseIndex).isEmpty
-                ? fields[6].trim()
+              ? fallbackField(6, 7)
                 : fieldAt(fields, pointOfUseIndex),
             ppPartSource: fieldAt(fields, supplierIndex).isEmpty
-                ? fields[7].trim()
+              ? fallbackField(7, 8)
                 : fieldAt(fields, supplierIndex),
             ppMaterial: fieldAt(fields, materialIndex).isEmpty
-                ? fields[8].trim()
+              ? fallbackField(8, 9)
                 : fieldAt(fields, materialIndex),
             ppNote: fieldAt(fields, noteIndex).isEmpty
-                ? fields[9].trim()
+              ? fallbackField(9, 10)
                 : fieldAt(fields, noteIndex),
           );
 
-          await _repository.save(newRow);
+            await _repository.save(
+            newRow,
+            validateCatalogueReference: false,
+            );
           importedCount++;
         } catch (error) {
           errorCount++;
@@ -672,6 +820,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
   Future<void> _exportToPdf() async {
     try {
+      final rowsToExport = await _resolveRowsForExport();
+      if (rowsToExport == null) {
+        return;
+      }
       final fileName = 'bestandsfuehrung_${_buildFileTimestamp(DateTime.now())}.pdf';
       final targetPath = await _pickExportTargetPath(
         dialogTitle: 'Bestandsführung als PDF exportieren',
@@ -689,7 +841,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       }
 
       final pdf = pw.Document();
-      final rows = _sortedRows;
+  final rows = rowsToExport;
 
       pdf.addPage(
         pw.MultiPage(
@@ -763,7 +915,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('PDF erfolgreich exportiert')),
+          SnackBar(
+            content: Text('PDF erfolgreich exportiert (${rows.length} Zeile(n))'),
+          ),
         );
       }
     } catch (error) {
@@ -780,14 +934,43 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
     required String fileName,
     required List<String> allowedExtensions,
   }) async {
-    final uri = await FilePicker.saveFile(
+    if (Platform.isMacOS) {
+      try {
+        final location = await getSaveLocation(
+          suggestedName: fileName,
+          acceptedTypeGroups: [
+            XTypeGroup(
+              label: dialogTitle,
+              extensions: allowedExtensions,
+            ),
+          ],
+          confirmButtonText: 'Speichern',
+        );
+        final path = location?.path.trim();
+        if (path != null && path.isNotEmpty) {
+          return path;
+        }
+      } on MissingPluginException {
+        // Fallback to file_picker when file_selector plugin is not registered.
+      }
+    }
+
+    final selected = await FilePicker.saveFile(
       dialogTitle: dialogTitle,
       fileName: fileName,
       bytes: Uint8List(0),
       allowedExtensions: allowedExtensions,
       type: FileType.custom,
     );
-    return uri?.toFilePath();
+    if (selected == null) {
+      return null;
+    }
+
+    final dynamic value = selected;
+    if (value is Uri) {
+      return value.toFilePath();
+    }
+    return value.toString().trim().isEmpty ? null : value.toString().trim();
   }
 
   String _buildFileTimestamp(DateTime dateTime) {
@@ -802,6 +985,20 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   Widget build(BuildContext context) {
     final visibleRows = _sortedRows;
     final hasActiveSearch = _searchQuery.trim().isNotEmpty;
+    final selectedRows = _rows
+        .where((row) => _selectedIds.contains(row.ppId))
+        .toList(growable: false);
+    final selectedQuantitySum = selectedRows.fold<int>(
+      0,
+      (sum, row) => sum + row.ppQuantity,
+    );
+    final selectedTotalNetSum = selectedRows.fold<double>(
+      0,
+      (sum, row) => sum + row.ppTotalPriceNet,
+    );
+    final selectedTotalNetLabel = selectedTotalNetSum
+        .toStringAsFixed(2)
+        .replaceAll('.', ',');
 
     return Scaffold(
       appBar: AppBar(title: const Text('Bestandsführung')),
@@ -866,7 +1063,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'Hinweis: Doppelklick auf eine Zeile startet den Bearbeiten-Modus.',
+                  'Hinweis: Mehrfachauswahl per Checkbox möglich. Doppelklick auf eine Zeile startet den Bearbeiten-Modus.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -895,6 +1092,38 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
               ),
             ),
             const SizedBox(height: 8),
+            if (selectedRows.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.summarize_outlined, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Auswahl: ${selectedRows.length} Zeile(n) | Menge in Stk: $selectedQuantitySum | Gesamt EK netto: $selectedTotalNetLabel €',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _selectedIds = <int>{};
+                          _selectedId = null;
+                        });
+                      },
+                      icon: const Icon(Icons.clear_all, size: 18),
+                      label: const Text('Auswahl aufheben'),
+                    ),
+                  ],
+                ),
+              ),
             if (_loadError != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -934,8 +1163,24 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                           rows: visibleRows
                               .map(
                                 (row) => DataRow(
-                                  selected: row.ppId == _selectedId,
-                                  onSelectChanged: (_) => setState(() => _selectedId = row.ppId),
+                                  selected: _selectedIds.contains(row.ppId),
+                                  onSelectChanged: (selected) {
+                                    setState(() {
+                                      if (selected == true) {
+                                        _selectedIds = {..._selectedIds, row.ppId};
+                                        _selectedId = row.ppId;
+                                      } else {
+                                        _selectedIds = _selectedIds
+                                            .where((id) => id != row.ppId)
+                                            .toSet();
+                                        if (_selectedId == row.ppId) {
+                                          _selectedId = _selectedIds.isEmpty
+                                              ? null
+                                              : _selectedIds.first;
+                                        }
+                                      }
+                                    });
+                                  },
                                   cells: [
                                     _textCell(row, row.ppIdi),
                                     _textCell(row, row.ppPurchaseDate),

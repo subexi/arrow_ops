@@ -152,11 +152,15 @@ class _InvoicePageState extends State<InvoicePage> {
       }
 
       setState(() {
+        final previousOrderId = _selectedOrderId;
         _orders = orders;
         _customers = customers;
         _customerById = customerById;
         if (_selectedOrderId == null && orders.isNotEmpty) {
           _selectedOrderId = orders.first.oId;
+        }
+        if (previousOrderId != _selectedOrderId) {
+          _invoiceNoteController.clear();
         }
       });
 
@@ -312,12 +316,16 @@ class _InvoicePageState extends State<InvoicePage> {
       }
 
       setState(() {
+        final previousOrderId = _selectedOrderId;
         _orders = orders;
         _customers = customers;
         _customerById = customerById;
         final selected = _selectedOrderId;
         if (selected == null || !orders.any((order) => order.oId == selected)) {
           _selectedOrderId = orders.isEmpty ? null : orders.first.oId;
+        }
+        if (previousOrderId != _selectedOrderId) {
+          _invoiceNoteController.clear();
         }
       });
     } catch (error, stackTrace) {
@@ -330,6 +338,16 @@ class _InvoicePageState extends State<InvoicePage> {
         stackTrace: stackTrace,
       );
     }
+  }
+
+  void _setSelectedOrder(OrderRow selectedOrder) {
+    setState(() {
+      final previousOrderId = _selectedOrderId;
+      _selectedOrderId = selectedOrder.oId;
+      if (previousOrderId != _selectedOrderId) {
+        _invoiceNoteController.clear();
+      }
+    });
   }
 
   Customer? _resolveCustomer(OrderRow order) {
@@ -853,9 +871,7 @@ class _InvoicePageState extends State<InvoicePage> {
                           if (selectedOrder == null || !mounted) {
                             return;
                           }
-                          setState(() {
-                            _selectedOrderId = selectedOrder.oId;
-                          });
+                          _setSelectedOrder(selectedOrder);
                           await _buildPreview();
                         },
                   icon: const Icon(Icons.search),

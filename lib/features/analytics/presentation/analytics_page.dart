@@ -11,6 +11,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import 'import_export_page.dart';
+import '../../customer/data/customer_repository.dart';
 import '../../item/data/item_repository.dart';
 import '../../item/domain/item_models.dart';
 import '../../order/data/order_repository.dart';
@@ -25,6 +26,8 @@ enum WareinsatzScope { all, bomOnly, withoutBom }
 enum _MarginDisplay { absolute, percent }
 
 enum WareinsatzPuttFilter { all, onlyPutt, withoutPutt }
+
+enum _NetValueSeriesFilter { revenue, cogs, grossProfit }
 
 List<String> wareinsatzAvailableTradeShowOptions(List<OrderRow> orders) {
   final values = <String>{};
@@ -346,6 +349,7 @@ class AnalyticsPage extends StatefulWidget {
 
 class _AnalyticsPageState extends State<AnalyticsPage> {
   final OrderRepository _orderRepository = const OrderRepository();
+  final CustomerRepository _customerRepository = const CustomerRepository();
   final ItemRepository _itemRepository = const ItemRepository();
   final TextEditingController _searchController = TextEditingController();
   static const List<Color> _countryPiePalette = [
@@ -364,13 +368,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   _AnalyticsSubPage _selectedSubPage = _AnalyticsSubPage.chartNetValueOverTime;
   _PeriodGranularity _selectedChartGranularity = _PeriodGranularity.month;
   Set<String> _selectedChartQuarterKeys = const <String>{};
-  String? _selectedChartYearKey;
+  Set<String> _selectedChartYearKeys = const <String>{};
   WareinsatzPuttFilter _selectedChartPuttFilter = WareinsatzPuttFilter.all;
   _PeriodGranularity _selectedGranularity = _PeriodGranularity.total;
   bool _isSideNavigationVisible = true;
   WareinsatzScope _selectedScope = WareinsatzScope.all;
   _MarginDisplay _selectedMarginDisplay = _MarginDisplay.absolute;
   WareinsatzPuttFilter _selectedPuttFilter = WareinsatzPuttFilter.all;
+  _NetValueSeriesFilter? _selectedNetValueSeriesFilter;
+  double _netValueTopRatio = 0.52;
+  double _netValueMiddleRatio = 0.45;
+  bool _isNetValueTopSplitterDragging = false;
+  bool _isNetValueMiddleSplitterDragging = false;
+  static const double _netValueSplitterHeight = 28.0;
+  static const double _netValueTopMinHeight = 180.0;
+  static const double _netValueMiddleMinHeight = 140.0;
+  static const double _netValueBottomMinHeight = 140.0;
   int _tableSortColumnIndex = 6;
   bool _tableSortAscending = false;
 
@@ -382,6 +395,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   List<ItemOrderedRow> _orderedItems = const [];
   List<ItemCatalogueRow> _catalogueItems = const [];
   List<ItemBomRow> _bomItems = const [];
+  Map<String, String> _countryNamesByCode = const {};
 
   Set<String> _selectedMonthKeys = const <String>{};
   String? _selectedQuarterKey;
@@ -441,6 +455,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
       final catalogueItems = await _itemRepository.getCatalogueItems();
       final bomItems = await _itemRepository.getBomItems();
+      final countries = await _customerRepository.getAllCountries();
+      final countryNamesByCode = <String, String>{
+        for (final country in countries)
+          country.coTld.trim().toUpperCase(): country.coName.trim(),
+      };
 
       if (!mounted) {
         return;
@@ -451,6 +470,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         _orderedItems = orderedItems;
         _catalogueItems = catalogueItems;
         _bomItems = bomItems;
+        _countryNamesByCode = countryNamesByCode;
         _ensurePeriodDefaults();
         _ensureChartPeriodDefaults();
       });
@@ -508,15 +528,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   void _ensureChartPeriodDefaults() {
-    final quarterKeys = _availableQuarterKeys(_orders);
     final yearKeys = _availableYearKeys(_orders);
-    _selectedChartQuarterKeys = _selectedChartQuarterKeys
-        .where(quarterKeys.contains)
+    _selectedChartYearKeys = _selectedChartYearKeys
+        .where(yearKeys.contains)
         .toSet();
-    if (_selectedChartYearKey == null ||
-        !yearKeys.contains(_selectedChartYearKey)) {
-      _selectedChartYearKey = yearKeys.isEmpty ? null : yearKeys.first;
-    }
+    final quarterKeysForYear = _availableQuarterKeysForChartYear(
+      _orders,
+      _selectedChartYearKeys,
+    );
+    _selectedChartQuarterKeys = _selectedChartQuarterKeys
+        .where(quarterKeysForYear.contains)
+        .toSet();
   }
 
   @override
@@ -641,6 +663,31 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
+  Widget _buildNetValueSplitter({
+    required bool isDragging,
+    required VoidCallback onDragStart,
+    required VoidCallback onDragEnd,
+    required ValueChanged<DragUpdateDetails> onDragUpdate,
+  }) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeUpDown,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: (_) => onDragStart(),
+        onVerticalDragEnd: (_) => onDragEnd(),
+        onVerticalDragCancel: onDragEnd,
+        onVerticalDragUpdate: onDragUpdate,
+        child: Container(
+          height: _netValueSplitterHeight,
+          color: isDragging
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
+              : Theme.of(context).dividerColor.withValues(alpha: 0.15),
+          child: const Center(child: Icon(Icons.drag_handle, size: 18)),
+        ),
+      ),
+    );
+  }
+
   Widget _buildNetValueChartView(BuildContext context) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -656,7 +703,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       puttFilter: _selectedChartPuttFilter,
       granularity: _selectedChartGranularity,
       selectedQuarterKeys: _selectedChartQuarterKeys,
-      selectedYearKey: _selectedChartYearKey,
+      selectedYearKeys: _selectedChartYearKeys,
     );
 
     final buckets = _buildNetValueBuckets(
@@ -666,6 +713,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final yearMonthTableData = _buildNetValueYearMonthTableData(
       context: chartFilterContext,
       granularity: _selectedChartGranularity,
+      seriesFilter: _selectedNetValueSeriesFilter,
     );
     final countryShareBuckets = _buildCountryShareBuckets(
       context: chartFilterContext,
@@ -686,8 +734,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     return LayoutBuilder(
       builder: (context, viewportConstraints) {
-        final chartSectionMinHeight = math.max(
-          620.0,
+        final minChartSectionHeight =
+            _netValueTopMinHeight +
+            _netValueMiddleMinHeight +
+            _netValueBottomMinHeight +
+            (_netValueSplitterHeight * 2);
+        final chartSectionHeight = math.max(
+          minChartSectionHeight,
           viewportConstraints.maxHeight * 0.72,
         );
 
@@ -766,23 +819,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           });
                         },
                       ),
+                      if (_selectedChartGranularity !=
+                          _PeriodGranularity.total) ...[
+                        const SizedBox(width: 12),
+                        _chartYearFilterButton(_availableYearKeys(_orders)),
+                      ],
                       if (_selectedChartGranularity ==
                           _PeriodGranularity.quarter) ...[
                         const SizedBox(width: 12),
-                        _chartQuarterFilterButton(_availableQuarterKeys(_orders)),
-                      ],
-                      if (_selectedChartGranularity ==
-                          _PeriodGranularity.year) ...[
-                        const SizedBox(width: 12),
-                        _periodDropdown(
-                          label: 'Jahr',
-                          value: _selectedChartYearKey,
-                          values: _availableYearKeys(_orders),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedChartYearKey = value;
-                            });
-                          },
+                        _chartQuarterFilterButton(
+                          _availableQuarterKeysForChartYear(
+                            _orders,
+                            _selectedChartYearKeys,
+                          ),
                         ),
                       ],
                     ],
@@ -802,82 +851,163 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       '${chartFilterContext.filteredItems.length}',
                     ),
                     _summaryChip('Zeitraeume', '${buckets.length}'),
-                    _summaryChip(
-                      'Σ Umsatz netto',
-                      _formatMoneyEur(totalNetRevenue),
-                    ),
-                    _summaryChip('Σ EK-netto', _formatMoneyEur(totalNetCogs)),
-                    _summaryChip(
-                      'Σ Rohertrag',
-                      _formatMoneyEur(totalGrossProfit),
-                    ),
+                    if (_selectedNetValueSeriesFilter == null ||
+                        _selectedNetValueSeriesFilter ==
+                            _NetValueSeriesFilter.revenue)
+                      _summaryChip(
+                        'Σ Umsatz netto',
+                        _formatMoneyEur(totalNetRevenue),
+                      ),
+                    if (_selectedNetValueSeriesFilter == null ||
+                        _selectedNetValueSeriesFilter ==
+                            _NetValueSeriesFilter.cogs)
+                      _summaryChip(
+                        'Σ EK-netto',
+                        _formatMoneyEur(totalNetCogs),
+                      ),
+                    if (_selectedNetValueSeriesFilter == null ||
+                        _selectedNetValueSeriesFilter ==
+                            _NetValueSeriesFilter.grossProfit)
+                      _summaryChip(
+                        'Σ Rohertrag',
+                        _formatMoneyEur(totalGrossProfit),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
-                  height: chartSectionMinHeight,
+                  height: chartSectionHeight,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final tableHeight = math.max(
-                        200.0,
-                        constraints.maxHeight * 0.24,
-                      );
-                      final pieHeight = math.max(
-                        210.0,
-                        constraints.maxHeight * 0.28,
-                      );
-                      final chartHeight = math.max(
-                        280.0,
-                        constraints.maxHeight - tableHeight - pieHeight - 16,
-                      );
+                      final splitterTotal = _netValueSplitterHeight * 2;
+                      final availableHeight = (constraints.maxHeight - splitterTotal)
+                          .clamp(0.0, double.infinity);
 
-                      return SingleChildScrollView(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            minHeight: constraints.maxHeight,
+                      final topAndLowerMin =
+                          _netValueTopMinHeight + _netValueMiddleMinHeight + _netValueBottomMinHeight;
+
+                      late final double topHeight;
+                      if (availableHeight <= topAndLowerMin) {
+                        topHeight = availableHeight * _netValueTopRatio;
+                      } else {
+                        topHeight = (availableHeight * _netValueTopRatio).clamp(
+                          _netValueTopMinHeight,
+                          availableHeight - (_netValueMiddleMinHeight + _netValueBottomMinHeight),
+                        );
+                      }
+
+                      final lowerAvailable = (availableHeight - topHeight)
+                          .clamp(0.0, double.infinity);
+                      final lowerMinCombined =
+                          _netValueMiddleMinHeight + _netValueBottomMinHeight;
+
+                      late final double middleHeight;
+                      if (lowerAvailable <= lowerMinCombined) {
+                        middleHeight = lowerAvailable * _netValueMiddleRatio;
+                      } else {
+                        middleHeight = (lowerAvailable * _netValueMiddleRatio).clamp(
+                          _netValueMiddleMinHeight,
+                          lowerAvailable - _netValueBottomMinHeight,
+                        );
+                      }
+
+                      final bottomHeight =
+                          (lowerAvailable - middleHeight).clamp(0.0, double.infinity);
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            height: topHeight,
+                            child: _buildNetValueBarChart(
+                              buckets,
+                              granularity: _selectedChartGranularity,
+                            ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SizedBox(
-                                height: chartHeight,
-                                child: buckets.isEmpty
-                                    ? const Card(
-                                        child: Center(
-                                          child: Text(
-                                            'Keine Daten mit gueltigem Versanddatum vorhanden.',
-                                          ),
-                                        ),
-                                      )
-                                    : _buildNetValueBarChart(
-                                        buckets,
-                                        granularity: _selectedChartGranularity,
-                                      ),
-                              ),
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                height: pieHeight,
-                                child: _buildCountrySharePieSection(
-                                  countryShareBuckets,
-                                  granularity: _selectedChartGranularity,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Netto-Umsatz Tabelle',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 8),
-                              SizedBox(
-                                height: tableHeight,
-                                child: _buildNetValueYearMonthTable(
-                                  yearMonthTableData,
-                                  granularity: _selectedChartGranularity,
-                                ),
-                              ),
-                            ],
+                          _buildNetValueSplitter(
+                            isDragging: _isNetValueTopSplitterDragging,
+                            onDragStart: () {
+                              setState(() => _isNetValueTopSplitterDragging = true);
+                            },
+                            onDragEnd: () {
+                              setState(() => _isNetValueTopSplitterDragging = false);
+                            },
+                            onDragUpdate: (details) {
+                              if (availableHeight <= 0) {
+                                return;
+                              }
+                              final baseTop = _netValueTopRatio * availableHeight;
+                              final targetTop = baseTop + details.delta.dy;
+                              final minCombined =
+                                  _netValueTopMinHeight + _netValueMiddleMinHeight + _netValueBottomMinHeight;
+
+                              late final double newTopHeight;
+                              if (availableHeight <= minCombined) {
+                                newTopHeight = targetTop.clamp(0.0, availableHeight);
+                              } else {
+                                newTopHeight = targetTop.clamp(
+                                  _netValueTopMinHeight,
+                                  availableHeight - (_netValueMiddleMinHeight + _netValueBottomMinHeight),
+                                );
+                              }
+
+                              setState(() {
+                                _netValueTopRatio = availableHeight <= 0
+                                    ? _netValueTopRatio
+                                    : (newTopHeight / availableHeight).clamp(0.05, 0.9);
+                              });
+                            },
                           ),
-                        ),
+                          SizedBox(
+                            height: middleHeight,
+                            child: _buildNetValueYearMonthTable(
+                              yearMonthTableData,
+                              granularity: _selectedChartGranularity,
+                              seriesFilter: _selectedNetValueSeriesFilter,
+                            ),
+                          ),
+                          _buildNetValueSplitter(
+                            isDragging: _isNetValueMiddleSplitterDragging,
+                            onDragStart: () {
+                              setState(() => _isNetValueMiddleSplitterDragging = true);
+                            },
+                            onDragEnd: () {
+                              setState(() => _isNetValueMiddleSplitterDragging = false);
+                            },
+                            onDragUpdate: (details) {
+                              if (lowerAvailable <= 0) {
+                                return;
+                              }
+                              final baseMiddle = _netValueMiddleRatio * lowerAvailable;
+                              final targetMiddle = baseMiddle + details.delta.dy;
+                              final minCombined =
+                                  _netValueMiddleMinHeight + _netValueBottomMinHeight;
+
+                              late final double newMiddleHeight;
+                              if (lowerAvailable <= minCombined) {
+                                newMiddleHeight = targetMiddle.clamp(0.0, lowerAvailable);
+                              } else {
+                                newMiddleHeight = targetMiddle.clamp(
+                                  _netValueMiddleMinHeight,
+                                  lowerAvailable - _netValueBottomMinHeight,
+                                );
+                              }
+
+                              setState(() {
+                                _netValueMiddleRatio = lowerAvailable <= 0
+                                    ? _netValueMiddleRatio
+                                    : (newMiddleHeight / lowerAvailable).clamp(0.05, 0.95);
+                              });
+                            },
+                          ),
+                          SizedBox(
+                            height: bottomHeight,
+                            child: _buildCountrySharePieSection(
+                              countryShareBuckets,
+                              granularity: _selectedChartGranularity,
+                            ),
+                          ),
+                        ],
                       );
                     },
                   ),
@@ -925,8 +1055,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           periodKey = delivery.year.toString();
           periodLabel = periodKey;
         case _PeriodGranularity.total:
-          periodKey = 'total';
-          periodLabel = 'Gesamt';
+          // In chart view, "Gesamt" should still show the yearly distribution.
+          periodKey = delivery.year.toString();
+          periodLabel = periodKey;
       }
 
       final netRevenueEur = wareinsatzOrderedItemNetSalesForOrder(
@@ -955,12 +1086,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
 
     final keys = revenueByPeriod.keys.toList(growable: false)
-      ..sort((a, b) {
-        if (granularity == _PeriodGranularity.total) {
-          return 0;
-        }
-        return a.compareTo(b);
-      });
+      ..sort((a, b) => a.compareTo(b));
 
     return keys
         .map(
@@ -998,25 +1124,47 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     List<_NetValueBucket> buckets, {
     required _PeriodGranularity granularity,
   }) {
-    final maxPositiveValue = buckets.fold<double>(
-      0,
-      (currentMax, bucket) => math.max(
-        currentMax,
-        math.max(
-          bucket.netRevenueEur,
-          math.max(bucket.netCogsEur, bucket.grossProfitEur),
+    if (buckets.isEmpty) {
+      return const Card(
+        child: Center(
+          child: Text('Keine Daten mit gueltigem Versanddatum vorhanden.'),
         ),
-      ),
+      );
+    }
+
+    final showRevenue =
+        _selectedNetValueSeriesFilter == null ||
+        _selectedNetValueSeriesFilter == _NetValueSeriesFilter.revenue;
+    final showCogs =
+        _selectedNetValueSeriesFilter == null ||
+        _selectedNetValueSeriesFilter == _NetValueSeriesFilter.cogs;
+    final showGrossProfit =
+        _selectedNetValueSeriesFilter == null ||
+        _selectedNetValueSeriesFilter == _NetValueSeriesFilter.grossProfit;
+    final visibleSeriesCount =
+        (showRevenue ? 1 : 0) + (showCogs ? 1 : 0) + (showGrossProfit ? 1 : 0);
+    final isSingleSeriesView = visibleSeriesCount == 1;
+
+    final visibleValues = <double>[];
+    for (final bucket in buckets) {
+      if (showRevenue) {
+        visibleValues.add(bucket.netRevenueEur);
+      }
+      if (showCogs) {
+        visibleValues.add(bucket.netCogsEur);
+      }
+      if (showGrossProfit) {
+        visibleValues.add(bucket.grossProfitEur);
+      }
+    }
+
+    final maxPositiveValue = visibleValues.fold<double>(
+      0,
+      (currentMax, value) => math.max(currentMax, value),
     );
-    final minNegativeValue = buckets.fold<double>(
+    final minNegativeValue = visibleValues.fold<double>(
       0,
-      (currentMin, bucket) => math.min(
-        currentMin,
-        math.min(
-          bucket.netRevenueEur,
-          math.min(bucket.netCogsEur, bucket.grossProfitEur),
-        ),
-      ),
+      (currentMin, value) => math.min(currentMin, value),
     );
     final safePositiveMax = maxPositiveValue <= 0 ? 1.0 : maxPositiveValue;
     final safeNegativeAbs = minNegativeValue >= 0 ? 0.0 : minNegativeValue.abs();
@@ -1025,11 +1173,12 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final positiveAreaFactor = hasNegativeValues
         ? (safePositiveMax / totalRange)
         : 1.0;
-    final minColumnWidth = 200.0;
+    final minColumnWidth = isSingleSeriesView ? 130.0 : 200.0;
     const revenueColor = Color(0xFF42A5F5);
     const cogsColor = Color(0xFFFFB74D);
     const grossProfitPositiveColor = Color(0xFF66BB6A);
     const grossProfitNegativeColor = Color(0xFFEF5350);
+    const allSeriesColor = Color(0xFF78909C);
 
     return Card(
       child: Padding(
@@ -1037,27 +1186,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: const [
-                _ChartLegendChip(label: 'Umsatz netto', color: revenueColor),
-                _ChartLegendChip(label: 'EK-netto', color: cogsColor),
-                _ChartLegendChip(
-                  label: 'Rohertrag (+)',
-                  color: grossProfitPositiveColor,
-                ),
-                _ChartLegendChip(
-                  label: 'Rohertrag (-)',
-                  color: grossProfitNegativeColor,
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isCompactViewport = constraints.maxWidth < 1100;
+                  final isCompactHeight = constraints.maxHeight < 230;
+                  final isUltraCompactHeight = constraints.maxHeight < 190;
+                  final showLegend = !isUltraCompactHeight;
+                  const estimatedLegendBlockHeight = 52.0;
+                  final availableChartHeight = math.max(
+                    0.0,
+                    constraints.maxHeight -
+                        (showLegend ? estimatedLegendBlockHeight : 0.0),
+                  );
                   final labelWidth = isCompactViewport ? 48.0 : 56.0;
                   final barWidth = isCompactViewport ? 30.0 : 34.0;
                   final innerBarSpacing = isCompactViewport ? 6.0 : 8.0;
@@ -1068,28 +1209,27 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   final showMonthSeparators =
                       granularity == _PeriodGranularity.month;
                   const monthSeparatorWidth = 10.0;
-                  final zeroLineColor = Color.alphaBlend(
-                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.22),
-                    Theme.of(context).dividerColor,
-                  );
                   final separatorsTotalWidth = showMonthSeparators
                       ? math.max(0, buckets.length - 1) * monthSeparatorWidth
                       : 0.0;
-                  final chartWidth = math.max(
-                    constraints.maxWidth,
-                    buckets.length * minColumnWidth + separatorsTotalWidth,
-                  );
+                  final contentWidth =
+                      buckets.length * minColumnWidth + separatorsTotalWidth;
+                  final chartWidth = isSingleSeriesView
+                      ? contentWidth
+                      : math.max(constraints.maxWidth, contentWidth);
+                    final reservedChromeHeight = isCompactHeight ? 12.0 : 56.0;
+                  final sharedMaxBarHeight =
+                      (availableChartHeight - reservedChromeHeight)
+                          .clamp(0.0, 220.0);
+                  const valueLabelHeight = 16.0;
+                  const valueLabelSpacing = 4.0;
 
                   Widget bar({
                     required double value,
                     required Color color,
                     required double maxHeight,
                   }) {
-                    const zeroLineThickness = 1.0;
-                    final drawableHeight = math.max(
-                      0.0,
-                      maxHeight - zeroLineThickness,
-                    );
+                    final drawableHeight = math.max(0.0, maxHeight);
                     final positiveAreaHeight = drawableHeight * positiveAreaFactor;
                     final negativeAreaHeight = drawableHeight - positiveAreaHeight;
                     final positiveBarHeight = value <= 0
@@ -1110,15 +1250,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     return Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        SizedBox(
-                          width: labelWidth,
-                          height: 16,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(_formatMoneyEur(value)),
+                        if (!isCompactHeight) ...[
+                          SizedBox(
+                            width: labelWidth,
+                            height: valueLabelHeight,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(_formatMoneyEur(value)),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
+                          const SizedBox(height: valueLabelSpacing),
+                        ],
                         SizedBox(
                           width: barWidth,
                           height: maxHeight,
@@ -1137,10 +1279,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                     ),
                                   ),
                                 ),
-                              ),
-                              Container(
-                                height: zeroLineThickness,
-                                color: zeroLineColor,
                               ),
                               SizedBox(
                                 height: negativeAreaHeight,
@@ -1163,88 +1301,180 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     );
                   }
 
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: chartWidth,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var index = 0; index < buckets.length; index++) ...[
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(
-                                      child: LayoutBuilder(
-                                        builder: (context, barConstraints) {
-                                          final maxBarHeight =
-                                              (barConstraints.maxHeight - 24)
-                                                  .clamp(24.0, 220.0);
-                                          final bucket = buckets[index];
-                                          return Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.end,
-                                            children: [
-                                              bar(
-                                                value: bucket.netRevenueEur,
-                                                color: revenueColor,
-                                                maxHeight: maxBarHeight,
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (showLegend) ...[
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _ChartLegendChip(
+                              label: 'Alle',
+                              color: allSeriesColor,
+                              selected: _selectedNetValueSeriesFilter == null,
+                              onTap: () {
+                                setState(() {
+                                  _selectedNetValueSeriesFilter = null;
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 12),
+                            _ChartLegendChip(
+                              label: 'Umsatz netto',
+                              color: revenueColor,
+                              selected:
+                                  _selectedNetValueSeriesFilter ==
+                                  _NetValueSeriesFilter.revenue,
+                              onTap: () {
+                                setState(() {
+                                  _selectedNetValueSeriesFilter =
+                                      _selectedNetValueSeriesFilter ==
+                                          _NetValueSeriesFilter.revenue
+                                      ? null
+                                      : _NetValueSeriesFilter.revenue;
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 12),
+                            _ChartLegendChip(
+                              label: 'EK-netto',
+                              color: cogsColor,
+                              selected:
+                                  _selectedNetValueSeriesFilter ==
+                                  _NetValueSeriesFilter.cogs,
+                              onTap: () {
+                                setState(() {
+                                  _selectedNetValueSeriesFilter =
+                                      _selectedNetValueSeriesFilter ==
+                                          _NetValueSeriesFilter.cogs
+                                      ? null
+                                      : _NetValueSeriesFilter.cogs;
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 12),
+                            _ChartLegendChip(
+                              label: 'Rohertrag',
+                              color: grossProfitPositiveColor,
+                              selected:
+                                  _selectedNetValueSeriesFilter ==
+                                  _NetValueSeriesFilter.grossProfit,
+                              onTap: () {
+                                setState(() {
+                                  _selectedNetValueSeriesFilter =
+                                      _selectedNetValueSeriesFilter ==
+                                          _NetValueSeriesFilter.grossProfit
+                                      ? null
+                                      : _NetValueSeriesFilter.grossProfit;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ],
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: chartWidth,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                for (var index = 0; index < buckets.length; index++) ...[
+                                  SizedBox(
+                                    width: minColumnWidth,
+                                    child: Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: isSingleSeriesView ? 2 : 6,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Expanded(
+                                            child: Align(
+                                              alignment: Alignment.bottomLeft,
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.end,
+                                                children: [
+                                                  if (showRevenue)
+                                                    bar(
+                                                      value: buckets[index]
+                                                          .netRevenueEur,
+                                                      color: revenueColor,
+                                                      maxHeight: sharedMaxBarHeight,
+                                                    ),
+                                                  if (showRevenue &&
+                                                      (showCogs ||
+                                                          showGrossProfit))
+                                                    SizedBox(
+                                                      width: innerBarSpacing,
+                                                    ),
+                                                  if (showCogs)
+                                                    bar(
+                                                      value: buckets[index]
+                                                          .netCogsEur,
+                                                      color: cogsColor,
+                                                      maxHeight: sharedMaxBarHeight,
+                                                    ),
+                                                  if (showCogs && showGrossProfit)
+                                                    SizedBox(
+                                                      width: innerBarSpacing,
+                                                    ),
+                                                  if (showGrossProfit)
+                                                    bar(
+                                                      value: buckets[index]
+                                                          .grossProfitEur,
+                                                      color: buckets[index]
+                                                                  .grossProfitEur >=
+                                                              0
+                                                          ? grossProfitPositiveColor
+                                                          : grossProfitNegativeColor,
+                                                      maxHeight: sharedMaxBarHeight,
+                                                    ),
+                                                ],
                                               ),
-                                              SizedBox(width: innerBarSpacing),
-                                              bar(
-                                                value: bucket.netCogsEur,
-                                                color: cogsColor,
-                                                maxHeight: maxBarHeight,
-                                              ),
-                                              SizedBox(width: innerBarSpacing),
-                                              bar(
-                                                value: bucket.grossProfitEur,
-                                                color: bucket.grossProfitEur >=
-                                                        0
-                                                    ? grossProfitPositiveColor
-                                                    : grossProfitNegativeColor,
-                                                maxHeight: maxBarHeight,
-                                              ),
-                                            ],
-                                          );
-                                        },
+                                            ),
+                                          ),
+                                          if (!isCompactHeight) ...[
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              buckets[index].periodLabel,
+                                              textAlign: TextAlign.center,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .labelMedium,
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                     ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      buckets[index].periodLabel,
-                                      textAlign: TextAlign.center,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelMedium,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            if (showMonthSeparators && index < buckets.length - 1)
-                              SizedBox(
-                                width: monthSeparatorWidth,
-                                child: Center(
-                                  child: Container(
-                                    width: 1,
-                                    height: 42,
-                                    color: monthSeparatorColor,
                                   ),
-                                ),
-                              ),
-                          ],
-                        ],
+                                  if (showMonthSeparators &&
+                                      index < buckets.length - 1)
+                                    SizedBox(
+                                      width: monthSeparatorWidth,
+                                      child: Center(
+                                        child: Container(
+                                          width: 1,
+                                          height: 42,
+                                          color: monthSeparatorColor,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   );
                 },
               ),
@@ -1322,6 +1552,45 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return rawCountry;
   }
 
+  String _countryLegendLabel(String countryCode) {
+    final normalized = countryCode.trim().toUpperCase();
+    if (normalized.isEmpty || normalized == 'UNBEKANNT') {
+      return 'UNBEKANNT - Unbekannt';
+    }
+
+    if (normalized == 'FL' || normalized == 'LI' || normalized == 'LIECHTENSTEIN') {
+      final displayCode = normalized == 'LIECHTENSTEIN' ? 'LI' : normalized;
+      return '$displayCode - Liechtenstein';
+    }
+
+    String? name = _countryNamesByCode[normalized];
+    if (name != null && name.trim().isEmpty) {
+      name = null;
+    }
+
+    if (name == null && normalized == 'USA') {
+      name = _countryNamesByCode['US'];
+      if (name != null && name.trim().isEmpty) {
+        name = null;
+      }
+    }
+
+    if (name == null && normalized == 'FL') {
+      name = _countryNamesByCode['LI'];
+      if (name != null && name.trim().isEmpty) {
+        name = null;
+      }
+    }
+
+    if (name == null && normalized == 'FL') {
+      name = 'Liechtenstein';
+    }
+
+    final resolvedName =
+        (name == null || name.trim().isEmpty) ? normalized : name.trim();
+    return '$normalized - $resolvedName';
+  }
+
   Widget _buildCountrySharePieSection(
     List<_CountryShareBucket> buckets, {
     required _PeriodGranularity granularity,
@@ -1344,87 +1613,105 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         padding: const EdgeInsets.all(12),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final isNarrow = constraints.maxWidth < 1000;
-            final pieWidget = Center(
-              child: SizedBox(
-                width: 220,
-                height: 220,
-                child: CustomPaint(
-                  painter: _CountrySharePiePainter(
-                    buckets: buckets,
-                    colors: _countryPiePalette,
-                  ),
-                ),
-              ),
-            );
-
-            final legendWidget = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Verteilung Netto-Umsatz nach Land (${_chartGranularityLabel(granularity)})',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Σ ${_formatMoneyEur(totalValue)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: buckets.length,
-                    itemBuilder: (context, index) {
-                      final bucket = buckets[index];
-                      final color =
-                          _countryPiePalette[index % _countryPiePalette.length];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: color,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                '${bucket.countryLabel}: ${_formatMoneyEur(bucket.valueEur)} (${_formatPercent(bucket.share * 100)})',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ),
-                          ],
+                  final isNarrow = constraints.maxWidth < 1000;
+                  final pieWidget = Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: 220,
+                      height: 220,
+                      child: CustomPaint(
+                        painter: _CountrySharePiePainter(
+                          buckets: buckets,
+                          colors: _countryPiePalette,
                         ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            );
+                      ),
+                    ),
+                  );
 
-            if (isNarrow) {
-              return Column(
-                children: [
-                  pieWidget,
-                  const SizedBox(height: 10),
-                  Expanded(child: legendWidget),
-                ],
-              );
-            }
+                  final legendWidget = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Verteilung Netto-Umsatz nach Land (${_chartGranularityLabel(granularity)})',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Σ ${_formatMoneyEur(totalValue)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: buckets.length,
+                          itemBuilder: (context, index) {
+                            final bucket = buckets[index];
+                            final color = _countryPiePalette[index % _countryPiePalette.length];
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          _countryLegendLabel(bucket.countryLabel),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context).textTheme.bodySmall,
+                                        ),
+                                        Text(
+                                          '${_formatMoneyEur(bucket.valueEur)} (${_formatPercent(bucket.share * 100)})',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context).textTheme.bodySmall,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
 
-            return Row(
-              children: [
-                SizedBox(width: 260, child: pieWidget),
-                const SizedBox(width: 16),
-                Expanded(child: legendWidget),
-              ],
-            );
+                  if (isNarrow) {
+                    return Column(
+                      children: [
+                        pieWidget,
+                        const SizedBox(height: 10),
+                        Expanded(child: legendWidget),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      SizedBox(
+                        width: 260,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: pieWidget,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(child: legendWidget),
+                    ],
+                  );
           },
         ),
       ),
@@ -1434,7 +1721,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   _NetValueYearMonthTableData _buildNetValueYearMonthTableData({
     required _ChartFilterContext context,
     required _PeriodGranularity granularity,
+    required _NetValueSeriesFilter? seriesFilter,
   }) {
+    final totalColumnLabel = switch (seriesFilter) {
+      _NetValueSeriesFilter.revenue => 'Umsatz netto',
+      _NetValueSeriesFilter.cogs => 'EK-netto',
+      _NetValueSeriesFilter.grossProfit => 'Rohertrag',
+      null => 'Umsatz netto',
+    };
+
     final orderById = context.orderById;
     final columnLabels = switch (granularity) {
       _PeriodGranularity.month => const <String>[
@@ -1453,7 +1748,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       ],
       _PeriodGranularity.quarter => const <String>['Q1', 'Q2', 'Q3', 'Q4'],
       _PeriodGranularity.year => const <String>['Jahr'],
-      _PeriodGranularity.total => const <String>['Gesamt'],
+      _PeriodGranularity.total => <String>[totalColumnLabel],
     };
     final valuesByRow = <String, List<double>>{};
 
@@ -1467,9 +1762,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         continue;
       }
 
-      final rowLabel = granularity == _PeriodGranularity.total
-          ? 'Gesamt'
-          : delivery.year.toString();
+        final rowLabel = delivery.year.toString();
       final columnIndex = switch (granularity) {
         _PeriodGranularity.month => delivery.month - 1,
         _PeriodGranularity.quarter => ((delivery.month - 1) ~/ 3),
@@ -1481,10 +1774,23 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         rowLabel,
         () => List<double>.filled(columnLabels.length, 0),
       );
-      rowValues[columnIndex] += wareinsatzOrderedItemNetSalesForOrder(
+      final netRevenueEur = wareinsatzOrderedItemNetSalesForOrder(
         item: item,
         order: order,
       );
+      final purchasePriceNet =
+          context.catalogueById[item.ioItemId]?.icPurchasePriceNet ?? 0;
+      final netCogsEur = item.ioQuantity * purchasePriceNet;
+      final grossProfitEur = netRevenueEur - netCogsEur;
+
+      // The table values always follow the active chart series filter.
+      final valueForTable = switch (seriesFilter) {
+        _NetValueSeriesFilter.revenue => netRevenueEur,
+        _NetValueSeriesFilter.cogs => netCogsEur,
+        _NetValueSeriesFilter.grossProfit => grossProfitEur,
+        null => netRevenueEur,
+      };
+      rowValues[columnIndex] += valueForTable;
     }
 
     final rowLabels = valuesByRow.keys.toList(growable: false)
@@ -1514,9 +1820,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
 
     return _NetValueYearMonthTableData(
-      rowHeaderLabel: granularity == _PeriodGranularity.total
-          ? 'Basis'
-          : 'Jahr',
+      rowHeaderLabel: 'Jahr',
       rowLabels: rowLabels,
       columnLabels: columnLabels,
       valuesByRow: valuesByRow,
@@ -1532,7 +1836,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     required WareinsatzPuttFilter puttFilter,
     required _PeriodGranularity granularity,
     required Set<String> selectedQuarterKeys,
-    required String? selectedYearKey,
+    required Set<String> selectedYearKeys,
   }) {
     final filteredOrders = <OrderRow>[];
     for (final order in orders) {
@@ -1540,17 +1844,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       if (delivery == null) {
         continue;
       }
+      if (granularity != _PeriodGranularity.total) {
+        final yearKey = delivery.year.toString();
+        if (selectedYearKeys.isNotEmpty &&
+            !selectedYearKeys.contains(yearKey)) {
+          continue;
+        }
+      }
       if (granularity == _PeriodGranularity.quarter) {
         final quarter = ((delivery.month - 1) ~/ 3) + 1;
         final quarterKey = '${delivery.year}-Q$quarter';
         if (selectedQuarterKeys.isNotEmpty &&
             !selectedQuarterKeys.contains(quarterKey)) {
-          continue;
-        }
-      }
-      if (granularity == _PeriodGranularity.year) {
-        final yearKey = delivery.year.toString();
-        if (selectedYearKey != null && yearKey != selectedYearKey) {
           continue;
         }
       }
@@ -1592,6 +1897,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   Widget _buildNetValueYearMonthTable(
     _NetValueYearMonthTableData data, {
     required _PeriodGranularity granularity,
+    required _NetValueSeriesFilter? seriesFilter,
   }) {
     if (data.rowLabels.isEmpty) {
       return const Card(
@@ -1613,109 +1919,137 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       return baseStyle;
     }
 
+    final tableSeriesLabel = switch (seriesFilter) {
+      _NetValueSeriesFilter.revenue => 'Umsatz netto',
+      _NetValueSeriesFilter.cogs => 'EK-netto',
+      _NetValueSeriesFilter.grossProfit => 'Rohertrag',
+      null => 'Alle Kennzahlen',
+    };
+    final periodLabel = switch (granularity) {
+      _PeriodGranularity.month => 'Monat',
+      _PeriodGranularity.quarter => 'Quartal',
+      _PeriodGranularity.year => 'Jahr',
+      _PeriodGranularity.total => 'Gesamt (Jahre)',
+    };
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(8),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowHeight: 36,
-            dataRowMinHeight: 34,
-            dataRowMaxHeight: 38,
-            horizontalMargin: 10,
-            columnSpacing: 12,
-            headingTextStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Tabelle: $tableSeriesLabel nach $periodLabel',
+              style: Theme.of(context).textTheme.titleSmall,
             ),
-            dataTextStyle: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(fontSize: 11),
-            columns: [
-              DataColumn(label: Text(data.rowHeaderLabel)),
-              for (final columnLabel in data.columnLabels)
-                DataColumn(numeric: true, label: Text(columnLabel)),
-              DataColumn(
-                numeric: true,
-                label: Text(
-                  granularity == _PeriodGranularity.total
-                      ? 'Summe Gesamt'
-                      : 'Summe Jahr',
+            const SizedBox(height: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: DataTable(
+                    headingRowHeight: 36,
+                    dataRowMinHeight: 34,
+                    dataRowMaxHeight: 38,
+                    horizontalMargin: 10,
+                    columnSpacing: 12,
+                    headingTextStyle: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(fontSize: 11, fontWeight: FontWeight.w700),
+                    dataTextStyle: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontSize: 11),
+                    columns: [
+                      DataColumn(label: Text(data.rowHeaderLabel)),
+                      for (final columnLabel in data.columnLabels)
+                        DataColumn(numeric: true, label: Text(columnLabel)),
+                      DataColumn(
+                        numeric: true,
+                        label: Text(
+                          granularity == _PeriodGranularity.total
+                              ? 'Summe ${data.columnLabels.first}'
+                              : 'Summe Jahr',
+                        ),
+                      ),
+                    ],
+                    rows: [
+                      for (final rowLabel in data.rowLabels)
+                        DataRow(
+                          cells: [
+                            DataCell(Text(rowLabel)),
+                            for (
+                              var columnIndex = 0;
+                              columnIndex < data.columnLabels.length;
+                              columnIndex++
+                            )
+                              DataCell(
+                                // Nullwerte werden bewusst visuell hervorgehoben.
+                                Text(
+                                  _formatMoneyEur(
+                                    (data.valuesByRow[rowLabel] ??
+                                        const <double>[])[columnIndex],
+                                  ),
+                                  style: moneyCellStyle(
+                                    (data.valuesByRow[rowLabel] ??
+                                        const <double>[])[columnIndex],
+                                  ),
+                                ),
+                              ),
+                            DataCell(
+                              // Jahressumme ebenfalls rot, falls exakt 0.
+                              Text(
+                                _formatMoneyEur(
+                                  (data.valuesByRow[rowLabel] ?? const <double>[])
+                                      .fold<double>(0, (sum, value) => sum + value),
+                                ),
+                                style: moneyCellStyle(
+                                  (data.valuesByRow[rowLabel] ?? const <double>[])
+                                      .fold<double>(0, (sum, value) => sum + value),
+                                  weight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      DataRow(
+                        cells: [
+                          const DataCell(
+                            Text(
+                              'Summe',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          for (final columnTotal in data.columnTotals)
+                            DataCell(
+                              // Monatssummen werden konsistent eingefaerbt.
+                              Text(
+                                _formatMoneyEur(columnTotal),
+                                style: moneyCellStyle(
+                                  columnTotal,
+                                  weight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          DataCell(
+                            // Gesamtsumme in starker Gewichtung, bei 0 ebenfalls rot.
+                            Text(
+                              _formatMoneyEur(data.grandTotal),
+                              style: moneyCellStyle(
+                                data.grandTotal,
+                                weight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-            rows: [
-              for (final rowLabel in data.rowLabels)
-                DataRow(
-                  cells: [
-                    DataCell(Text(rowLabel)),
-                    for (
-                      var columnIndex = 0;
-                      columnIndex < data.columnLabels.length;
-                      columnIndex++
-                    )
-                      DataCell(
-                        // Nullwerte werden bewusst visuell hervorgehoben.
-                        Text(
-                          _formatMoneyEur(
-                            (data.valuesByRow[rowLabel] ??
-                                const <double>[])[columnIndex],
-                          ),
-                          style: moneyCellStyle(
-                            (data.valuesByRow[rowLabel] ??
-                                const <double>[])[columnIndex],
-                          ),
-                        ),
-                      ),
-                    DataCell(
-                      // Jahressumme ebenfalls rot, falls exakt 0.
-                      Text(
-                        _formatMoneyEur(
-                          (data.valuesByRow[rowLabel] ?? const <double>[])
-                              .fold<double>(0, (sum, value) => sum + value),
-                        ),
-                        style: moneyCellStyle(
-                          (data.valuesByRow[rowLabel] ?? const <double>[])
-                              .fold<double>(0, (sum, value) => sum + value),
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              DataRow(
-                cells: [
-                  const DataCell(
-                    Text(
-                      'Summe',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  for (final columnTotal in data.columnTotals)
-                    DataCell(
-                      // Monatssummen werden konsistent eingefaerbt.
-                      Text(
-                        _formatMoneyEur(columnTotal),
-                        style: moneyCellStyle(
-                          columnTotal,
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  DataCell(
-                    // Gesamtsumme in starker Gewichtung, bei 0 ebenfalls rot.
-                    Text(
-                      _formatMoneyEur(data.grandTotal),
-                      style: moneyCellStyle(
-                        data.grandTotal,
-                        weight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -2489,6 +2823,26 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
+  Widget _chartYearFilterButton(List<String> values) {
+    final hasSelection = _selectedChartYearKeys.isNotEmpty;
+    final allSelected =
+      hasSelection &&
+      values.isNotEmpty &&
+      _selectedChartYearKeys.length == values.length &&
+      _selectedChartYearKeys.containsAll(values);
+    final label = hasSelection
+      ? (allSelected
+          ? 'Jahre (alle)'
+          : 'Jahre (${_selectedChartYearKeys.length})')
+      : 'Jahre (alle)';
+
+    return OutlinedButton.icon(
+      onPressed: values.isEmpty ? null : () => _showChartYearFilterDialog(values),
+      icon: const Icon(Icons.calendar_today_outlined),
+      label: Text(label),
+    );
+  }
+
   Future<void> _showChartQuarterFilterDialog(List<String> values) async {
     final workingSelection = Set<String>.from(_selectedChartQuarterKeys);
 
@@ -2551,6 +2905,82 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     setState(() {
       _selectedChartQuarterKeys = result;
+      _ensureChartPeriodDefaults();
+    });
+  }
+
+  Future<void> _showChartYearFilterDialog(List<String> values) async {
+    final workingSelection = Set<String>.from(_selectedChartYearKeys);
+
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Jahre filtern'),
+              content: SizedBox(
+                width: 420,
+                child: values.isEmpty
+                    ? const Text('Keine Jahre vorhanden.')
+                    : ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final year in values)
+                            CheckboxListTile(
+                              value: workingSelection.contains(year),
+                              title: Text(year),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              onChanged: (checked) {
+                                setDialogState(() {
+                                  if (checked == true) {
+                                    workingSelection.add(year);
+                                  } else {
+                                    workingSelection.remove(year);
+                                  }
+                                });
+                              },
+                            ),
+                        ],
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () =>
+                      Navigator.of(context).pop(_selectedChartYearKeys),
+                  child: const Text('Abbrechen'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setDialogState(() {
+                      workingSelection
+                        ..clear()
+                        ..addAll(values);
+                    });
+                  },
+                  child: const Text('Alle auswaehlen'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(<String>{}),
+                  child: const Text('Alle abwaehlen'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(workingSelection),
+                  child: const Text('Uebernehmen'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedChartYearKeys = result;
       _ensureChartPeriodDefaults();
     });
   }
@@ -2768,6 +3198,24 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
     final list = keys.toList(growable: false)..sort((a, b) => b.compareTo(a));
     return list;
+  }
+
+  List<String> _availableQuarterKeysForChartYear(
+    List<OrderRow> orders,
+    Set<String> yearKeys,
+  ) {
+    final allQuarterKeys = _availableQuarterKeys(orders);
+    if (yearKeys.isEmpty) {
+      return allQuarterKeys;
+    }
+
+    return allQuarterKeys
+        .where(
+          (quarterKey) => yearKeys.any(
+            (yearKey) => quarterKey.startsWith('$yearKey-'),
+          ),
+        )
+        .toList(growable: false);
   }
 
   List<String> _availableYearKeys(List<OrderRow> orders) {
@@ -3654,17 +4102,34 @@ class _NetValueBucket {
 }
 
 class _ChartLegendChip extends StatelessWidget {
-  const _ChartLegendChip({required this.label, required this.color});
+  const _ChartLegendChip({
+    required this.label,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final Color color;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      avatar: CircleAvatar(backgroundColor: color, radius: 6),
-      label: Text(label),
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Opacity(
+        opacity: selected ? 1 : 0.8,
+        child: Chip(
+          visualDensity: VisualDensity.compact,
+          backgroundColor: selected
+              ? color.withValues(alpha: 0.2)
+              : Theme.of(context).chipTheme.backgroundColor,
+          avatar: CircleAvatar(backgroundColor: color, radius: 6),
+          label: Text(label),
+        ),
+      ),
     );
   }
 }

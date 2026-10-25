@@ -1156,6 +1156,7 @@ class InvoicePdfService {
     final isPackingList = data.documentKind == InvoiceDocumentKind.packingList;
     final displayTrackingCode = _displayTrackingCode(data.trackingCode);
     if (isPackingList) {
+      final noteTitle = useGerman ? 'Lieferhinweis' : 'Delivery note';
       final packingListMetaLines = _packingListMetaLines(
         data: data,
         useGerman: useGerman,
@@ -1183,10 +1184,24 @@ class InvoicePdfService {
               ),
               for (final line in packingListMetaLines.skip(1)) ...[
                 pw.SizedBox(height: 3),
-                pw.Text(
-                  line,
-                  style: const pw.TextStyle(fontSize: 9),
-                ),
+                if (line.startsWith('$noteTitle:')) ...[
+                  pw.Text(
+                    '$noteTitle:',
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    line.substring('$noteTitle:'.length).trim(),
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
+                ] else
+                  pw.Text(
+                    line,
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
               ],
             ],
           ),
@@ -1663,7 +1678,13 @@ class InvoicePdfService {
     required String countryCode,
     required bool useGerman,
   }) {
+    if (_isFrenchAddress(countryCode)) {
+      return true;
+    }
     if (_isUsAddress(countryCode)) {
+      return true;
+    }
+    if (_isLuxembourgAddress(countryCode)) {
       return true;
     }
     if (_isDutchAddress(countryCode)) {
@@ -1676,6 +1697,14 @@ class InvoicePdfService {
       return true;
     }
     return false;
+  }
+
+  bool _isFrenchAddress(String countryCode) {
+    final upper = countryCode.trim().toUpperCase();
+    return upper == 'FR' ||
+        upper == 'FRA' ||
+        upper == 'FRANCE' ||
+        upper == 'FRANKREICH';
   }
 
   bool _isUkAddress(String countryCode) {
@@ -1696,6 +1725,14 @@ class InvoicePdfService {
         upper == 'HOLLAND' ||
         upper == 'NIEDERLANDE';
   }
+
+        bool _isLuxembourgAddress(String countryCode) {
+          final upper = countryCode.trim().toUpperCase();
+          return upper == 'LU' ||
+          upper == 'LUX' ||
+          upper == 'LUXEMBOURG' ||
+          upper == 'LUXEMBURG';
+        }
 
   String _postalCityLine(
     InvoicePartyData party, {
@@ -2084,23 +2121,37 @@ class InvoicePdfService {
 
     switch (upper) {
       case 'AT':
+      case 'AUT':
         return 'Austria';
       case 'CH':
+      case 'CHE':
         return 'Switzerland';
       case 'FR':
+      case 'FRA':
         return 'France';
       case 'IT':
+      case 'ITA':
         return 'Italy';
       case 'ES':
+      case 'ESP':
         return 'Spain';
       case 'NL':
+      case 'NLD':
         return 'Netherlands';
       case 'BE':
+      case 'BEL':
         return 'Belgium';
       case 'PL':
+      case 'POL':
         return 'Poland';
       case 'CZ':
+      case 'CZE':
         return 'Czech Republic';
+      case 'SK':
+      case 'SVK':
+      case 'SLOVAKIA':
+      case 'SLOWAKEI':
+        return 'Slovakia';
       case 'US':
       case 'USA':
         return 'United States';
@@ -2111,6 +2162,7 @@ class InvoicePdfService {
         return 'Australia';
       case 'GB':
       case 'UK':
+      case 'GBR':
         return 'United Kingdom';
       case 'DE':
       case 'DEU':
