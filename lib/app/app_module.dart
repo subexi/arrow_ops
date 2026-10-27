@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../features/analytics/presentation/analytics_page.dart';
 import '../features/customer/presentation/customer_page.dart';
+import '../features/incoming_invoice/presentation/incoming_invoice_page.dart';
 import '../features/inventory/presentation/parts_procurement_page.dart';
 import '../features/invoice/presentation/invoice_page.dart';
 import '../features/item/presentation/item_catalogue_page.dart';
@@ -16,6 +17,7 @@ enum ArrowOpsModuleId {
   orders,
   inventory,
   invoices,
+  incomingInvoices,
   analytics,
   sync,
 }
@@ -74,6 +76,13 @@ class ArrowOpsModules {
       icon: Icons.receipt_long_outlined,
       selectedIcon: Icons.receipt_long,
       buildPage: (_) => const InvoicePage(),
+    ),
+    ArrowOpsModule(
+      id: ArrowOpsModuleId.incomingInvoices,
+      label: 'Rechnungseingang',
+      icon: Icons.request_page_outlined,
+      selectedIcon: Icons.request_page,
+      buildPage: (_) => const IncomingInvoicePage(),
     ),
     ArrowOpsModule(
       id: ArrowOpsModuleId.analytics,

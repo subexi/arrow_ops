@@ -26,7 +26,7 @@ class PartsProcurementRepository {
     bool validateCatalogueReference = true,
   }) async {
     final db = await AppDatabase.instance.database;
-    
+
     // Validate pp_idi exists in item_catalogue (if not empty)
     if (validateCatalogueReference && row.ppIdi.isNotEmpty) {
       final itemCatalogueRows = await db.query(
@@ -36,10 +36,12 @@ class PartsProcurementRepository {
         limit: 1,
       );
       if (itemCatalogueRows.isEmpty) {
-        throw Exception('Artikel mit Bezeichnung "${row.ppIdi}" existiert nicht im Katalog');
+        throw Exception(
+          'Artikel mit Bezeichnung "${row.ppIdi}" existiert nicht im Katalog',
+        );
       }
     }
-    
+
     await db.transaction((txn) async {
       final updated = await txn.update(
         'parts_procurement',
@@ -53,12 +55,22 @@ class PartsProcurementRepository {
     });
   }
 
+  Future<void> insertAll(List<PartsProcurementRow> rows) async {
+    if (rows.isEmpty) {
+      return;
+    }
+    final db = await AppDatabase.instance.database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final row in rows) {
+        batch.insert('parts_procurement', row.toMap());
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
   Future<void> deleteById(int ppId) async {
     final db = await AppDatabase.instance.database;
-    await db.delete(
-      'parts_procurement',
-      where: 'pp_id = ?',
-      whereArgs: [ppId],
-    );
+    await db.delete('parts_procurement', where: 'pp_id = ?', whereArgs: [ppId]);
   }
 }

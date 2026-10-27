@@ -11,7 +11,7 @@ class AppDatabase {
 
   static final AppDatabase instance = AppDatabase._();
 
-  static const int _currentVersion = 29;
+  static const int _currentVersion = 30;
 
   Database? _database;
   String? _activeDatabasePath;
@@ -48,6 +48,7 @@ class AppDatabase {
     DatabaseMigration(version: 27, run: _migrationV27),
     DatabaseMigration(version: 28, run: _migrationV28),
     DatabaseMigration(version: 29, run: _migrationV29),
+    DatabaseMigration(version: 30, run: _migrationV30),
   ];
 
   Future<Database> get database async {
@@ -1273,6 +1274,24 @@ class AppDatabase {
       UPDATE "order"
       SET o_returned_date = '-'
       WHERE o_returned_date IS NULL OR TRIM(o_returned_date) = ''
+    ''');
+  }
+
+  static Future<void> _migrationV30(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS incoming_invoice (
+        ri_id INTEGER NOT NULL PRIMARY KEY,
+        ri_date TEXT NOT NULL DEFAULT '',
+        ri_name TEXT NOT NULL DEFAULT '',
+        ri_usage TEXT NOT NULL DEFAULT '',
+        ri_kat1 TEXT NOT NULL DEFAULT '',
+        ri_kat2 TEXT NOT NULL DEFAULT '',
+        ri_country TEXT NOT NULL DEFAULT '',
+        ri_gross REAL NOT NULL DEFAULT 0,
+        ri_vat_rate REAL NOT NULL DEFAULT 0,
+        ri_net REAL NOT NULL DEFAULT 0,
+        ri_vat REAL NOT NULL DEFAULT 0
+      )
     ''');
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 
+import 'package:data_table_2/data_table_2.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,8 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   final _repository = const PartsProcurementRepository();
   final _itemRepository = const ItemRepository();
   final TextEditingController _searchController = TextEditingController();
+  late final ScrollController _tableVerticalScrollController;
+  late final ScrollController _tableHorizontalScrollController;
 
   List<PartsProcurementRow> _rows = const [];
   List<ItemCatalogueRow> _catalogueItems = const [];
@@ -39,12 +42,16 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   @override
   void initState() {
     super.initState();
+    _tableVerticalScrollController = ScrollController();
+    _tableHorizontalScrollController = ScrollController();
     _loadData();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _tableVerticalScrollController.dispose();
+    _tableHorizontalScrollController.dispose();
     super.dispose();
   }
 
@@ -68,7 +75,8 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
     try {
       catalogueItems = await _itemRepository.getCatalogueItems();
     } catch (error) {
-      final catalogueError = 'Artikelkatalog konnte nicht geladen werden: $error';
+      final catalogueError =
+          'Artikelkatalog konnte nicht geladen werden: $error';
       errorMessage = errorMessage == null
           ? catalogueError
           : '$errorMessage\n$catalogueError';
@@ -82,7 +90,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       _rows = rows;
       _catalogueItems = catalogueItems;
       _loadError = errorMessage;
-      _selectedIds = _selectedIds.where((id) => _rows.any((row) => row.ppId == id)).toSet();
+      _selectedIds = _selectedIds
+          .where((id) => _rows.any((row) => row.ppId == id))
+          .toSet();
       if (_selectedId == null || !_rows.any((row) => row.ppId == _selectedId)) {
         _selectedId = _rows.isEmpty ? null : _rows.first.ppId;
       }
@@ -129,20 +139,15 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
     try {
       await _repository.save(created);
-      await _loadData();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _selectedId = created.ppId;
-        _selectedIds = {created.ppId};
-      });
+      _applySavedRow(created);
     } catch (error) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Eintrag konnte nicht gespeichert werden')),
+        const SnackBar(
+          content: Text('Eintrag konnte nicht gespeichert werden'),
+        ),
       );
       _showErrorDialog(
         'Speichern fehlgeschlagen',
@@ -160,16 +165,12 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   }
 
   Future<void> _editRow(PartsProcurementRow selected) async {
-    final latestCatalogueItems = await _loadLatestCatalogueItems();
-    if (!mounted) {
-      return;
-    }
     final edited = await showDialog<PartsProcurementRow>(
       context: context,
       builder: (_) => PartsProcurementFormDialog(
         nextId: selected.ppId,
         initialValue: selected,
-        catalogueItems: latestCatalogueItems,
+        catalogueItems: _catalogueItems,
       ),
     );
     if (edited == null) {
@@ -178,26 +179,75 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
     try {
       await _repository.save(edited);
-      await _loadData();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _selectedId = edited.ppId;
-        _selectedIds = {edited.ppId};
-      });
+      _applySavedRow(edited);
     } catch (error) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Eintrag konnte nicht gespeichert werden')),
+        const SnackBar(
+          content: Text('Eintrag konnte nicht gespeichert werden'),
+        ),
       );
       _showErrorDialog(
         'Speichern fehlgeschlagen',
         'Eintrag konnte nicht gespeichert werden:\n\n$error',
       );
     }
+  }
+
+  void _applySavedRow(PartsProcurementRow row) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      final existingIndex = _rows.indexWhere(
+        (existing) => existing.ppId == row.ppId,
+      );
+      if (existingIndex == -1) {
+        _rows = [..._rows, row];
+      } else {
+        _rows = [..._rows]..[existingIndex] = row;
+      }
+      _selectedId = row.ppId;
+      _selectedIds = {row.ppId};
+    });
+  }
+
+  void _applyDeletedRow(int ppId) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      final nextRows = _rows
+          .where((row) => row.ppId != ppId)
+          .toList(growable: false);
+      _rows = nextRows;
+      _selectedIds = _selectedIds.where((id) => id != ppId).toSet();
+      if (_selectedId == ppId) {
+        _selectedId = _selectedIds.isEmpty
+            ? (nextRows.isEmpty ? null : nextRows.first.ppId)
+            : _selectedIds.first;
+      }
+      if (_selectedId != null && !_selectedIds.contains(_selectedId)) {
+        _selectedIds = {..._selectedIds, _selectedId!};
+      }
+    });
+  }
+
+  void _applyImportedRows(List<PartsProcurementRow> importedRows) {
+    if (!mounted || importedRows.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      final nextRows = [..._rows, ...importedRows];
+      _rows = nextRows;
+      _selectedId = importedRows.last.ppId;
+      _selectedIds = {importedRows.last.ppId};
+    });
   }
 
   Future<List<ItemCatalogueRow>> _loadLatestCatalogueItems() async {
@@ -253,7 +303,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
     try {
       await _repository.deleteById(selected.ppId);
-      await _loadData();
+      _applyDeletedRow(selected.ppId);
     } catch (error) {
       if (!mounted) {
         return;
@@ -285,7 +335,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
               Clipboard.setData(ClipboardData(text: message));
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Fehler in Zwischenablage kopiert')),
+                  const SnackBar(
+                    content: Text('Fehler in Zwischenablage kopiert'),
+                  ),
                 );
               }
             },
@@ -311,17 +363,13 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       final nextId = await _repository.nextId();
       final duplicated = selected.copyWith(ppId: nextId);
       await _repository.save(duplicated);
-      await _loadData();
+      _applySavedRow(duplicated);
       if (!mounted) {
         return;
       }
-      setState(() {
-        _selectedId = duplicated.ppId;
-        _selectedIds = {duplicated.ppId};
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Eintrag dupliziert')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Eintrag dupliziert')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -368,7 +416,8 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       return rows;
     }
 
-    int compareString(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    int compareString(String a, String b) =>
+        a.toLowerCase().compareTo(b.toLowerCase());
 
     rows.sort((a, b) {
       late final int result;
@@ -411,10 +460,32 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
     });
   }
 
-  DataColumn _column(String label, int index) => DataColumn(
-    label: Text(label),
-    onSort: _onSort,
-  );
+  DataColumn2 _column(String label, int index) =>
+      DataColumn2(label: Text(label), onSort: _onSort);
+
+  Future<void> _jumpToTableStart() {
+    if (!_tableVerticalScrollController.hasClients) {
+      return Future<void>.value();
+    }
+
+    return _tableVerticalScrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  Future<void> _jumpToTableEnd() {
+    if (!_tableVerticalScrollController.hasClients) {
+      return Future<void>.value();
+    }
+
+    return _tableVerticalScrollController.animateTo(
+      _tableVerticalScrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
 
   DataCell _cell(PartsProcurementRow row, Widget child) => DataCell(
     child,
@@ -474,7 +545,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         ? Text(value.isEmpty ? '-' : value, overflow: TextOverflow.ellipsis)
         : SizedBox(
             width: width,
-            child: Text(value.isEmpty ? '-' : value, overflow: TextOverflow.ellipsis),
+            child: Text(
+              value.isEmpty ? '-' : value,
+              overflow: TextOverflow.ellipsis,
+            ),
           );
     return _cell(row, child);
   }
@@ -490,7 +564,8 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (rowsToExport == null) {
         return;
       }
-      final fileName = 'bestandsfuehrung_${_buildFileTimestamp(DateTime.now())}.csv';
+      final fileName =
+          'bestandsfuehrung_${_buildFileTimestamp(DateTime.now())}.csv';
       final targetPath = await _pickExportTargetPath(
         dialogTitle: 'Bestandsführung als CSV exportieren',
         fileName: fileName,
@@ -499,7 +574,11 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (targetPath == null || targetPath.trim().isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Export abgebrochen: Kein Speicherort ausgewaehlt.')),
+            const SnackBar(
+              content: Text(
+                'Export abgebrochen: Kein Speicherort ausgewaehlt.',
+              ),
+            ),
           );
         }
         return;
@@ -521,19 +600,21 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
       final csvLines = <String>[_escapeAndJoinCsv(headers)];
       for (final row in rowsToExport) {
-        csvLines.add(_escapeAndJoinCsv([
-          row.ppIdi,
-          row.ppPurchaseDate,
-          row.ppPaidDate,
-          row.ppQuantity.toString(),
-          row.ppPriceNet.toStringAsFixed(2),
-          row.ppTotalPriceNet.toStringAsFixed(2),
-          row.ppDescriptionDeLong,
-          row.ppPointOfUse,
-          row.ppPartSource,
-          row.ppMaterial,
-          row.ppNote,
-        ]));
+        csvLines.add(
+          _escapeAndJoinCsv([
+            row.ppIdi,
+            row.ppPurchaseDate,
+            row.ppPaidDate,
+            row.ppQuantity.toString(),
+            row.ppPriceNet.toStringAsFixed(2),
+            row.ppTotalPriceNet.toStringAsFixed(2),
+            row.ppDescriptionDeLong,
+            row.ppPointOfUse,
+            row.ppPartSource,
+            row.ppMaterial,
+            row.ppNote,
+          ]),
+        );
       }
 
       final csv = csvLines.join('\n');
@@ -543,7 +624,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('CSV erfolgreich exportiert (${rowsToExport.length} Zeile(n))'),
+            content: Text(
+              'CSV erfolgreich exportiert (${rowsToExport.length} Zeile(n))',
+            ),
           ),
         );
       }
@@ -634,7 +717,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
 
     final dynamic file = result.first;
     final directPath = file.path?.trim();
-    if (directPath != null && directPath.isNotEmpty && _hasCsvExtension(directPath)) {
+    if (directPath != null &&
+        directPath.isNotEmpty &&
+        _hasCsvExtension(directPath)) {
       return directPath;
     }
 
@@ -670,29 +755,56 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
   }
 
   Future<void> _importFromCsv() async {
+    final importStopwatch = Stopwatch()..start();
+    final stageDurationsMs = <String, int>{};
+    var lastMarkMs = 0;
+
+    void markStage(String stage) {
+      final nowMs = importStopwatch.elapsedMilliseconds;
+      stageDurationsMs[stage] = nowMs - lastMarkMs;
+      lastMarkMs = nowMs;
+    }
+
+    String topStagesSummary() {
+      if (stageDurationsMs.isEmpty) {
+        return '-';
+      }
+      final sorted = stageDurationsMs.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final top3 = sorted.take(3);
+      return top3.map((entry) => '${entry.key}: ${entry.value} ms').join(', ');
+    }
+
     try {
       final filePath = await _pickCsvImportPath();
+      markStage('Datei auswählen');
       if (filePath == null || filePath.trim().isEmpty) {
+        importStopwatch.stop();
         return;
       }
 
       final fileContent = await File(filePath).readAsString(encoding: utf8);
-      final lines = fileContent.split('\n').where((line) => line.trim().isNotEmpty).toList();
+      markStage('Datei lesen');
+      final lines = fileContent
+          .split('\n')
+          .where((line) => line.trim().isNotEmpty)
+          .toList();
 
       if (lines.isEmpty) {
+        importStopwatch.stop();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('CSV-Datei ist leer')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('CSV-Datei ist leer')));
         }
         return;
       }
 
       int importedCount = 0;
       int errorCount = 0;
-      final headerFields = _parseCsvLine(lines.first)
-          .map((value) => value.trim().toLowerCase())
-          .toList(growable: false);
+      final headerFields = _parseCsvLine(
+        lines.first,
+      ).map((value) => value.trim().toLowerCase()).toList(growable: false);
 
       int? headerIndex(List<String> aliases) {
         for (final alias in aliases) {
@@ -716,13 +828,17 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       final paidDateIndex = headerIndex(['bezahlt', 'bezahlt-datum']);
       final quantityIndex = headerIndex(['menge']);
       final priceNetIndex = headerIndex(['preis netto', 'ek netto / stk']);
-      final totalPriceNetIndex =
-          headerIndex(['gesamtpreis netto', 'gesamt ek netto']);
+      final totalPriceNetIndex = headerIndex([
+        'gesamtpreis netto',
+        'gesamt ek netto',
+      ]);
       final descriptionIndex = headerIndex(['beschreibung']);
       final pointOfUseIndex = headerIndex(['verwendung']);
       final supplierIndex = headerIndex(['lieferant']);
       final materialIndex = headerIndex(['material', 'materialbeschreibung']);
       final noteIndex = headerIndex(['notiz']);
+      var nextId = await _repository.nextId();
+      final importedRows = <PartsProcurementRow>[];
 
       for (int i = 1; i < lines.length; i++) {
         try {
@@ -731,7 +847,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
           final hasPaidDateColumnInRow = fields.length >= 11;
 
           String fallbackField(int legacyIndex, int shiftedIndex) {
-            final targetIndex = hasPaidDateColumnInRow ? shiftedIndex : legacyIndex;
+            final targetIndex = hasPaidDateColumnInRow
+                ? shiftedIndex
+                : legacyIndex;
             if (targetIndex < 0 || targetIndex >= fields.length) {
               return '';
             }
@@ -742,7 +860,6 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
               ? fallbackField(1, 2)
               : fallbackField(1, 1);
 
-          final nextId = await _repository.nextId();
           final newRow = PartsProcurementRow(
             ppId: nextId,
             ppIdi: fieldAt(fields, articleIdIndex).isEmpty
@@ -754,65 +871,91 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
             ppPaidDate: fieldAt(fields, paidDateIndex).isEmpty
                 ? fallbackPaidDate
                 : fieldAt(fields, paidDateIndex),
-            ppQuantity: int.tryParse(
+            ppQuantity:
+                int.tryParse(
                   fieldAt(fields, quantityIndex).isEmpty
-                  ? fallbackField(2, 3)
+                      ? fallbackField(2, 3)
                       : fieldAt(fields, quantityIndex),
                 ) ??
                 0,
-            ppPriceNet: double.tryParse(
+            ppPriceNet:
+                double.tryParse(
                   (fieldAt(fields, priceNetIndex).isEmpty
-                    ? fallbackField(3, 4)
+                          ? fallbackField(3, 4)
                           : fieldAt(fields, priceNetIndex))
                       .replaceAll(',', '.'),
                 ) ??
                 0.0,
-            ppTotalPriceNet: double.tryParse(
+            ppTotalPriceNet:
+                double.tryParse(
                   (fieldAt(fields, totalPriceNetIndex).isEmpty
-                    ? fallbackField(4, 5)
+                          ? fallbackField(4, 5)
                           : fieldAt(fields, totalPriceNetIndex))
                       .replaceAll(',', '.'),
                 ) ??
                 0.0,
             ppDescriptionDeLong: fieldAt(fields, descriptionIndex).isEmpty
-              ? fallbackField(5, 6)
+                ? fallbackField(5, 6)
                 : fieldAt(fields, descriptionIndex),
             ppPointOfUse: fieldAt(fields, pointOfUseIndex).isEmpty
-              ? fallbackField(6, 7)
+                ? fallbackField(6, 7)
                 : fieldAt(fields, pointOfUseIndex),
             ppPartSource: fieldAt(fields, supplierIndex).isEmpty
-              ? fallbackField(7, 8)
+                ? fallbackField(7, 8)
                 : fieldAt(fields, supplierIndex),
             ppMaterial: fieldAt(fields, materialIndex).isEmpty
-              ? fallbackField(8, 9)
+                ? fallbackField(8, 9)
                 : fieldAt(fields, materialIndex),
             ppNote: fieldAt(fields, noteIndex).isEmpty
-              ? fallbackField(9, 10)
+                ? fallbackField(9, 10)
                 : fieldAt(fields, noteIndex),
           );
 
-            await _repository.save(
-            newRow,
-            validateCatalogueReference: false,
-            );
+          importedRows.add(newRow);
+          nextId++;
           importedCount++;
         } catch (error) {
           errorCount++;
         }
       }
+      markStage('CSV parsen & Datensätze aufbereiten');
 
-      await _loadData();
+      await _repository.insertAll(importedRows);
+      markStage('DB schreiben');
+      _applyImportedRows(importedRows);
+      markStage('UI aktualisieren');
+      importStopwatch.stop();
+      final elapsedMs = importStopwatch.elapsedMilliseconds;
+      debugPrint(
+        '⏱️ Bestandsführung CSV-Import: $importedCount importiert'
+        '${errorCount > 0 ? ', $errorCount fehlgeschlagen' : ''} '
+        'in $elapsedMs ms | Top: ${topStagesSummary()}',
+      );
 
       if (mounted) {
-        final message = 'Import abgeschlossen: $importedCount importiert${errorCount > 0 ? ', $errorCount fehlgeschlagen' : ''}';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        final message =
+            'Import abgeschlossen: $importedCount importiert'
+            '${errorCount > 0 ? ', $errorCount fehlgeschlagen' : ''} '
+            '($elapsedMs ms). Top: ${topStagesSummary()}';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (error) {
+      importStopwatch.stop();
+      final elapsedMs = importStopwatch.elapsedMilliseconds;
+      debugPrint(
+        '⏱️ Bestandsführung CSV-Import fehlgeschlagen nach $elapsedMs ms: '
+        '$error | Top: ${topStagesSummary()}',
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import fehlgeschlagen: $error')),
+          SnackBar(
+            content: Text(
+              'Import fehlgeschlagen nach $elapsedMs ms: $error '
+              '(Top: ${topStagesSummary()})',
+            ),
+          ),
         );
       }
     }
@@ -824,7 +967,8 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (rowsToExport == null) {
         return;
       }
-      final fileName = 'bestandsfuehrung_${_buildFileTimestamp(DateTime.now())}.pdf';
+      final fileName =
+          'bestandsfuehrung_${_buildFileTimestamp(DateTime.now())}.pdf';
       final targetPath = await _pickExportTargetPath(
         dialogTitle: 'Bestandsführung als PDF exportieren',
         fileName: fileName,
@@ -834,14 +978,18 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (targetPath == null || targetPath.trim().isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Export abgebrochen: Kein Speicherort ausgewaehlt.')),
+            const SnackBar(
+              content: Text(
+                'Export abgebrochen: Kein Speicherort ausgewaehlt.',
+              ),
+            ),
           );
         }
         return;
       }
 
       final pdf = pw.Document();
-  final rows = rowsToExport;
+      final rows = rowsToExport;
 
       pdf.addPage(
         pw.MultiPage(
@@ -874,19 +1022,21 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                 'Notiz',
               ],
               data: rows
-                  .map((r) => [
-                        r.ppIdi,
-                        r.ppPurchaseDate,
-                    r.ppPaidDate,
-                        r.ppQuantity.toString(),
-                        '${r.ppPriceNet.toStringAsFixed(2).replaceAll('.', ',')} €',
-                        '${r.ppTotalPriceNet.toStringAsFixed(2).replaceAll('.', ',')} €',
-                        r.ppDescriptionDeLong,
-                        r.ppPointOfUse,
-                        r.ppPartSource,
-                        r.ppMaterial,
-                        r.ppNote,
-                      ])
+                  .map(
+                    (r) => [
+                      r.ppIdi,
+                      r.ppPurchaseDate,
+                      r.ppPaidDate,
+                      r.ppQuantity.toString(),
+                      '${r.ppPriceNet.toStringAsFixed(2).replaceAll('.', ',')} €',
+                      '${r.ppTotalPriceNet.toStringAsFixed(2).replaceAll('.', ',')} €',
+                      r.ppDescriptionDeLong,
+                      r.ppPointOfUse,
+                      r.ppPartSource,
+                      r.ppMaterial,
+                      r.ppNote,
+                    ],
+                  )
                   .toList(),
               cellHeight: 20,
               cellStyle: const pw.TextStyle(fontSize: 8),
@@ -916,7 +1066,9 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('PDF erfolgreich exportiert (${rows.length} Zeile(n))'),
+            content: Text(
+              'PDF erfolgreich exportiert (${rows.length} Zeile(n))',
+            ),
           ),
         );
       }
@@ -939,10 +1091,7 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
         final location = await getSaveLocation(
           suggestedName: fileName,
           acceptedTypeGroups: [
-            XTypeGroup(
-              label: dialogTitle,
-              extensions: allowedExtensions,
-            ),
+            XTypeGroup(label: dialogTitle, extensions: allowedExtensions),
           ],
           confirmButtonText: 'Speichern',
         );
@@ -1017,12 +1166,16 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                   label: const Text('Neu'),
                 ),
                 FilledButton.tonalIcon(
-                  onPressed: _loading || _selectedRow == null ? null : _editSelectedRow,
+                  onPressed: _loading || _selectedRow == null
+                      ? null
+                      : _editSelectedRow,
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Bearbeiten'),
                 ),
                 FilledButton.tonalIcon(
-                  onPressed: _loading || _selectedRow == null ? null : _deleteSelectedRow,
+                  onPressed: _loading || _selectedRow == null
+                      ? null
+                      : _deleteSelectedRow,
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Löschen'),
                 ),
@@ -1032,7 +1185,21 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                   label: const Text('Aktualisieren'),
                 ),
                 FilledButton.tonalIcon(
-                  onPressed: _loading || _selectedRow == null ? null : _duplicateSelectedRow,
+                  onPressed: _loading || _rows.isEmpty
+                      ? null
+                      : _jumpToTableStart,
+                  icon: const Icon(Icons.vertical_align_top),
+                  label: const Text('Tabellenanfang'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _loading || _rows.isEmpty ? null : _jumpToTableEnd,
+                  icon: const Icon(Icons.vertical_align_bottom),
+                  label: const Text('Tabellenende'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _loading || _selectedRow == null
+                      ? null
+                      : _duplicateSelectedRow,
                   icon: const Icon(Icons.copy_all_outlined),
                   label: const Text('Kopieren'),
                 ),
@@ -1095,7 +1262,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
             if (selectedRows.isNotEmpty)
               Container(
                 margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(10),
@@ -1141,10 +1311,26 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                   ? const Center(
                       child: Text('Keine Treffer für die aktuelle Suche.'),
                     )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SingleChildScrollView(
-                        child: DataTable(
+                  : Scrollbar(
+                      controller: _tableHorizontalScrollController,
+                      thumbVisibility: true,
+                      trackVisibility: true,
+                      interactive: true,
+                      notificationPredicate: (notification) =>
+                          notification.metrics.axis == Axis.horizontal,
+                      child: Scrollbar(
+                        controller: _tableVerticalScrollController,
+                        thumbVisibility: true,
+                        trackVisibility: true,
+                        interactive: true,
+                        notificationPredicate: (notification) =>
+                            notification.metrics.axis == Axis.vertical,
+                        child: DataTable2(
+                          minWidth: 1450,
+                          fixedTopRows: 1,
+                          scrollController: _tableVerticalScrollController,
+                          horizontalScrollController:
+                              _tableHorizontalScrollController,
                           sortColumnIndex: _sortColumnIndex,
                           sortAscending: _sortAscending,
                           columns: [
@@ -1167,7 +1353,10 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                                   onSelectChanged: (selected) {
                                     setState(() {
                                       if (selected == true) {
-                                        _selectedIds = {..._selectedIds, row.ppId};
+                                        _selectedIds = {
+                                          ..._selectedIds,
+                                          row.ppId,
+                                        };
                                         _selectedId = row.ppId;
                                       } else {
                                         _selectedIds = _selectedIds
@@ -1187,7 +1376,11 @@ class _PartsProcurementPageState extends State<PartsProcurementPage> {
                                     _textCell(row, row.ppQuantity.toString()),
                                     _moneyCell(row, row.ppPriceNet),
                                     _moneyCell(row, row.ppTotalPriceNet),
-                                    _textCell(row, row.ppDescriptionDeLong, width: 280),
+                                    _textCell(
+                                      row,
+                                      row.ppDescriptionDeLong,
+                                      width: 280,
+                                    ),
                                     _textCell(row, row.ppPointOfUse),
                                     _textCell(row, row.ppPartSource),
                                     _textCell(row, row.ppMaterial),
